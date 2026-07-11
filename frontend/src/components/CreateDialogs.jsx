@@ -73,31 +73,58 @@ export const PostDialog = ({ open, onClose, onSaved }) => {
 };
 
 
+import { Film, Upload, Loader2 } from "lucide-react";
+
 export const ReelDialog = ({ open, onClose, onSaved }) => {
   const [content, setContent] = useState("");
-  const [media, setMedia] = useState([]);
+  const [videoFile, setVideoFile] = useState(null);
+  const [useDemo, setUseDemo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const fileInputRef = React.useRef(null);
 
-  useEffect(() => { if (open) { setContent(""); setMedia([]); } }, [open]);
+  useEffect(() => {
+    if (open) {
+      setContent("");
+      setVideoFile(null);
+      setUseDemo(false);
+    }
+  }, [open]);
 
   if (!open) return null;
 
   const submit = async (e) => {
     e.preventDefault();
-    const v = media.find((m) => m.resource_type === "video");
-    if (!v) { toast.error("Please upload a video"); return; }
+    if (!videoFile && !useDemo) {
+      toast.error("Please select a video or use the demo video");
+      return;
+    }
+    
+    if (videoFile && videoFile.size > 10 * 1024 * 1024) {
+      toast.error("Video size must be less than 10 MB");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await api.post("/reels", {
-        content,
-        video_url: v.url,
-        thumbnail_url: v.thumbnail_url || null,
+      const formData = new FormData();
+      formData.append("content", content);
+      if (videoFile) {
+        formData.append("file", videoFile);
+      }
+      if (useDemo) {
+        formData.append("use_demo", "true");
+      }
+
+      await api.post("/reels", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
       });
-      toast.success("Reel uploaded");
+      toast.success("Reel uploaded successfully!");
       onSaved?.();
       onClose?.();
     } catch (err) {
-      toast.error(formatApiError(err.response?.data?.detail) || "Failed");
+      toast.error(formatApiError(err.response?.data?.detail) || "Failed to upload reel");
     } finally {
       setSubmitting(false);
     }
@@ -110,16 +137,105 @@ export const ReelDialog = ({ open, onClose, onSaved }) => {
           <h3 className="font-display font-bold text-lg text-slate-900">New Reel</h3>
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700" data-testid="reel-dialog-close"><X size={20} /></button>
         </div>
-        <form onSubmit={submit} className="p-5 space-y-3">
+        <form onSubmit={submit} className="p-5 space-y-4">
           <textarea required rows={3} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Caption" data-testid="reel-content-input" className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          
           <div>
-            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Video</label>
-            <div className="mt-2">
-              <MediaUploader value={media} onChange={setMedia} accept="video/*" folder="iip/reels" maxItems={1} testid="reel-media" />
-            </div>
+            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-2">Video File</label>
+            
+            {useDemo ? (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-10 h-10 rounded-lg bg-blue-900 flex items-center justify-center shrink-0 text-white">
+                    <Film size={18} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-800 truncate">Video Project.mp4 (Demo)</div>
+                    <div className="text-[10px] text-blue-600 font-semibold">Loaded from Downloads</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUseDemo(false)}
+                  className="p-1 text-slate-400 hover:text-rose-500 rounded-full hover:bg-slate-100"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ) : videoFile ? (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center shrink-0 text-orange-600">
+                    <Film size={18} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-800 truncate">{videoFile.name}</div>
+                    <div className="text-[10px] text-slate-400 font-semibold">{(videoFile.size / (1024 * 1024)).toFixed(2)} MB</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setVideoFile(null)}
+                  className="p-1 text-slate-400 hover:text-rose-500 rounded-full hover:bg-slate-100"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full py-8 border-2 border-dashed border-slate-200 hover:border-orange-500 hover:bg-orange-50/20 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all text-slate-500 group"
+                >
+                  <Upload size={24} className="text-slate-400 group-hover:text-orange-500" />
+                  <span className="text-xs font-bold text-slate-700">Choose Video File</span>
+                  <span className="text-[10px] text-slate-400">Max size: 10 MB (MP4, WebM)</span>
+                </button>
+                
+                <div className="relative flex py-1.5 items-center">
+                  <div className="flex-grow border-t border-slate-200"></div>
+                  <span className="flex-shrink mx-4 text-[10px] text-slate-400 font-bold uppercase tracking-wider">or</span>
+                  <div className="flex-grow border-t border-slate-200"></div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setUseDemo(true)}
+                  className="w-full py-3 bg-blue-50 border border-blue-100 text-blue-900 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 hover:bg-blue-100 transition-all active:scale-98"
+                >
+                  ✨ Use Local Demo Video
+                </button>
+              </div>
+            )}
+            
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  if (file.size > 10 * 1024 * 1024) {
+                    toast.error("Video size must be less than 10 MB");
+                    return;
+                  }
+                  setVideoFile(file);
+                }
+              }}
+            />
           </div>
-          <button type="submit" disabled={submitting} data-testid="reel-save-btn" className="w-full py-3 rounded-full bg-orange-600 text-white font-semibold hover:bg-orange-700 disabled:opacity-60">
-            {submitting ? "Uploading..." : "Publish Reel"}
+
+          <button type="submit" disabled={submitting} data-testid="reel-save-btn" className="w-full py-3.5 rounded-full bg-orange-600 hover:bg-orange-700 text-white font-extrabold flex items-center justify-center gap-2 disabled:opacity-60 transition-all active:scale-95 shadow-md">
+            {submitting ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Publishing Reel...
+              </>
+            ) : (
+              "Publish Reel"
+            )}
           </button>
         </form>
       </div>

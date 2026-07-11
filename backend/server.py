@@ -46,6 +46,8 @@ UPLOADS_DIR = ROOT_DIR / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
 VACANCY_RESUME_DIR = ROOT_DIR / "VacancyResume"
 VACANCY_RESUME_DIR.mkdir(exist_ok=True)
+REEL_DIR = ROOT_DIR / "reel"
+REEL_DIR.mkdir(exist_ok=True)
 
 # -------------------- Setup JWT --------------------
 JWT_SECRET = os.environ.get('JWT_SECRET', 'supersecretjwtkeyforiipmarketplace')
@@ -54,6 +56,7 @@ JWT_ALGO = "HS256"
 app = FastAPI(title="IIP - Indian Industrial Products")
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 app.mount("/VacancyResume", StaticFiles(directory=str(VACANCY_RESUME_DIR)), name="vacancy_resumes")
+app.mount("/reel", StaticFiles(directory=str(REEL_DIR)), name="reels_local")
 
 api = APIRouter(prefix="/api")
 
@@ -262,6 +265,24 @@ class Plan(Base):
     sort_order = Column(Integer, default=0, nullable=False)
     leads_per_month = Column(Integer, nullable=True)
     unlocks_per_month = Column(Integer, nullable=True)
+    created_at = Column(String(255), nullable=False)
+
+
+class Order(Base):
+    __tablename__ = "orders"
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(36), nullable=False, index=True)
+    items = Column(JSON, nullable=False)  # [{product_id, name, qty, price, image_url, company_name}]
+    subtotal = Column(Float, nullable=False)
+    delivery_cost = Column(Float, default=0.0)
+    gst = Column(Float, default=0.0)
+    total = Column(Float, nullable=False)
+    delivery_option = Column(String(255), nullable=True)
+    payment_method = Column(String(50), nullable=False)  # razorpay, upi, card, cod
+    payment_id = Column(String(255), nullable=True)  # Razorpay payment id
+    razorpay_order_id = Column(String(255), nullable=True)
+    status = Column(String(50), default="pending", nullable=False)  # pending, paid, processing, shipped, delivered, cancelled
+    address = Column(Text, nullable=True)
     created_at = Column(String(255), nullable=False)
 
 
@@ -498,6 +519,45 @@ class CommentOut(BaseModel):
     user_name: str
     user_avatar: Optional[str]
     text: str
+    created_at: str
+
+
+class OrderItemIn(BaseModel):
+    product_id: str
+    name: str
+    qty: int
+    price: Optional[str] = None
+    image_url: str
+    company_name: Optional[str] = None
+
+
+class OrderCreate(BaseModel):
+    items: List[OrderItemIn]
+    subtotal: float
+    delivery_cost: float
+    gst: float
+    total: float
+    delivery_option: str
+    payment_method: str
+    payment_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+    address: Optional[str] = None
+
+
+class OrderOut(BaseModel):
+    id: str
+    user_id: str
+    items: List[dict]
+    subtotal: float
+    delivery_cost: float
+    gst: float
+    total: float
+    delivery_option: str
+    payment_method: str
+    payment_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+    status: str
+    address: Optional[str] = None
     created_at: str
 
 
@@ -932,17 +992,63 @@ async def list_reels(request: Request, limit: int = 30, db: AsyncSession = Depen
 
 
 @api.post("/reels", response_model=ReelOut)
-async def create_reel(payload: ReelCreate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def create_reel(
+    request: Request,
+    content: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    use_demo: Optional[bool] = Form(None),
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     if not user.get("company_id"):
         raise HTTPException(status_code=403, detail="Only businesses can post")
+
+    unique_filename = ""
+    if file:
+        # Check size using the underlying sync file object
+        file.file.seek(0, 2)
+        size = file.file.tell()
+        file.file.seek(0)
+        if size > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
+
+        file_ext = Path(file.filename).suffix if file.filename else ".mp4"
+        unique_filename = f"{user['id']}_{uuid.uuid4().hex}{file_ext}"
+        file_path = REEL_DIR / unique_filename
+        with file_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    elif use_demo:
+        demo_path = Path(r"C:\Users\anups\Downloads\Video Project.mp4")
+        if not demo_path.exists():
+            demo_path = ROOT_DIR / "Video Project.mp4"
+            
+        if not demo_path.exists():
+            raise HTTPException(status_code=404, detail="Demo video file not found on server")
+        
+        # Check size
+        size = demo_path.stat().st_size
+        if size > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
+            
+        unique_filename = f"{user['id']}_{uuid.uuid4().hex}.mp4"
+        file_path = REEL_DIR / unique_filename
+        shutil.copy(str(demo_path), str(file_path))
+    else:
+        raise HTTPException(status_code=400, detail="No video file provided")
+
+    # Store relative path — frontend proxies /api/* to backend, 
+    # so reel files are served at http://localhost:8000/reel/<filename>
+    abs_url = f"http://localhost:8000/reel/{unique_filename}"
+
     rid = str(uuid.uuid4())
     doc = Reel(
-        id=rid, company_id=user["company_id"], content=payload.content,
-        video_url=payload.video_url, thumbnail_url=payload.thumbnail_url,
+        id=rid, company_id=user["company_id"], content=content,
+        video_url=abs_url, thumbnail_url=None,
         created_at=now_iso(),
     )
     db.add(doc)
     await db.commit()
+    
     # reload
     stmt = select(Reel).where(Reel.id == rid)
     doc_loaded = (await db.execute(stmt)).scalar_one()
@@ -1079,6 +1185,73 @@ async def delete_product(product_id: str, user: dict = Depends(get_current_user)
     await db.delete(p)
     await db.commit()
     return {"ok": True}
+
+
+# -------------------- Orders --------------------
+@api.post("/orders", response_model=OrderOut)
+async def create_order(payload: OrderCreate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    order_id = str(uuid.uuid4())
+    items_data = [item.dict() for item in payload.items]
+    status = "paid" if payload.payment_id else "pending"
+    order = Order(
+        id=order_id,
+        user_id=user["id"],
+        items=items_data,
+        subtotal=payload.subtotal,
+        delivery_cost=payload.delivery_cost,
+        gst=payload.gst,
+        total=payload.total,
+        delivery_option=payload.delivery_option,
+        payment_method=payload.payment_method,
+        payment_id=payload.payment_id,
+        razorpay_order_id=payload.razorpay_order_id,
+        status=status,
+        address=payload.address,
+        created_at=now_iso()
+    )
+    db.add(order)
+    await db.commit()
+    await db.refresh(order)
+    return OrderOut(
+        id=order.id, user_id=order.user_id, items=order.items or [],
+        subtotal=order.subtotal, delivery_cost=order.delivery_cost,
+        gst=order.gst, total=order.total, delivery_option=order.delivery_option,
+        payment_method=order.payment_method, payment_id=order.payment_id,
+        razorpay_order_id=order.razorpay_order_id,
+        status=order.status, address=order.address, created_at=order.created_at
+    )
+
+
+@api.get("/orders/me", response_model=List[OrderOut])
+async def my_orders(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt = select(Order).where(Order.user_id == user["id"]).order_by(desc(Order.created_at))
+    orders = (await db.execute(stmt)).scalars().all()
+    return [OrderOut(
+        id=o.id, user_id=o.user_id, items=o.items or [],
+        subtotal=o.subtotal, delivery_cost=o.delivery_cost,
+        gst=o.gst, total=o.total, delivery_option=o.delivery_option,
+        payment_method=o.payment_method, payment_id=o.payment_id,
+        razorpay_order_id=o.razorpay_order_id,
+        status=o.status, address=o.address, created_at=o.created_at
+    ) for o in orders]
+
+
+@api.get("/orders/{order_id}", response_model=OrderOut)
+async def get_order(order_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt = select(Order).where(Order.id == order_id)
+    order = (await db.execute(stmt)).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.user_id != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return OrderOut(
+        id=order.id, user_id=order.user_id, items=order.items or [],
+        subtotal=order.subtotal, delivery_cost=order.delivery_cost,
+        gst=order.gst, total=order.total, delivery_option=order.delivery_option,
+        payment_method=order.payment_method, payment_id=order.payment_id,
+        razorpay_order_id=order.razorpay_order_id,
+        status=order.status, address=order.address, created_at=order.created_at
+    )
 
 
 # -------------------- Jobs --------------------

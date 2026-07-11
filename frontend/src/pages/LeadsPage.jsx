@@ -388,7 +388,10 @@ export default function LeadsPage() {
               <p className="text-[10px] text-white/70 mt-0.5">Upgrade to premium and unlock all buyer contact details instantly.</p>
             </div>
             <button
-              onClick={() => toast.success("Redirecting to subscription plans...")}
+              onClick={() => {
+                toast.info("Opening subscription plans...");
+                navigate("/pricing");
+              }}
               className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-extrabold text-[10px] uppercase rounded-xl transition-all shadow-sm active:scale-95"
             >
               Upgrade Now

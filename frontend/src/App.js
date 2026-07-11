@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import "@/App.css";
 
 import { AuthProvider } from "@/context/AuthContext";
+import { CartProvider } from "@/context/CartContext";
 import { TopHeader } from "@/components/TopHeader";
 import { BottomNav } from "@/components/BottomNav";
 
@@ -28,6 +29,8 @@ import MyVacanciesPage from "@/pages/MyVacanciesPage";
 import ManageVacanciesPage from "@/pages/ManageVacanciesPage";
 import ChatsPage from "@/pages/ChatsPage";
 import ChatWindowPage from "@/pages/ChatWindowPage";
+import CartPage from "@/pages/CartPage";
+import OrdersPage from "@/pages/OrdersPage";
 
 const Layout = ({ children }) => {
   const location = useLocation();
@@ -53,34 +56,38 @@ const Layout = ({ children }) => {
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Toaster position="top-center" richColors />
-        <Layout>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/reels" element={<ReelsPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/post-enquiry" element={<PostEnquiryPage />} />
-            <Route path="/leads" element={<LeadsPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/company/:id" element={<CompanyDetailPage />} />
-            <Route path="/companies" element={<CompaniesPage />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/bookmarks" element={<BookmarksPage />} />
-            <Route path="/search" element={<SearchPage />} />
-            <Route path="/products" element={<ProductsPage />} />
-            <Route path="/jobs" element={<JobsPage />} />
-            <Route path="/admin" element={<AdminPage />} />
-            <Route path="/requirements" element={<RequirementsPage />} />
-            <Route path="/my-vacancies" element={<MyVacanciesPage />} />
-            <Route path="/manage-vacancies" element={<ManageVacanciesPage />} />
-            <Route path="/chats" element={<ChatsPage />} />
-            <Route path="/chat/:id" element={<ChatWindowPage />} />
-          </Routes>
-        </Layout>
-      </BrowserRouter>
+      <CartProvider>
+        <BrowserRouter>
+          <Toaster position="top-center" richColors />
+          <Layout>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/reels" element={<ReelsPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/post-enquiry" element={<PostEnquiryPage />} />
+              <Route path="/leads" element={<LeadsPage />} />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/company/:id" element={<CompanyDetailPage />} />
+              <Route path="/companies" element={<CompaniesPage />} />
+              <Route path="/pricing" element={<PricingPage />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/bookmarks" element={<BookmarksPage />} />
+              <Route path="/search" element={<SearchPage />} />
+              <Route path="/products" element={<ProductsPage />} />
+              <Route path="/jobs" element={<JobsPage />} />
+              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/requirements" element={<RequirementsPage />} />
+              <Route path="/my-vacancies" element={<MyVacanciesPage />} />
+              <Route path="/manage-vacancies" element={<ManageVacanciesPage />} />
+              <Route path="/chats" element={<ChatsPage />} />
+              <Route path="/chat/:id" element={<ChatWindowPage />} />
+              <Route path="/cart" element={<CartPage />} />
+              <Route path="/orders" element={<OrdersPage />} />
+            </Routes>
+          </Layout>
+        </BrowserRouter>
+      </CartProvider>
     </AuthProvider>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import api from "../lib/api";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { whatsappLink } from "../lib/api";
 import {
   MessageSquare, Search, SlidersHorizontal, ShoppingCart, Plus, Minus,
@@ -8,6 +8,7 @@ import {
   Truck, ArrowRight, ShieldAlert, Award
 } from "lucide-react";
 import { toast } from "sonner";
+import { useCart } from "../context/CartContext";
 
 const parsePrice = (priceStr) => {
   if (!priceStr || typeof priceStr !== "string") return null;
@@ -41,8 +42,11 @@ export default function ProductsPage() {
   const [sortBy, setSortBy] = useState("newest");
   const [showFilters, setShowFilters] = useState(false);
 
-  // Cart & Buying Flow State
-  const [cart, setCart] = useState([]);
+  // Global Cart Context
+  const { cart, addToCart: ctxAddToCart, updateQty, clearCart, cartSubtotal } = useCart();
+  const navigate = useNavigate();
+
+  // Buying Flow State (local to this page's checkout modal)
   const [selectedProduct, setSelectedProduct] = useState(null); // Detail modal product
   const [buyingStep, setBuyingStep] = useState(null); // 'cart' | 'delivery' | 'checkout' | 'payment' | 'processing' | 'confirmed' | null
   const [selectedDelivery, setSelectedDelivery] = useState("free");
@@ -113,42 +117,18 @@ export default function ProductsPage() {
       return 0;
     });
 
-  // Cart helper functions
+  // Cart helper functions (use global CartContext)
   const addToCart = (product, triggerFlow = false) => {
-    setCart((prev) => {
-      const exists = prev.find((item) => item.id === product.id);
-      if (exists) {
-        return prev.map((item) =>
-          item.id === product.id ? { ...item, qty: item.qty + 1 } : item
-        );
-      }
-      return [...prev, { ...product, qty: 1 }];
-    });
+    ctxAddToCart(product);
     toast.success(`${product.name} added to cart!`);
     if (triggerFlow) {
       setBuyingStep("cart");
     }
   };
 
-  const updateCartQty = (id, change) => {
-    setCart((prev) =>
-      prev
-        .map((item) => {
-          if (item.id === id) {
-            const nextQty = item.qty + change;
-            return { ...item, qty: nextQty };
-          }
-          return item;
-        })
-        .filter((item) => item.qty > 0)
-    );
-  };
+  const updateCartQty = (id, change) => updateQty(id, change);
 
-  // Calculations
-  const cartSubtotal = cart.reduce(
-    (sum, item) => sum + getNumericPrice(item.price) * item.qty,
-    0
-  );
+  // Calculations (cartSubtotal comes from CartContext)
   const deliveryCost = cart.length > 0 ? deliveryOptions[selectedDelivery].cost : 0;
   const gstCost = Math.round(cartSubtotal * 0.18);
   const cartTotal = cartSubtotal + deliveryCost + gstCost;
@@ -758,17 +738,17 @@ export default function ProductsPage() {
                 <div className="grid grid-cols-2 gap-2 mt-4">
                   <button
                     onClick={() => {
-                      setCart([]);
+                      clearCart();
                       setBuyingStep(null);
-                      toast.success("Tracking order coordinates!");
+                      navigate("/orders");
                     }}
                     className="py-3 rounded-xl bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs"
                   >
-                    Track Order
+                    My Orders
                   </button>
                   <button
                     onClick={() => {
-                      setCart([]);
+                      clearCart();
                       setBuyingStep(null);
                     }}
                     className="py-3 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50"

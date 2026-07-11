@@ -1,11 +1,13 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Bell, Search, Bookmark, User, MessageSquare } from "lucide-react";
+import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart } from "lucide-react";
 import { Logo } from "./Logo";
 import { useAuth } from "../context/AuthContext";
+import { useCart } from "../context/CartContext";
 
 export const TopHeader = () => {
   const { user } = useAuth();
+  const { cartCount } = useCart();
 
   return (
     <header
@@ -22,6 +24,21 @@ export const TopHeader = () => {
         <div className="flex items-center gap-1 lg:gap-3">
           <Link to="/search" className="p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors" data-testid="header-search"><Search size={22} /></Link>
           <Link to="/bookmarks" className="p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors" data-testid="header-bookmarks"><Bookmark size={22} /></Link>
+
+          {/* Cart Button with Badge */}
+          <Link
+            to="/cart"
+            className="relative p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors"
+            data-testid="header-cart"
+          >
+            <ShoppingCart size={22} />
+            {cartCount > 0 && (
+              <span className="absolute top-1 right-1 lg:top-2 lg:right-2 flex h-4 w-4 items-center justify-center rounded-full bg-orange-600 text-[8px] font-bold text-white ring-2 ring-white animate-pulse">
+                {cartCount > 9 ? "9+" : cartCount}
+              </span>
+            )}
+          </Link>
+
           <Link
             to={user ? "/chats" : "/login"}
             className="p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors"

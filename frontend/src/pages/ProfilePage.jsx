@@ -86,7 +86,7 @@ export default function ProfilePage() {
                 {company?.name || "Precision Parts India"}
               </span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-500/90 text-white text-[9px] font-bold uppercase tracking-wider">
-                <Star size={8} className="fill-white" /> Enterprise
+                <Star size={8} className="fill-white" /> {user.plan_name || "Free"}
               </span>
             </div>
 
@@ -136,8 +136,8 @@ export default function ProfilePage() {
       </div>
 
       {/* 3. Quick Access Grid */}
-      <div className={`mt-4 grid ${isBusiness ? "grid-cols-4" : "grid-cols-2"} gap-2`}>
-        {isBusiness ? (
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        {isBusiness && (
           <>
             <button
               onClick={() => setActiveTab("products")}
@@ -169,39 +169,39 @@ export default function ProfilePage() {
               </span>
               <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">My Vacancies</span>
             </button>
-
-            <button
-              onClick={() => navigate("/bookmarks")}
-              className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-purple-200 transition-all hover:shadow-sm"
-            >
-              <span className="grid place-items-center w-9 h-9 rounded-xl bg-purple-50 text-purple-600 mb-1.5">
-                <Bookmark size={18} />
-              </span>
-              <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">Saved</span>
-            </button>
           </>
-        ) : (
-          <>
-            <button
-              onClick={() => navigate("/bookmarks")}
-              className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-purple-200 transition-all hover:shadow-sm"
-            >
-              <span className="grid place-items-center w-9 h-9 rounded-xl bg-purple-50 text-purple-600 mb-1.5">
-                <Bookmark size={18} />
-              </span>
-              <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">Saved</span>
-            </button>
+        )}
 
-            <button
-              onClick={() => toast.success("Analytics dashboard coming soon!")}
-              className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 transition-all hover:shadow-sm"
-            >
-              <span className="grid place-items-center w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 mb-1.5">
-                <BarChart3 size={18} />
-              </span>
-              <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">Analytics</span>
-            </button>
-          </>
+        <button
+          onClick={() => navigate("/orders")}
+          className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-indigo-200 transition-all hover:shadow-sm"
+        >
+          <span className="grid place-items-center w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 mb-1.5">
+            <Package size={18} />
+          </span>
+          <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">My Orders</span>
+        </button>
+
+        <button
+          onClick={() => navigate("/bookmarks")}
+          className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-purple-200 transition-all hover:shadow-sm"
+        >
+          <span className="grid place-items-center w-9 h-9 rounded-xl bg-purple-50 text-purple-600 mb-1.5">
+            <Bookmark size={18} />
+          </span>
+          <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">Saved</span>
+        </button>
+
+        {!isBusiness && (
+          <button
+            onClick={() => toast.success("Analytics dashboard coming soon!")}
+            className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 transition-all hover:shadow-sm"
+          >
+            <span className="grid place-items-center w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 mb-1.5">
+              <BarChart3 size={18} />
+            </span>
+            <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">Analytics</span>
+          </button>
         )}
       </div>
 
