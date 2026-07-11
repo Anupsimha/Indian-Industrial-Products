@@ -1,0 +1,62 @@
+{
+  "summary": "Iteration 5 (Reels controls, Categories CRUD, Industrial Areas hierarchical CRUD, Plans CRUD + assign, Requirements public feed + Unlock flow, Admin Analytics + Users, BackButton everywhere, /post-enquiry rewrite, /requirements page) tested on mobile 420x900. Backend: 16/16 NEW iter5 tests PASS in /app/backend/tests/test_iteration5.py after fixing one critical regression (see RCA). Combined with iter4 + iip_api: 47/49 pass (2 unrelated/carry-over). Frontend: /requirements (55 req-cards, 23 unlock buttons, masked mobile, state/city/area picker, BackButton, category dropdown) all render correctly. /post-enquiry has BackButton + product + quantity fields. Admin dashboard shows all 6 spec'd tabs (Overview, Plans, Categories, Areas, Companies, Users). 2 frontend spec deviations confirmed: (a) HomePage MISSING the 'Live Buyer Feed' CTA card data-testid='home-requirements-cta' between Jobs and category chips — code has no occurrence of 'home-requirements-cta' or 'Buyer Feed' string; (b) AdminPage imports BackButton but never renders it — [data-testid='back-btn'] not in /admin DOM.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/enquiries (FIXED)", "issue": "Returned 500 for every request. server.py L808-823 doc dict did not include product_name/quantity/state/city/industrial_area, but EnquiryOut.model_fields includes them — line 824 did doc[k] -> KeyError: 'product_name'. Broke the entire buyer→manufacturer lead flow + iter4 regressions. Testing agent patched: (1) added the 5 fields to doc, (2) changed doc[k] -> doc.get(k).", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/admin/users (UserPublic schema)", "issue": "UserPublic does not expose plan_name / plan_id / plan_expires_at — admin UI cannot show user's current plan in the Users tab. Add these fields to UserPublic or expose a separate admin schema."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "HomePage", "issue": "Missing 'Live Buyer Feed' CTA card with data-testid='home-requirements-cta' between Jobs section and category chips. Spec required. grep on HomePage.jsx finds no occurrence of 'home-requirements-cta', 'Buyer Feed', or 'Live Buyer'.", "selector": "[data-testid='home-requirements-cta']", "priority": "HIGH"},
+      {"component": "AdminPage", "issue": "imports BackButton (L7) but never renders it. /admin page has NO back-btn in DOM. Spec required BackButton on every secondary page including /admin.", "selector": "[data-testid='back-btn']", "priority": "HIGH"},
+      {"component": "FeaturedCompanies carousel (carry-over from iter3/4)", "issue": "React 'Encountered two children with the same key' warning x6 in console on Home. Auto-scroll clones items without unique key suffix.", "selector": "[data-testid^='featured-company-']", "priority": "MEDIUM"},
+      {"component": "Public companies listing (carry-over)", "issue": "TEST_/leftover companies still pollute /api/companies and visible on Home + /admin (e.g., 'indian industrial produts', 'TEST Co 125408a1'). No teardown in test_iip_api.py::test_register_manufacturer_creates_company.", "selector": "[data-testid^='featured-company-']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Bottom-nav (carry-over)", "issues": ["'Made with Emergent' badge overlaps the Post (+) FAB on 420px viewport."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5.py",
+    "/app/backend/tests/test_iteration4.py",
+    "/app/backend/tests/test_iip_api.py",
+    "/app/test_reports/pytest/iteration5_results.xml"
+  ],
+  "action_items": [
+    "(HIGH) Add 'Live Buyer Feed' CTA card on HomePage between JobsSection and category chips with data-testid='home-requirements-cta' that navigates to /requirements.",
+    "(HIGH) Render <BackButton/> in AdminPage.jsx (it's already imported but unused).",
+    "(MED) UserPublic schema: include plan_name/plan_id/plan_expires_at so Admin > Users tab can show current plan per user, OR create a UserAdminOut schema and have /api/admin/users return it.",
+    "(MED) Fix React duplicate keys in FeaturedCompanies carousel — append clone index to keys when cloning for auto-scroll.",
+    "(LOW) Add pytest teardown OR backend filter to hide TEST_/test-pollution companies from public Home and /admin lists.",
+    "(LOW) Reposition 'Made with Emergent' badge so it does not overlap Post FAB.",
+    "(LOW) Verify that test_iteration4.py::test_owner_sees_is_owner_and_extended_fields no longer fails after seed/PATCH ordering is stabilized (it fails currently because test_owner_can_patch_company runs first and clears gst — pre-existing carry-over test pollution, not an iter5 regression)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1652 lines — strongly recommend splitting into modules (auth.py, companies.py, products.py, enquiries.py, requirements.py, admin.py, categories_areas.py, plans.py, cloudinary.py). >700 line guideline already violated by 2x.",
+    "create_enquiry: 'doc' dict construction MUST mirror EnquiryOut.model_fields. The bug (now fixed) shows the fragility of using model_fields.keys() against a manually-built dict. Recommend using payload.model_dump() and merging in server-side fields (id, status, created_at) — single source of truth.",
+    "unlock_requirement: 'plan in (\"free\", \"\", None)' — None can never be in this tuple after .lower() coercion. Harmless but misleading. Also, the check uses plan_name string equality; consider using plan_id reference or a 'is_paid' boolean attribute on user to be currency/locale safe.",
+    "_can_see_contact + unlock_requirement use 'plan_name not in (\"free\", \"\")' — case-sensitive. The seed stores 'Free' (capital F), then user.get('plan_name').lower() handles it. But future plans like 'free trial' would accidentally unlock. Use a paid_plan boolean.",
+    "admin_analytics: includes 'product_engagement' aliased to post likes — naming bug. Variable is 'product_engagement' but returned key is 'post_engagement'. Functionally OK but confusing.",
+    "AdminPage.jsx imports BackButton but never renders it — dead import. Either remove or render.",
+    "/api/requirements does NOT exclude 'mobile' from the document fetch — entire mobile is loaded into memory even for masked users. Minor perf concern; consider projection in find().",
+    "UserPublic schema needs to expose plan_name for the Admin > Users tab to actually show user plans."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (testing-agent fix: create_enquiry now persists product_name/quantity/state/city/industrial_area and uses doc.get(k) — was returning 500 on every enquiry POST)",
+    "/app/backend/tests/test_iteration5.py (NEW - 16 tests, all passing)"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 new iter5 + 16/16 iip_api) — 1 unrelated iter4 carry-over failure (gst blanked by patch test, pre-existing data-pollution)",
+    "frontend": "85% — 2 HIGH spec deviations (Home CTA missing, /admin back-btn unrendered). All other flows pass."
+  },
+  "test_credentials": "admin@iip.com/admin123, rajesh@bharatsteel.com/demo123 (manu+company owner), priya@buyer.com/demo123 (buyer, currently Free plan).",
+  "seed_data_creation": "Tests create+delete ephemeral TEST_ categories/areas/plans/enquiries within each test. test_requirements_unlock_flow temporarily upgrades priya@buyer.com to Premium then resets to Free at the end.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration-5 backend: 16/16 PASS at /app/backend/tests/test_iteration5.py. Run: pytest /app/backend/tests/ -v --junitxml=/app/test_reports/pytest/results.xml. Backend prefers cookie over Bearer header — when chaining admin->buyer operations on a single requests.Session, MUST call s.cookies.clear() before each role switch (already done in test_iteration5.py — see test_requirements_unlock_flow). priya@buyer.com is currently Free at end of run (reset after each unlock test). Frontend bugs remaining: HomePage CTA + AdminPage BackButton. Admin tabs all render. /requirements page works fully. Iter4 carry-over (gst blanked) and FeaturedCompanies duplicate keys still NOT fixed.",
+  "rca of the issue": "BACKEND CRITICAL REGRESSION (now fixed by testing agent): EnquiryCreate gained 5 new Optional fields (product_name, quantity, state, city, industrial_area) and EnquiryOut mirrored them. But create_enquiry (server.py L808-823) was NOT updated — the manually-built 'doc' dict still only had the original 7 keys. Then L824 built response via dict comprehension {k: doc[k] for k in EnquiryOut.model_fields.keys()} — every iter5 EnquiryOut field caused KeyError on the very first missing key 'product_name'. FastAPI surfaced this as 500 Internal Server Error. Reproduced via: curl -X POST /api/enquiries -d '{minimal payload}' -> 500. Fix: added the 5 fields to doc using payload.* attribute access, and switched doc[k] to doc.get(k) for resilience. Verified by re-running all 49 backend tests — 47 pass (the 2 remaining failures are unrelated carry-overs documented above). FRONTEND: 'home-requirements-cta' element was never added to HomePage.jsx; AdminPage.jsx imports BackButton but the JSX tree does not include <BackButton/> anywhere — both are simple omissions in the implementation."
+}

@@ -1,0 +1,52 @@
+{
+  "summary": "Executed full backend pytest (16/16 PASS) and frontend Playwright UI testing on mobile viewport 420x900. Backend APIs are healthy (jobs, company-reels, auth+cookies, enquiries, like/save/follow, seed counts). Frontend has 2 critical bugs: (1) <JobsSection /> is imported but NEVER rendered in HomePage so Jobs/Vacancies horizontal carousel is missing on Home; (2) ProfilePage and LeadsPage do not respect AuthContext loading state, so clicking header-profile-btn or nav-leads (or visiting /profile or /leads directly) immediately redirects to /login (and then to /) before /auth/me resolves, making profile and leads pages unreachable for an authenticated manufacturer. Also Featured Companies on Home shows leftover 'TEST Co' entries created by previous register tests (data pollution). Login, products, jobs, reels, pricing, and post-enquiry pages work correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/companies", "issue": "Returns leftover TEST_ companies from prior register-test runs (no cleanup) — pollutes Home Featured Companies UI"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "HomePage.jsx", "issue": "JobsSection imported but never rendered. <JobsSection /> JSX call is missing. /api/jobs returns 5 jobs but section is absent from Home.", "selector": "[data-testid=\"jobs-section\"] (not in DOM)", "priority": "HIGH"},
+      {"component": "ProfilePage.jsx (line 18) & LeadsPage.jsx (line 27)", "issue": "Auth gate `if (!user) return <Navigate to=\"/login\" />` does not check `loading` from useAuth. On initial mount user=null while /auth/me is in flight, so authenticated users get bounced to /login (then LoginPage redirects them to /). Result: /profile and /leads are unreachable from a fresh load or direct navigation.", "selector": "header-profile-btn click → ends on /, not /profile; nav-leads click → ends on /, not /leads", "priority": "HIGH"},
+      {"component": "HomePage Featured Companies carousel", "issue": "React 'two children with the same key' warnings logged in console (5 IDs). Likely the auto-scroll duplicates items without suffixing the key.", "selector": "[data-testid^=\"featured-company-\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Top-right profile icon → /profile", "issue": "Click navigates to /profile but page redirects to /login due to loading-state bug, then back to / → user lands on Home not Profile", "affected_selectors": ["[data-testid=\"header-profile-btn\"]"]},
+      {"flow": "Bottom nav Leads (manufacturer)", "issue": "Click on nav-leads (href=/leads) ends on / instead of showing seed leads. Same loading-state bug", "affected_selectors": ["[data-testid=\"nav-leads\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "All pages with bottom nav", "issues": ["'Made with Emergent' badge is overlaid on top of bottom nav center 'Post' button (orange +) and partially obscures it on 420px width"]},
+      {"screen": "Home Featured Companies", "issues": ["Multiple anonymous 'TEST Co xxxxxxxx' cards (no logo, location 'India') from leftover register-test users dilute the marketplace feel"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iip_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Add `<JobsSection />` JSX inside HomePage.jsx (e.g., between FeaturedCompanies and category chips, or just below hero)",
+    "Fix ProfilePage.jsx and LeadsPage.jsx to handle loading state: `if (loading) return <Spinner/>; if (!user) return <Navigate to=\"/login\" replace />;`",
+    "Make Featured Companies carousel keys unique when auto-duplicating items (e.g., `${id}-clone-${idx}`)",
+    "Cleanup or filter out users/companies prefixed with 'TEST_' from public listings; or add a teardown fixture to delete them after pytest run",
+    "Reconsider 'Made with Emergent' badge z-index/position so it does not overlap the bottom-nav center action"
+  ],
+  "critical_code_review_comments": [
+    "AuthContext correctly exposes `loading`, but consumers (ProfilePage, LeadsPage) ignore it — recurring source of redirect bugs.",
+    "Backend `get_current_user` prefers cookie over Authorization header — when both are present, cookie wins. Test sessions sharing a requests.Session will get a stale cookie from a prior register/login test and bypass the Bearer header silently. Documented and worked around with autouse cookie-clear fixture in tests.",
+    "_id is correctly excluded ({\"_id\": 0}) in all Mongo queries. Good.",
+    "Seed pattern `if companies > 0: return` means new seed entries (e.g., enquiries) added later are NOT backfilled into existing DBs. Consider per-collection idempotent seeding.",
+    "JobsSection has data-testid but its parent never renders it — common copy/paste oversight; lint rule for unused-imports would catch this."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iip_api.py (added 5 new tests: jobs endpoint, company-reels, cookie login, seed counts, bharat seed leads; added autouse cookie-clear fixture to fix order-dependent flakiness)"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "70% — login/products/jobs/reels/pricing/post-enquiry work; profile, leads, jobs-on-home broken"},
+  "test_credentials": "rajesh@bharatsteel.com / demo123 (manufacturer, owns Bharat Steel), priya@buyer.com / demo123 (buyer), admin@iip.com / admin123 (admin) — verified working",
+  "seed_data_creation": "None new. Existing seed: 5 jobs, 4+ companies (incl. polluting TEST Co), 6+ posts, 4+ reels, 6+ products, 3 seed enquiries for Bharat Steel.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file at /app/backend/tests/test_iip_api.py — run with: pytest /app/backend/tests/test_iip_api.py -v --junitxml=/app/test_reports/pytest/pytest_results.xml. Note autouse fixture clears cookies between tests because backend prefers cookie over Authorization header. Frontend TEST_ companies pollute Home — main agent should clean DB or filter listings. Once HomePage renders <JobsSection /> and ProfilePage/LeadsPage check loading state, retest the JOBS section visibility and authenticated profile/leads navigation flows.",
+  "rca of the issue": "1) JobsSection: HomePage.jsx imports the component but never invokes it in JSX (grep -c '<JobsSection' returns 0). Just add `<JobsSection />` somewhere inside the returned tree. 2) Profile/Leads redirect: AuthContext starts with user=null, loading=true; refresh() calls /api/auth/me asynchronously. ProfilePage and LeadsPage do `if (!user) return <Navigate to=/login />` synchronously on first render before refresh resolves, so the protected route is replaced with /login instantly. Fix: gate on loading first — `if (loading) return <LoadingSpinner/>;` then check user."
+}

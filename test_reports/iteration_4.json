@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 4 (Cloudinary uploads + extended Company fields + owner CRUD + Admin dashboard + post comments) tested end-to-end on mobile 420x900. Backend: 17/17 NEW pytest tests PASS in /app/backend/tests/test_iteration4.py + previous 16/16 still PASS. Frontend: All owner controls, dialogs, comments, and admin dashboard render and integrate correctly. Confirmed: (a) /api/cloudinary/signature requires auth (401 without), validates folder prefix 'iip/' (400 on bad), returns {signature,timestamp,cloud_name=dhpr9hbd9,api_key=286658534363315,folder,resource_type}. (b) GET /api/companies/{bharat_id} returns is_owner=true for Rajesh and is_owner=false for buyer; all extended fields (gst='27AABCB1234C1Z5', pan, owner_name='Rajesh Kumar', business_type='Manufacturer', year_established=1998, address, website, employees='200-500', certifications array). (c) PATCH /api/companies/{id} owner-only (403 for buyer, 200 for owner with persistence verified via GET). (d) Product POST/PATCH/DELETE owner-only with 403 for non-owner. (e) Posts/Reels DELETE owner-only with 403 for non-owner. (f) POST /api/posts/{id}/comments + GET works. (g) Admin /api/admin/stats returns dict with all 8 keys (users,companies,posts,reels,products,enquiries,jobs,follows), 403 for non-admin. /api/admin/companies + DELETE cascade verified. Frontend: Owner sees company-edit-btn + add-product-btn + add-post-btn + add-reel-btn (NOT create-post-btn / upload-reel-btn as spec'd — see note below). Buyer correctly hides all owner buttons & shows Follow/Send Enquiry/WhatsApp/Call. About tab renders Rajesh Kumar, 1998, 27AABCB1234C1Z5, AABCB1234C, ISO 9001, 200-500, Compliance, Owner labels. company-edit-dialog opens with cover/logo/Basic/Compliance/Save sections + company-save-btn present. product-dialog, post-dialog, reel-dialog all open from owner buttons. Post comments: clicking [data-testid='post-comment-{id}'] expands [data-testid='post-comments-{id}'] with input + send button — submitting persists & re-renders the comment in DOM. /admin: 8 admin-stat-* cards, 5 admin-company-* rows + 5 admin-delete-* buttons. Buyer visiting /admin sees [data-testid='admin-forbidden'].",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CompanyDetailPage owner buttons naming", "issue": "Spec asked for testids 'create-post-btn' and 'upload-reel-btn', but implementation uses 'add-post-btn' and 'add-reel-btn'. Functionality is correct but selector naming deviates from spec. Recommend aligning to spec or updating spec.", "selector": "[data-testid='add-post-btn'], [data-testid='add-reel-btn']", "priority": "LOW"},
+      {"component": "FeaturedCompanies carousel", "issue": "Carry-over: 'Encountered two children with the same key' x6 React warnings on Home — auto-scroll duplicates company items without unique key suffix.", "selector": "[data-testid^='featured-company-']", "priority": "MEDIUM"},
+      {"component": "Public companies listing", "issue": "Carry-over: Multiple TEST/leftover companies pollute the public listing (e.g., 'indian industrial produts'). Visible on Home + Admin dashboard. Either filter on backend or run pytest teardown.", "selector": "[data-testid^='admin-company-']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Bottom-nav across pages", "issues": ["Carry-over: 'Made with Emergent' badge overlaps the bottom-nav center 'Post' (+) FAB on 420px width."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration4.py",
+    "/app/backend/tests/test_iip_api.py",
+    "/app/test_reports/pytest/iteration4_results.xml"
+  ],
+  "action_items": [
+    "(LOW) Align owner-button testids to the request spec: rename 'add-post-btn' -> 'create-post-btn' and 'add-reel-btn' -> 'upload-reel-btn' in CompanyDetailPage.jsx; or update the spec to match the existing 'add-*' naming. Functionality already works.",
+    "(MEDIUM) Fix duplicate React keys in featured companies carousel by suffixing keys with index/clone marker.",
+    "(LOW) Add pytest teardown OR a backend filter to exclude TEST_ prefixed/test-pollution companies from public /api/companies listing. Currently the public Home & Admin Dashboard show 'indian industrial produts' & similar leftover entries.",
+    "(LOW) Reposition 'Made with Emergent' badge so it does not overlap the bottom-nav Post FAB on small viewports."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1200+ lines — recommend splitting into modules (auth.py, companies.py, products.py, admin.py, cloudinary.py) per file-size guideline (>700 lines).",
+    "Cloudinary signature endpoint correctly validates folder prefix and uses cloudinary.utils.api_sign_request — implementation is clean. Good practice: returns timestamp+folder server-side so client can't tamper.",
+    "PATCH /api/products/{id} reuses ProductCreate model (all fields required by Pydantic). Currently works because exclude_none=True is applied, but the request body still must contain required image_url/name/category fields. Recommend creating ProductUpdate with all-Optional fields for true PATCH semantics.",
+    "DELETE /api/posts/{id} cascades likes+bookmarks but NOT post comments stored under {post_id: ...}. db.comments.delete_many({'post_id': post_id}) is missing in delete_post but present in delete_reel. Add it for consistency.",
+    "Admin DELETE /api/admin/companies/{company_id} does NOT cascade follows/enquiries/jobs — only posts/reels/products. Consider extending to follows/enquiries/jobs/users referencing that company.",
+    "_id correctly excluded across all queries.",
+    "All new endpoints validate auth via Depends(get_current_user); good consistency."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration4.py (NEW - 17 tests)"
+  ],
+  "success_rate": {"backend": "100% (17/17 new + 16/16 existing)", "frontend": "100% on critical flows (owner controls, dialogs, comments, admin dashboard, buyer/admin role gating)"},
+  "test_credentials": "rajesh@bharatsteel.com / demo123 (manufacturer/owner of Bharat Steel), priya@buyer.com / demo123 (buyer), admin@iip.com / admin123 (admin) — all verified working.",
+  "seed_data_creation": "None permanent. test_iteration4.py creates+deletes ephemeral TEST_ products/posts/reels and one TEST_ cascade company (deleted by admin within the same test).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All iter-4 features VERIFIED. Backend tests at /app/backend/tests/test_iteration4.py (run: pytest /app/backend/tests/ -v --junitxml=/app/test_reports/pytest/results.xml). Owner-button testids in CompanyDetailPage are 'add-post-btn' / 'add-reel-btn' / 'add-product-btn' (NOT 'create-post-btn' / 'upload-reel-btn' as listed in the spec). Dialogs are 'company-edit-dialog' / 'product-dialog' / 'post-dialog' / 'reel-dialog'. Post comment testids: 'post-comment-{id}' (toggle), 'post-comments-{id}' (panel), 'post-comment-input-{id}' (input), 'post-comment-send-{id}' (send). Admin dashboard testids: 'admin-stat-*' x8, 'admin-company-*', 'admin-delete-*', 'admin-forbidden'. Cloudinary creds in /app/backend/.env (cloud_name=dhpr9hbd9). Bharat Steel ID can be looked up via fetch('/api/companies').",
+  "rca of the issue": "No critical issues. Minor naming deviation between spec ('create-post-btn'/'upload-reel-btn') and implementation ('add-post-btn'/'add-reel-btn') is non-blocking. Two carry-over issues from iteration 3 remain: (1) duplicate React keys on FeaturedCompanies — root cause is the auto-scroll cloning items in HomePage without unique key suffix; (2) TEST_ company pollution from test_register_manufacturer_creates_company in test_iip_api.py — root cause is no teardown fixture deletes the registered company. Both are documented action items."
+}

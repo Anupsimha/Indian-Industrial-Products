@@ -1,0 +1,122 @@
+{
+  "theme": "Light",
+  "archetype": "Swiss & High-Contrast (Adapted for Industrial Professional Theme)",
+  "brand": {
+    "name": "IIP - Indian Industrial Products",
+    "tagline": "Engineering Tomorrow",
+    "logo_concept": "Gear with India map and machinery elements",
+    "vibe": "Clean, modern, startup-style interface. Inspired by Facebook + Instagram + B2B marketplace."
+  },
+  "colors": {
+    "primary": {
+      "hex": "#0F4C81",
+      "tailwind": "blue-800",
+      "description": "Industrial Deep Blue for trust, headers, and primary active states."
+    },
+    "secondary": {
+      "hex": "#E65C00",
+      "tailwind": "orange-600",
+      "description": "Safety Orange for CTAs, Enquiry buttons, and highlight badges."
+    },
+    "accent": {
+      "hex": "#475569",
+      "tailwind": "slate-600",
+      "description": "Machinery Steel Grey for secondary text, borders, and passive icons."
+    },
+    "background": {
+      "hex": "#F8FAFC",
+      "tailwind": "slate-50",
+      "description": "Light slate background to let white cards stand out."
+    },
+    "surface": {
+      "hex": "#FFFFFF",
+      "tailwind": "white",
+      "description": "Pure white for cards, dropdowns, and modules."
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "inverse": "#FFFFFF"
+    }
+  },
+  "typography": {
+    "headings": {
+      "font": "Outfit",
+      "weights": ["600", "700"],
+      "usage": "Bold and clean for company names, headers, and numbers.",
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "font": "IBM Plex Sans",
+      "weights": ["400", "500"],
+      "usage": "Highly legible for dense industrial specs, descriptions, and UI text."
+    },
+    "rules": {
+      "h1": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "h2": "text-xl sm:text-2xl font-bold tracking-tight",
+      "body": "text-sm sm:text-base leading-relaxed",
+      "labels": "text-xs font-semibold uppercase tracking-[0.1em] text-slate-500"
+    }
+  },
+  "layout_and_spacing": {
+    "philosophy": "Mobile-first, card-based social feed. Generous padding inside cards, tight gaps between modules.",
+    "container": "w-full max-w-md mx-auto md:max-w-2xl lg:max-w-4xl",
+    "spacing_scale": "p-4 for standard cards, p-6 for feature sections, gap-4 for feed items.",
+    "border_radius": "rounded-xl for cards, rounded-full for buttons and avatars",
+    "shadows": "shadow-sm for inactive cards, shadow-md hover:shadow-lg for interactive elements (soft shadows).",
+    "navigation": "Fixed bottom tab bar for mobile (Home, Reels, Enquiry, Leads, Profile) with glassmorphism backdrop-blur-md bg-white/90 border-t border-slate-200."
+  },
+  "components": {
+    "cards": "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden. Use for feed posts and product listings.",
+    "buttons": {
+      "primary": "bg-orange-600 text-white rounded-full px-6 py-2 font-medium hover:bg-orange-700 transition-colors",
+      "secondary": "bg-blue-50 text-blue-800 rounded-full px-4 py-2 font-medium hover:bg-blue-100 transition-colors",
+      "whatsapp": "bg-[#25D366] text-white rounded-full px-4 py-2 font-medium flex items-center gap-2 hover:bg-[#20bd5a]"
+    },
+    "badges": "px-2 py-1 text-xs font-medium rounded-md. Example: bg-blue-100 text-blue-800 for 'New Lead'.",
+    "social_actions": "flex justify-between items-center py-3 border-t border-slate-100 mt-3 text-slate-500 text-sm"
+  },
+  "media": {
+    "strategy": "High-quality industrial imagery. Do not use generic placeholders.",
+    "images": [
+      {
+        "category": "Hero / Slider",
+        "url": "https://images.unsplash.com/photo-1577894947058-cfdae4276bef?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwzfHxpbmR1c3RyaWFsJTIwZmFjdG9yeSUyMG1hY2hpbmVyeSUyMHdvcmtlcnxlbnwwfHx8fDE3Nzc2MzM0NzJ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Factory workers overlay for featured companies slider"
+      },
+      {
+        "category": "Reels / Video Cover",
+        "url": "https://images.unsplash.com/photo-1764114908655-9a26d32750a0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwyfHxpbmR1c3RyaWFsJTIwZmFjdG9yeSUyMG1hY2hpbmVyeSUyMHdvcmtlcnxlbnwwfHx8fDE3Nzc2MzM0NzJ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Heavy machinery operation vertical crop for Reels thumbnail"
+      },
+      {
+        "category": "Product / Feed Image",
+        "url": "https://images.unsplash.com/photo-1752692778846-44ce22202d5b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODh8MHwxfHNlYXJjaHwxfHxpbmR1c3RyaWFsJTIwcHJvZHVjdHMlMjBzdGVlbCUyMGdlYXJzfGVufDB8fHx8MTc3NzYzMzQ3Mnww&ixlib=rb-4.1.0&q=85",
+        "description": "Steel gears product listing"
+      },
+      {
+        "category": "Company Logo / Avatar",
+        "url": "https://images.unsplash.com/photo-1772760110621-d7b6f54c1e42?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwzfHxidXNpbmVzcyUyMGNvbXBhbnklMjBsb2dvJTIwb24lMjB3YWxsfGVufDB8fHx8MTc3NzYzMzQ3Mnww&ixlib=rb-4.1.0&q=85",
+        "description": "Illuminated logo for company profile avatar"
+      },
+      {
+        "category": "User Avatar",
+        "url": "https://images.unsplash.com/photo-1607746882042-944635dfe10e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMGJ1c2luZXNzJTIwbWFuJTIwd29tYW4lMjBmYWNlfGVufDB8fHx8MTc3NzYzMzQ4N3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Professional user avatar"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the mobile-first approach. Ensure max-w-md container for mobile feed layout, with bottom navigation visible on mobile viewports.",
+    "Use 'Outfit' for headings and 'IBM Plex Sans' for body text. Do not use generic fonts like Inter for headings.",
+    "For the Social Feed: Use Facebook/Instagram style cards. Header with avatar/name/location. Image/Video content. Footer with Like/Comment/Share/WhatsApp/Enquiry buttons.",
+    "For Reels: Full height vertical layout (h-[calc(100vh-bottom_nav_height)]) with absolute positioned right-side action buttons (Like, Comment, Share, WhatsApp).",
+    "All interactive elements (buttons, links, inputs) MUST have a `data-testid` attribute (e.g., data-testid='enquiry-submit-button').",
+    "Use Lucide-React for all icons (MessageCircle, Heart, Share2, MapPin, Briefcase, Play, etc).",
+    "Do NOT use transparent headers. Use glassmorphism (`bg-white/90 backdrop-blur-md`) for sticky elements.",
+    "For the Leads Dashboard: Use status pills (New, In Progress, Closed) and clear, dense cards for B2B tracking.",
+    "Replace ALL placeholders with the provided high-quality Unsplash image URLs.",
+    "Ensure hover states and focus states have visible contrast changes.",
+    "Follow Shadcn conventions but customize spacing and radiuses according to layout_and_spacing rules."
+  ]
+}

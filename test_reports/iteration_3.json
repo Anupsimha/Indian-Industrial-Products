@@ -1,0 +1,42 @@
+{
+  "summary": "Re-tested IIP MVP after iteration-2 fixes on mobile viewport 420x900. All 3 critical iteration-2 bugs are VERIFIED FIXED: (1) HomePage now renders <JobsSection /> at line 101 — [data-testid='jobs-section'] visible with 5 job cards in horizontal scroll. (2) ProfilePage / LeadsPage / BookmarksPage / NotificationsPage all gate on `loading` from useAuth before the !user redirect, so authenticated direct/back navigation correctly renders the protected page (verified profile-page testid + 10 lead cards on /leads + bookmark & notification content). (3) header-profile-btn click → URL becomes /profile and the page renders. Backend pytest still 16/16 PASS. Smoke tests all green: /products (6 product cards + 6 category chips), /jobs (5 job-list-* cards + 5 apply-job-* buttons), /company/:id (4 tabs tab-posts/products/reels/about all switch), /reels (28 reel-* elements), /pricing (3 plans, 6 plan-* testids). One residual minor: a single 'TEST Co 4984f93c' company still appears in Featured Companies — re-introduced because test_register_manufacturer_creates_company creates a TEST_ user/company every pytest run without teardown; main agent should add a teardown fixture or filter TEST_-prefixed companies from public listing. Existing duplicate-key React warnings on Featured Companies carousel remain (carry-over from iter 2, MEDIUM).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/companies", "issue": "Returns leftover 'TEST Co <hex>' company created by test_register_manufacturer_creates_company; no teardown fixture removes it so Home Featured Companies carousel keeps re-polluting after every pytest run."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "HomePage Featured Companies carousel", "issue": "Console: 'Encountered two children with the same key' x6 — auto-scroll duplicates company items without suffixing the React key. Carry-over from iteration 2.", "selector": "[data-testid^='featured-company-']", "priority": "MEDIUM"},
+      {"component": "HomePage Featured Companies", "issue": "First card is 'TEST Co 4984f93c / India' (no logo) created by backend register test — dilutes marketplace look. Either filter on backend or cleanup test data after pytest.", "selector": "[data-testid^='featured-company-']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "All pages with bottom nav", "issues": ["'Made with Emergent' badge still overlays the bottom-nav center 'Post' (+) button on 420px width — partially obscures the primary CTA. Carry-over from iter 2."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iip_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(MINOR) Add a pytest teardown fixture in test_iip_api.py to delete TEST_ users/companies after the suite, OR filter out users/companies whose name starts with 'TEST' in the public GET /api/companies endpoint.",
+    "(MEDIUM) Fix duplicate React keys in FeaturedCompanies auto-scroll duplicate by suffixing keys: key={`${id}-clone-${idx}`}.",
+    "(LOW) Reposition or change z-index of the 'Made with Emergent' badge so it does not overlap the bottom-nav center Post button on small viewports."
+  ],
+  "critical_code_review_comments": [
+    "AuthContext loading-gate fix is correct and consistent across ProfilePage, LeadsPage, BookmarksPage, NotificationsPage — pattern is now: `if (loading) return <Loading/>; if (!user) return <Navigate to='/login' replace />;`. Recommend extracting into a <ProtectedRoute> wrapper so the next protected page does not have to re-implement the same boilerplate.",
+    "test_register_manufacturer_creates_company persists data without teardown — every CI run leaves a TEST Co behind. Either use pytest fixture with `yield` + delete, or call the backend endpoint with a special TEST_ flag and filter from public listings.",
+    "FeaturedCompanies key duplication is a low-effort fix but logged on every Home render — fix with `${item.id}-${idx}` in the cloned slice.",
+    "_id correctly excluded ({_id: 0}) across Mongo queries; cookie-preferred get_current_user remains documented (worked around in tests by autouse cookie-clear fixture)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (16/16 pytest)", "frontend": "100% on critical flows — all 3 iter-2 bugs fixed; only cosmetic minor issues remain"},
+  "test_credentials": "rajesh@bharatsteel.com / demo123 (manufacturer), priya@buyer.com / demo123 (buyer), admin@iip.com / admin123 (admin) — all verified working. Login form selectors are [data-testid='login-identifier-input'], [data-testid='login-password-input'], [data-testid='login-submit-btn'] (NOT login-identifier / login-password / login-submit).",
+  "seed_data_creation": "None new. Existing seed remains: 5 jobs, 5 companies (incl. 1 polluting TEST Co), 6+ posts, 4+ reels, 6 products, 3 seed enquiries for Bharat Steel, plus 7 in-test enquiries created by enquiry-flow test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 3 critical bugs from iteration 2 are FIXED. Backend tests live at /app/backend/tests/test_iip_api.py (run: pytest /app/backend/tests/test_iip_api.py -v --junitxml=/app/test_reports/pytest/pytest_results.xml). Login form testids end in '-input' / '-btn'. Company detail tabs are [data-testid='tab-posts|products|reels|about']. Products page testids use 'product-<id>' (NOT 'product-card-<id>'); jobs page uses 'job-list-<id>' / 'apply-job-<id>'. Header profile button is [data-testid='header-profile-btn'] and is an <a href='/profile'> when authenticated. Remaining minor issues (TEST Co data pollution, duplicate keys, Made-with-Emergent overlap) are non-blocking and were already documented in iter 2.",
+  "rca of the issue": "All 3 iter-2 bugs were correctly root-caused and fixed: (a) <JobsSection /> JSX added at HomePage.jsx:101 between Featured Companies / category chips and the feed; (b) loading guard inserted before the !user Navigate redirect in ProfilePage.jsx:18, LeadsPage.jsx:27, BookmarksPage.jsx:14, NotificationsPage.jsx:17 so /auth/me has a chance to resolve before the protected page synchronously redirects to /login; (c) DB cleanup was performed (4 of 5 TEST_ companies removed) but a fresh pytest run creates 1 more TEST Co — recommend teardown fixture rather than manual cleanup."
+}
