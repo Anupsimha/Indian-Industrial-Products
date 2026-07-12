@@ -256,7 +256,7 @@ export default function CompanyDetailPage() {
                 <Plus size={16} /> Upload Reel
               </button>
             )}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2 max-w-md mx-auto">
               {reels.length === 0 && <div className="col-span-3 text-center text-sm text-slate-500 py-8">No reels yet.</div>}
               {reels.map((r) => (
                 <div key={r.id} className="relative aspect-[9/16] bg-slate-900 rounded-xl overflow-hidden group" data-testid={`company-reel-${r.id}`}

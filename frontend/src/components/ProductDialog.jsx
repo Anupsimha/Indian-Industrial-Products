@@ -132,9 +132,9 @@ export const ProductDialog = ({ open, onClose, onSaved, initial }) => {
       });
       const imgs = initial
         ? [initial.image_url, ...(initial.images || [])]
-            .filter(Boolean)
-            .filter((v, i, a) => a.indexOf(v) === i)
-            .map((u) => ({ url: u, resource_type: "image" }))
+          .filter(Boolean)
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .map((u) => ({ url: u, resource_type: "image" }))
         : [];
       setImages(imgs);
     }
@@ -346,8 +346,8 @@ export const ProductDialog = ({ open, onClose, onSaved, initial }) => {
             {submitting
               ? "Publishing..."
               : isEdit
-              ? "Save Changes"
-              : "🚀 Publish Product"}
+                ? "Save Changes"
+                : "Publish Product"}
           </button>
         </form>
       </div>

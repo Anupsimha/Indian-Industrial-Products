@@ -217,7 +217,7 @@ export default function ProfilePage() {
                 No reels uploaded yet.
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-2 max-w-md mx-auto">
                 {reels.map((r) => (
                   <div
                     key={r.id}

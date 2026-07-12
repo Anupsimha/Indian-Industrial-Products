@@ -48,15 +48,22 @@ VACANCY_RESUME_DIR = ROOT_DIR / "VacancyResume"
 VACANCY_RESUME_DIR.mkdir(exist_ok=True)
 REEL_DIR = ROOT_DIR / "reels-uploaded"
 REEL_DIR.mkdir(exist_ok=True)
+PRODUCT_IMAGES_DIR = ROOT_DIR / "products-images"
+PRODUCT_IMAGES_DIR.mkdir(exist_ok=True)
 
 # -------------------- Setup JWT --------------------
 JWT_SECRET = os.environ.get('JWT_SECRET', 'supersecretjwtkeyforiipmarketplace')
 JWT_ALGO = "HS256"
 
 app = FastAPI(title="IIP - Indian Industrial Products")
+app.mount("/api/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads_api")
+app.mount("/api/reels-uploaded", StaticFiles(directory=str(REEL_DIR)), name="reels_local_api")
+app.mount("/api/products-images", StaticFiles(directory=str(PRODUCT_IMAGES_DIR)), name="products_images_api")
+
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 app.mount("/VacancyResume", StaticFiles(directory=str(VACANCY_RESUME_DIR)), name="vacancy_resumes")
 app.mount("/reels-uploaded", StaticFiles(directory=str(REEL_DIR)), name="reels_local")
+app.mount("/products-images", StaticFiles(directory=str(PRODUCT_IMAGES_DIR)), name="products_images")
 
 api = APIRouter(prefix="/api")
 
@@ -647,6 +654,42 @@ def set_auth_cookie(response: Response, token: str):
     )
 
 
+def clean_product_url(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return url
+    if "/products-images/" in url:
+        filename = url.split("/products-images/")[-1]
+        return f"/api/products-images/{filename}"
+    elif "/uploads/" in url:
+        filename = url.split("/uploads/")[-1]
+        return f"/api/uploads/{filename}"
+    return url
+
+def clean_reel_url(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return url
+    if "/reels-uploaded/" in url:
+        filename = url.split("/reels-uploaded/")[-1]
+        return f"/api/reels-uploaded/{filename}"
+    elif "/uploads/" in url:
+        filename = url.split("/uploads/")[-1]
+        return f"/api/uploads/{filename}"
+    return url
+
+def make_product_out(doc: Product, company: Optional[Company]) -> ProductOut:
+    return ProductOut(
+        id=doc.id, company_id=doc.company_id,
+        company_name=company.name if company else "",
+        name=doc.name, category=doc.category,
+        image_url=clean_product_url(doc.image_url),
+        images=[clean_product_url(img) for img in (doc.images or [])],
+        price=doc.price, moq=doc.moq,
+        description=doc.description,
+        stock_left=doc.stock_left, location=doc.location,
+        whatsapp=company.whatsapp if company else "",
+    )
+
+
 async def hydrate_company(company: Company, current_user: Optional[dict], db: AsyncSession) -> CompanyOut:
     stmt_follows = select(func.count(Follow.id)).where(Follow.company_id == company.id)
     followers_count = (await db.execute(stmt_follows)).scalar_one()
@@ -731,7 +774,7 @@ async def hydrate_reel(reel: Reel, current_user: Optional[dict], db: AsyncSessio
     return ReelOut(
         id=reel.id, company_id=company.id, company_name=company.name,
         company_logo=company.logo_url, location=company.location,
-        content=reel.content, video_url=reel.video_url,
+        content=reel.content, video_url=clean_reel_url(reel.video_url),
         thumbnail_url=reel.thumbnail_url, likes_count=likes_count,
         comments_count=comments_count, is_liked=is_liked, is_following=is_following,
         whatsapp=company.whatsapp, created_at=reel.created_at,
@@ -848,15 +891,7 @@ async def company_products(company_id: str, db: AsyncSession = Depends(get_db)):
     
     out = []
     for d in docs:
-        out.append(ProductOut(
-            id=d.id, company_id=company_id,
-            company_name=company.name if company else "",
-            name=d.name, category=d.category, image_url=d.image_url,
-            images=d.images, price=d.price, moq=d.moq,
-            description=d.description,
-            stock_left=d.stock_left, location=d.location,
-            whatsapp=company.whatsapp if company else "",
-        ))
+        out.append(make_product_out(d, company))
     return out
 
 
@@ -1008,6 +1043,7 @@ async def create_reel(
     if not user.get("company_id"):
         raise HTTPException(status_code=403, detail="Only businesses can post")
 
+    rid = str(uuid.uuid4())
     content = ""
     video_url = ""
     thumbnail_url = None
@@ -1034,7 +1070,7 @@ async def create_reel(
                 raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
 
             file_ext = Path(file.filename).suffix if file.filename else ".mp4"
-            unique_filename = f"{user['id']}_{uuid.uuid4().hex}{file_ext}"
+            unique_filename = f"{user['id']}-{rid}{file_ext}"
             file_path = REEL_DIR / unique_filename
             with file_path.open("wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
@@ -1051,18 +1087,17 @@ async def create_reel(
             if size > 10 * 1024 * 1024:
                 raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
                 
-            unique_filename = f"{user['id']}_{uuid.uuid4().hex}.mp4"
+            unique_filename = f"{user['id']}-{rid}.mp4"
             file_path = REEL_DIR / unique_filename
             shutil.copy(str(demo_path), str(file_path))
         else:
             raise HTTPException(status_code=400, detail="No video file provided")
 
-        video_url = f"http://localhost:8000/reels-uploaded/{unique_filename}"
+        video_url = f"/api/reels-uploaded/{unique_filename}"
 
     if not video_url:
         raise HTTPException(status_code=400, detail="No video URL or file provided")
 
-    rid = str(uuid.uuid4())
     doc = Reel(
         id=rid, company_id=user["company_id"], content=content,
         video_url=video_url, thumbnail_url=thumbnail_url,
@@ -1126,27 +1161,56 @@ async def list_products(category: Optional[str] = None, limit: int = 50, db: Asy
     for d in docs:
         stmt_comp = select(Company).where(Company.id == d.company_id)
         company = (await db.execute(stmt_comp)).scalar_one_or_none()
-        out.append(ProductOut(
-            id=d.id, company_id=d.company_id,
-            company_name=company.name if company else "",
-            name=d.name, category=d.category, image_url=d.image_url,
-            images=d.images or [], price=d.price, moq=d.moq,
-            description=d.description,
-            stock_left=d.stock_left, location=d.location,
-            whatsapp=company.whatsapp if company else "",
-        ))
+        out.append(make_product_out(d, company))
     return out
 
 
+def process_product_images(user_id: str, product_id: str, image_url: str, images: List[str], request: Request) -> tuple[str, List[str]]:
+    PRODUCT_IMAGES_DIR.mkdir(exist_ok=True)
+    
+    new_image_url = image_url
+    new_images = []
+    
+    if image_url:
+        filename = Path(image_url).name
+        src_path = UPLOADS_DIR / filename
+        if src_path.exists():
+            ext = src_path.suffix or ".png"
+            dest_filename = f"{user_id}-{product_id}{ext}"
+            dest_path = PRODUCT_IMAGES_DIR / dest_filename
+            shutil.copy(str(src_path), str(dest_path))
+            new_image_url = f"/api/products-images/{dest_filename}"
+            
+    for idx, img_url in enumerate(images):
+        if img_url:
+            filename = Path(img_url).name
+            src_path = UPLOADS_DIR / filename
+            if src_path.exists():
+                ext = src_path.suffix or ".png"
+                dest_filename = f"{user_id}-{product_id}-{idx}{ext}"
+                dest_path = PRODUCT_IMAGES_DIR / dest_filename
+                shutil.copy(str(src_path), str(dest_path))
+                new_images.append(f"/api/products-images/{dest_filename}")
+            else:
+                new_images.append(img_url)
+        else:
+            new_images.append(img_url)
+            
+    return new_image_url, new_images
+
+
 @api.post("/products", response_model=ProductOut)
-async def create_product(payload: ProductCreate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def create_product(request: Request, payload: ProductCreate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not user.get("company_id"):
         raise HTTPException(status_code=403, detail="Only businesses can add products")
     pid = str(uuid.uuid4())
+    
+    image_url, images = process_product_images(user["id"], pid, payload.image_url, payload.images or [], request)
+    
     doc = Product(
         id=pid, company_id=user["company_id"],
         name=payload.name, category=payload.category,
-        image_url=payload.image_url, images=payload.images or [],
+        image_url=image_url, images=images,
         price=payload.price, moq=payload.moq,
         description=payload.description,
         stock_left=payload.stock_left, location=payload.location,
@@ -1159,19 +1223,11 @@ async def create_product(payload: ProductCreate, user: dict = Depends(get_curren
     doc = (await db.execute(stmt)).scalar_one()
     stmt_comp = select(Company).where(Company.id == user["company_id"])
     company = (await db.execute(stmt_comp)).scalar_one_or_none()
-    return ProductOut(
-        id=doc.id, company_id=doc.company_id,
-        company_name=company.name if company else "",
-        name=doc.name, category=doc.category, image_url=doc.image_url,
-        images=doc.images or [], price=doc.price, moq=doc.moq,
-        description=doc.description,
-        stock_left=doc.stock_left, location=doc.location,
-        whatsapp=company.whatsapp if company else "",
-    )
+    return make_product_out(doc, company)
 
 
 @api.patch("/products/{product_id}", response_model=ProductOut)
-async def update_product(product_id: str, payload: ProductCreate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def update_product(product_id: str, payload: ProductCreate, request: Request, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     stmt = select(Product).where(Product.id == product_id)
     p = (await db.execute(stmt)).scalar_one_or_none()
     if not p:
@@ -1181,6 +1237,17 @@ async def update_product(product_id: str, payload: ProductCreate, user: dict = D
     
     update_data = payload.model_dump(exclude_none=True)
     if update_data:
+        if "image_url" in update_data or "images" in update_data:
+            cur_img_url = update_data.get("image_url", p.image_url)
+            cur_imgs = update_data.get("images", p.images or [])
+            processed_img_url, processed_imgs = process_product_images(
+                user["id"], product_id, cur_img_url, cur_imgs, request
+            )
+            if "image_url" in update_data:
+                update_data["image_url"] = processed_img_url
+            if "images" in update_data:
+                update_data["images"] = processed_imgs
+
         stmt_upd = update(Product).where(Product.id == product_id).values(**update_data)
         await db.execute(stmt_upd)
         await db.commit()
@@ -1190,15 +1257,7 @@ async def update_product(product_id: str, payload: ProductCreate, user: dict = D
         
     stmt_comp = select(Company).where(Company.id == p.company_id)
     company = (await db.execute(stmt_comp)).scalar_one_or_none()
-    return ProductOut(
-        id=p.id, company_id=p.company_id,
-        company_name=company.name if company else "",
-        name=p.name, category=p.category, image_url=p.image_url,
-        images=p.images or [], price=p.price, moq=p.moq,
-        description=p.description,
-        stock_left=p.stock_left, location=p.location,
-        whatsapp=company.whatsapp if company else "",
-    )
+    return make_product_out(p, company)
 
 
 @api.delete("/products/{product_id}")
@@ -2324,6 +2383,14 @@ class VerifyPaymentIn(BaseModel):
     plan_id: str
     billing_cycle: str
 
+class CreateCartOrderIn(BaseModel):
+    amount: float
+
+class VerifyCartPaymentIn(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str
+    razorpay_signature: str
+
 class ChatMessageIn(BaseModel):
     receiver_id: str
     message: str
@@ -2397,6 +2464,44 @@ async def verify_payment(payload: VerifyPaymentIn, user: dict = Depends(get_curr
     )
     await db.execute(stmt_upd)
     await db.commit()
+    return {"ok": True}
+
+@api.post("/payments/create-order-cart")
+async def create_payment_order_cart(payload: CreateCartOrderIn, user: dict = Depends(get_current_user)):
+    amount_paise = int(payload.amount * 100)
+    key_id = "rzp_test_TC7Rq6NgUW0TiB"
+    key_secret = "SlP4dzu1iYGRV902XsswqT2H"
+    
+    if amount_paise == 0:
+        return {"order_id": "free_cart", "amount": 0, "key": key_id, "currency": "INR"}
+        
+    import requests
+    auth = (key_id, key_secret)
+    order_payload = {
+        "amount": amount_paise,
+        "currency": "INR",
+        "receipt": f"receipt_cart_{user['id'][:8]}"
+    }
+    try:
+        r = requests.post("https://api.razorpay.com/v1/orders", json=order_payload, auth=auth, timeout=10)
+        if r.status_code != 200:
+            logger.error(f"Razorpay error: {r.text}")
+            raise HTTPException(status_code=500, detail="Failed to create order with payment gateway")
+        order_data = r.json()
+        return {"order_id": order_data["id"], "amount": amount_paise, "key": key_id, "currency": "INR"}
+    except Exception as e:
+        logger.error(f"Failed calling Razorpay: {str(e)}")
+        raise HTTPException(status_code=500, detail="Payment gateway connection error")
+
+@api.post("/payments/verify-cart")
+async def verify_cart_payment(payload: VerifyCartPaymentIn, user: dict = Depends(get_current_user)):
+    key_secret = "SlP4dzu1iYGRV902XsswqT2H"
+    import hmac
+    import hashlib
+    msg = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
+    generated = hmac.new(key_secret.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(generated, payload.razorpay_signature):
+        raise HTTPException(status_code=400, detail="Payment signature verification failed")
     return {"ok": True}
 
 # Chat functionality
