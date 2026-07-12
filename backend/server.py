@@ -475,6 +475,7 @@ class JobOut(BaseModel):
     description: str
     posted: str
     created_at: str
+    applicants_count: int = 0
 
 
 class EnquiryCreate(BaseModel):
@@ -1271,7 +1272,33 @@ async def list_my_jobs(user: dict = Depends(get_current_user), db: AsyncSession 
         raise HTTPException(status_code=403, detail="Only businesses can have job postings")
     stmt = select(Job).where(Job.company_id == user["company_id"]).order_by(desc(Job.created_at))
     docs = (await db.execute(stmt)).scalars().all()
-    return docs
+    
+    def get_job_applicants_count(job_id: str) -> int:
+        job_dir = VACANCY_RESUME_DIR / job_id
+        count = 0
+        if job_dir.exists() and job_dir.is_dir():
+            for file_name in os.listdir(job_dir):
+                if file_name.endswith("_info.json"):
+                    count += 1
+        return count
+
+    results = []
+    for doc in docs:
+        job_dict = {
+            "id": doc.id,
+            "company_id": doc.company_id,
+            "company_name": doc.company_name,
+            "title": doc.title,
+            "location": doc.location,
+            "type": doc.type,
+            "salary": doc.salary,
+            "description": doc.description,
+            "posted": doc.posted,
+            "created_at": doc.created_at,
+            "applicants_count": get_job_applicants_count(doc.id)
+        }
+        results.append(job_dict)
+    return results
 
 
 @api.post("/jobs", response_model=JobOut)
@@ -1356,6 +1383,15 @@ async def apply_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
         
+    # RBAC: Publisher check (cannot apply to own vacancy)
+    if job.company_id:
+        if user.get("company_id") == job.company_id:
+            raise HTTPException(status_code=400, detail="You cannot apply to your own job vacancy")
+        stmt_comp = select(Company).where(Company.id == job.company_id)
+        company = (await db.execute(stmt_comp)).scalar_one_or_none()
+        if company and company.owner_id == user["id"]:
+            raise HTTPException(status_code=400, detail="You cannot apply to your own job vacancy")
+
     user_id = user["id"]
     job_dir = VACANCY_RESUME_DIR / job_id
     job_dir.mkdir(exist_ok=True)
