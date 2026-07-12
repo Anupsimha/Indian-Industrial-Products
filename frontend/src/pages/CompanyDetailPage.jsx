@@ -220,7 +220,18 @@ export default function CompanyDetailPage() {
                     <div className="font-semibold text-sm text-slate-900 line-clamp-1">{p.name}</div>
                     <div className="text-[10px] uppercase tracking-wider text-slate-500 mt-0.5">{p.category}</div>
                     {p.price && <div className="font-display font-bold text-blue-800 mt-1 text-sm">{p.price}</div>}
-                    {p.moq && <div className="text-[10px] text-slate-500">MOQ: {p.moq}</div>}
+                    <div className="flex flex-col gap-0.5 mt-1 text-[10px] text-slate-500 font-medium">
+                      {p.location && (
+                        <div className="flex items-center gap-0.5">
+                          <MapPin size={10} className="text-slate-400" />
+                          <span>{p.location}</span>
+                        </div>
+                      )}
+                      <div>
+                        {p.stock_left !== undefined && p.stock_left !== null ? `Stock: ${p.stock_left}` : "In Stock"}
+                      </div>
+                      {p.moq && <div>MOQ: {p.moq}</div>}
+                    </div>
                     <div className="grid grid-cols-2 gap-1 mt-2">
                       <button onClick={(e) => { if (!canContact) { handleContactClick(e); } else { setEnq(true); } }}
                         className={`py-1 rounded-full bg-orange-600 text-white text-[10px] font-semibold hover:bg-orange-700 ${!canContact ? 'blur-[1px] opacity-70' : ''}`}

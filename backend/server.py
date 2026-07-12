@@ -20,7 +20,7 @@ from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, EmailStr
 
 from sqlalchemy import (
-    Column, String, Text, Integer, Float, Boolean, JSON, select, update, delete, func, desc, and_, or_
+    Column, String, Text, Integer, Float, Boolean, JSON, select, update, delete, func, desc, and_, or_, text
 )
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
@@ -46,7 +46,7 @@ UPLOADS_DIR = ROOT_DIR / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
 VACANCY_RESUME_DIR = ROOT_DIR / "VacancyResume"
 VACANCY_RESUME_DIR.mkdir(exist_ok=True)
-REEL_DIR = ROOT_DIR / "reel"
+REEL_DIR = ROOT_DIR / "reels-uploaded"
 REEL_DIR.mkdir(exist_ok=True)
 
 # -------------------- Setup JWT --------------------
@@ -56,7 +56,7 @@ JWT_ALGO = "HS256"
 app = FastAPI(title="IIP - Indian Industrial Products")
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 app.mount("/VacancyResume", StaticFiles(directory=str(VACANCY_RESUME_DIR)), name="vacancy_resumes")
-app.mount("/reel", StaticFiles(directory=str(REEL_DIR)), name="reels_local")
+app.mount("/reels-uploaded", StaticFiles(directory=str(REEL_DIR)), name="reels_local")
 
 api = APIRouter(prefix="/api")
 
@@ -136,6 +136,8 @@ class Product(Base):
     price = Column(String(255), nullable=True)
     moq = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
+    stock_left = Column(Integer, default=0, nullable=True)
+    location = Column(String(255), nullable=True)
     created_at = Column(String(255), nullable=False)
 
 class Job(Base):
@@ -432,6 +434,8 @@ class ProductCreate(BaseModel):
     price: Optional[str] = None
     moq: Optional[str] = None
     description: Optional[str] = None
+    stock_left: Optional[int] = None
+    location: Optional[str] = None
 
 
 class ProductOut(BaseModel):
@@ -446,6 +450,8 @@ class ProductOut(BaseModel):
     moq: Optional[str] = None
     description: Optional[str] = None
     whatsapp: str
+    stock_left: Optional[int] = None
+    location: Optional[str] = None
 
 
 class JobCreate(BaseModel):
@@ -848,6 +854,7 @@ async def company_products(company_id: str, db: AsyncSession = Depends(get_db)):
             name=d.name, category=d.category, image_url=d.image_url,
             images=d.images, price=d.price, moq=d.moq,
             description=d.description,
+            stock_left=d.stock_left, location=d.location,
             whatsapp=company.whatsapp if company else "",
         ))
     return out
@@ -995,56 +1002,70 @@ async def list_reels(request: Request, limit: int = 30, db: AsyncSession = Depen
 @api.post("/reels", response_model=ReelOut)
 async def create_reel(
     request: Request,
-    content: str = Form(...),
-    file: Optional[UploadFile] = File(None),
-    use_demo: Optional[bool] = Form(None),
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     if not user.get("company_id"):
         raise HTTPException(status_code=403, detail="Only businesses can post")
 
-    unique_filename = ""
-    if file:
-        # Check size using the underlying sync file object
-        file.file.seek(0, 2)
-        size = file.file.tell()
-        file.file.seek(0)
-        if size > 10 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
+    content = ""
+    video_url = ""
+    thumbnail_url = None
 
-        file_ext = Path(file.filename).suffix if file.filename else ".mp4"
-        unique_filename = f"{user['id']}_{uuid.uuid4().hex}{file_ext}"
-        file_path = REEL_DIR / unique_filename
-        with file_path.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    elif use_demo:
-        demo_path = Path(r"C:\Users\anups\Downloads\Video Project.mp4")
-        if not demo_path.exists():
-            demo_path = ROOT_DIR / "Video Project.mp4"
-            
-        if not demo_path.exists():
-            raise HTTPException(status_code=404, detail="Demo video file not found on server")
-        
-        # Check size
-        size = demo_path.stat().st_size
-        if size > 10 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
-            
-        unique_filename = f"{user['id']}_{uuid.uuid4().hex}.mp4"
-        file_path = REEL_DIR / unique_filename
-        shutil.copy(str(demo_path), str(file_path))
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+        content = body.get("content", "")
+        video_url = body.get("video_url", "")
+        thumbnail_url = body.get("thumbnail_url", None)
     else:
-        raise HTTPException(status_code=400, detail="No video file provided")
+        form = await request.form()
+        content = form.get("content") or ""
+        file = form.get("file")
+        use_demo = form.get("use_demo")
 
-    # Store relative path — frontend proxies /api/* to backend, 
-    # so reel files are served at http://localhost:8000/reel/<filename>
-    abs_url = f"http://localhost:8000/reel/{unique_filename}"
+        unique_filename = ""
+        if file and hasattr(file, "file"):
+            # Check size using the underlying sync file object
+            file.file.seek(0, 2)
+            size = file.file.tell()
+            file.file.seek(0)
+            if size > 10 * 1024 * 1024:
+                raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
+
+            file_ext = Path(file.filename).suffix if file.filename else ".mp4"
+            unique_filename = f"{user['id']}_{uuid.uuid4().hex}{file_ext}"
+            file_path = REEL_DIR / unique_filename
+            with file_path.open("wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+        elif use_demo:
+            demo_path = Path(r"C:\Users\anups\Downloads\Video Project.mp4")
+            if not demo_path.exists():
+                demo_path = ROOT_DIR / "Video Project.mp4"
+                
+            if not demo_path.exists():
+                raise HTTPException(status_code=404, detail="Demo video file not found on server")
+            
+            # Check size
+            size = demo_path.stat().st_size
+            if size > 10 * 1024 * 1024:
+                raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
+                
+            unique_filename = f"{user['id']}_{uuid.uuid4().hex}.mp4"
+            file_path = REEL_DIR / unique_filename
+            shutil.copy(str(demo_path), str(file_path))
+        else:
+            raise HTTPException(status_code=400, detail="No video file provided")
+
+        video_url = f"http://localhost:8000/reels-uploaded/{unique_filename}"
+
+    if not video_url:
+        raise HTTPException(status_code=400, detail="No video URL or file provided")
 
     rid = str(uuid.uuid4())
     doc = Reel(
         id=rid, company_id=user["company_id"], content=content,
-        video_url=abs_url, thumbnail_url=None,
+        video_url=video_url, thumbnail_url=thumbnail_url,
         created_at=now_iso(),
     )
     db.add(doc)
@@ -1111,6 +1132,7 @@ async def list_products(category: Optional[str] = None, limit: int = 50, db: Asy
             name=d.name, category=d.category, image_url=d.image_url,
             images=d.images or [], price=d.price, moq=d.moq,
             description=d.description,
+            stock_left=d.stock_left, location=d.location,
             whatsapp=company.whatsapp if company else "",
         ))
     return out
@@ -1126,7 +1148,9 @@ async def create_product(payload: ProductCreate, user: dict = Depends(get_curren
         name=payload.name, category=payload.category,
         image_url=payload.image_url, images=payload.images or [],
         price=payload.price, moq=payload.moq,
-        description=payload.description, created_at=now_iso(),
+        description=payload.description,
+        stock_left=payload.stock_left, location=payload.location,
+        created_at=now_iso(),
     )
     db.add(doc)
     await db.commit()
@@ -1141,6 +1165,7 @@ async def create_product(payload: ProductCreate, user: dict = Depends(get_curren
         name=doc.name, category=doc.category, image_url=doc.image_url,
         images=doc.images or [], price=doc.price, moq=doc.moq,
         description=doc.description,
+        stock_left=doc.stock_left, location=doc.location,
         whatsapp=company.whatsapp if company else "",
     )
 
@@ -1171,6 +1196,7 @@ async def update_product(product_id: str, payload: ProductCreate, user: dict = D
         name=p.name, category=p.category, image_url=p.image_url,
         images=p.images or [], price=p.price, moq=p.moq,
         description=p.description,
+        stock_left=p.stock_left, location=p.location,
         whatsapp=company.whatsapp if company else "",
     )
 
@@ -3040,6 +3066,14 @@ async def _seed_slides_if_empty(db: AsyncSession):
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("ALTER TABLE products ADD COLUMN stock_left INTEGER"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("ALTER TABLE products ADD COLUMN location VARCHAR(255)"))
+        except Exception:
+            pass
         
     async with AsyncSessionLocal() as session:
         await seed_data(session)
