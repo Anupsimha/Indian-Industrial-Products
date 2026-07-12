@@ -3,14 +3,17 @@ import { Link } from "react-router-dom";
 import { Package, ShoppingCart, CheckCircle, Clock, Truck, XCircle, ChevronRight } from "lucide-react";
 import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { toast } from "sonner";
 
 const STATUS_CONFIG = {
-  paid: { label: "Paid", color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200", icon: CheckCircle },
+  paid: { label: "Paid (Pending)", color: "text-amber-700", bg: "bg-amber-50 border-amber-200", icon: Clock },
   pending: { label: "Pending", color: "text-amber-700", bg: "bg-amber-50 border-amber-200", icon: Clock },
-  processing: { label: "Processing", color: "text-blue-700", bg: "bg-blue-50 border-blue-200", icon: Clock },
-  shipped: { label: "Shipped", color: "text-purple-700", bg: "bg-purple-50 border-purple-200", icon: Truck },
-  delivered: { label: "Delivered", color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200", icon: CheckCircle },
-  cancelled: { label: "Cancelled", color: "text-rose-700", bg: "bg-rose-50 border-rose-200", icon: XCircle },
+  processing: { label: "Processing (Pending)", color: "text-blue-700", bg: "bg-blue-50 border-blue-200", icon: Clock },
+  shipped: { label: "Shipped (Pending)", color: "text-purple-700", bg: "bg-purple-50 border-purple-200", icon: Truck },
+  delivered: { label: "Completed", color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200", icon: CheckCircle },
+  completed: { label: "Completed", color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200", icon: CheckCircle },
+  cancelled: { label: "Rejected", color: "text-rose-700", bg: "bg-rose-50 border-rose-200", icon: XCircle },
+  rejected: { label: "Rejected", color: "text-rose-700", bg: "bg-rose-50 border-rose-200", icon: XCircle },
 };
 
 export default function OrdersPage() {
@@ -18,6 +21,17 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
+
+  const handleRejectOrder = async (orderId) => {
+    try {
+      await api.post(`/orders/${orderId}/reject`);
+      toast.success("Order rejected successfully");
+      const { data } = await api.get("/orders/me");
+      setOrders(data);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to reject order");
+    }
+  };
 
   useEffect(() => {
     if (!user) { setLoading(false); return; }
@@ -94,6 +108,15 @@ export default function OrdersPage() {
           const orderDate = new Date(order.created_at).toLocaleDateString("en-IN", {
             day: "2-digit", month: "short", year: "numeric",
           });
+
+          const orderCreationTime = new Date(order.created_at);
+          const estDeliveryTime = new Date(orderCreationTime.getTime() + 7 * 24 * 60 * 60 * 1000);
+          const cutoffTime = new Date(estDeliveryTime.getTime() - 72 * 60 * 60 * 1000);
+          const canReject = new Date() < cutoffTime && 
+                            order.status !== "cancelled" && 
+                            order.status !== "rejected" && 
+                            order.status !== "completed" && 
+                            order.status !== "delivered";
 
           return (
             <div
@@ -194,6 +217,17 @@ export default function OrdersPage() {
                         <div className="font-mono text-[9px] text-emerald-600">{order.payment_id}</div>
                       </div>
                     </div>
+                  )}
+
+                  {/* Reject Order Button */}
+                  {canReject && (
+                    <button
+                      onClick={() => handleRejectOrder(order.id)}
+                      data-testid={`reject-order-${order.id}`}
+                      className="w-full mt-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 rounded-xl text-xs font-bold transition-all border border-rose-100 flex items-center justify-center gap-1.5"
+                    >
+                      <XCircle size={14} /> Reject Order
+                    </button>
                   )}
                 </div>
               )}

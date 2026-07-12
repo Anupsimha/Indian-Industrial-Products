@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
+import { useAuth } from "../context/AuthContext";
 
 const parsePrice = (priceStr) => {
   if (!priceStr || typeof priceStr !== "string") return null;
@@ -44,6 +45,7 @@ export default function ProductsPage() {
 
   // Global Cart Context
   const { cart, addToCart: ctxAddToCart, updateQty, clearCart, cartSubtotal } = useCart();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   // Buying Flow State (local to this page's checkout modal)
@@ -132,6 +134,40 @@ export default function ProductsPage() {
   const deliveryCost = cart.length > 0 ? deliveryOptions[selectedDelivery].cost : 0;
   const gstCost = Math.round(cartSubtotal * 0.18);
   const cartTotal = cartSubtotal + deliveryCost + gstCost;
+
+  const placeOrder = async () => {
+    try {
+      const orderPayload = {
+        items: cart.map((item) => ({
+          product_id: item.id,
+          name: item.name,
+          qty: item.qty,
+          price: item.price || "On Request",
+          image_url: item.image_url,
+          company_name: item.company_name || "",
+        })),
+        subtotal: cartSubtotal,
+        delivery_cost: deliveryCost,
+        gst: gstCost,
+        total: cartTotal,
+        delivery_option: selectedDelivery,
+        payment_method: selectedPayment,
+        payment_id: selectedPayment === "upi" ? upiId : "mock_card_" + Date.now(),
+        address: user ? `${user.name}, India` : "India",
+      };
+
+      if (user) {
+        await api.post("/orders", orderPayload);
+      }
+    } catch (error) {
+      console.error("Failed to place order via backend:", error);
+    }
+  };
+
+  const handlePaymentConfirm = async () => {
+    setBuyingStep("processing");
+    await placeOrder();
+  };
 
   // Simulated processing screen
   useEffect(() => {
@@ -675,7 +711,7 @@ export default function ProductsPage() {
 
                 {/* Pay button */}
                 <button
-                  onClick={() => setBuyingStep("processing")}
+                  onClick={handlePaymentConfirm}
                   className="w-full py-3.5 rounded-xl bg-emerald-600 text-white font-extrabold text-xs hover:bg-emerald-700 shadow-md active:scale-95 transition-all flex items-center justify-center gap-1"
                 >
                   Pay Securely ₹{cartTotal.toLocaleString()}

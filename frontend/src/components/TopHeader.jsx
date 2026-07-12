@@ -1,13 +1,24 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart } from "lucide-react";
 import { Logo } from "./Logo";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
+import { toast } from "sonner";
 
 export const TopHeader = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { cartCount } = useCart();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const handleProfileClick = () => {
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+    setDropdownOpen(!dropdownOpen);
+  };
 
   return (
     <header
@@ -56,17 +67,99 @@ export const TopHeader = () => {
               3
             </span>
           </Link>
-          <Link
-            to={user ? "/profile" : "/login"}
-            className="ml-1 inline-flex items-center justify-center w-9 h-9 lg:w-11 lg:h-11 rounded-full bg-blue-800 text-white hover:bg-blue-900 transition-colors overflow-hidden ring-2 ring-blue-50"
-            data-testid="header-profile-btn"
-          >
-            {user && user.avatar_url ? (
-              <img src={user.avatar_url} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <User size={20} />
+          <div className="relative">
+            <button
+              onClick={handleProfileClick}
+              className="ml-1 inline-flex items-center justify-center w-9 h-9 lg:w-11 lg:h-11 rounded-full bg-blue-800 text-white hover:bg-blue-900 transition-colors overflow-hidden ring-2 ring-blue-50"
+              data-testid="header-profile-btn"
+            >
+              {user && user.avatar_url ? (
+                <img src={user.avatar_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <User size={20} />
+              )}
+            </button>
+
+            {/* Click-outside backdrop */}
+            {user && dropdownOpen && (
+              <div 
+                className="fixed inset-0 z-40 bg-transparent" 
+                onClick={() => setDropdownOpen(false)} 
+              />
             )}
-          </Link>
+
+            {/* Dropdown Menu */}
+            {user && dropdownOpen && (
+              <div 
+                className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-150"
+                data-testid="profile-dropdown"
+              >
+                <Link
+                  to="/profile"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                >
+                  Profile
+                </Link>
+                <Link
+                  to="/orders"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                >
+                  My Orders
+                </Link>
+
+                {/* Manufacturer/Seller role checks */}
+                {(user.role === "manufacturer" || user.role === "supplier") && (
+                  <>
+                    <Link
+                      to="/leads"
+                      onClick={() => setDropdownOpen(false)}
+                      className="block px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                    >
+                      My Leads
+                    </Link>
+                    <Link
+                      to="/my-vacancies"
+                      onClick={() => setDropdownOpen(false)}
+                      className="block px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                    >
+                      My Vacancies
+                    </Link>
+                  </>
+                )}
+
+                <Link
+                  to="/bookmarks"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                >
+                  Saved
+                </Link>
+                <button
+                  onClick={() => {
+                    setDropdownOpen(false);
+                    toast.success("Analytics dashboard coming soon!");
+                  }}
+                  className="w-full text-left block px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                >
+                  Analytics
+                </button>
+                <hr className="my-1 border-slate-100" />
+                <button
+                  onClick={async () => {
+                    setDropdownOpen(false);
+                    await logout();
+                    navigate("/");
+                  }}
+                  className="w-full text-left block px-4 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
+                  data-testid="dropdown-logout-btn"
+                >
+                  Sign Out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </header>

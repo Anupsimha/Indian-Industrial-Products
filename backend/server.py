@@ -1255,6 +1255,30 @@ async def get_order(order_id: str, user: dict = Depends(get_current_user), db: A
     )
 
 
+@api.post("/orders/{order_id}/reject")
+async def reject_order(order_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt = select(Order).where(Order.id == order_id)
+    order = (await db.execute(stmt)).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.user_id != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+        
+    created_str = order.created_at
+    if created_str.endswith('Z'):
+        created_str = created_str[:-1] + '+00:00'
+    created_time = datetime.fromisoformat(created_str)
+    delivery_time = created_time + timedelta(days=7)
+    limit_time = delivery_time - timedelta(hours=72)
+    
+    if datetime.now(timezone.utc) > limit_time:
+        raise HTTPException(status_code=400, detail="Cannot reject order within 72 hours of scheduled delivery")
+        
+    order.status = "rejected"
+    await db.commit()
+    return {"ok": True, "status": "rejected"}
+
+
 # -------------------- Jobs --------------------
 @api.get("/jobs", response_model=List[JobOut])
 async def list_jobs(company_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
