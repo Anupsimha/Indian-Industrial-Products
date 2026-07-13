@@ -15,11 +15,13 @@ import { LocationPicker } from "../components/LocationPicker";
 // ─────────────────────────────────────────────────────────────────────────────
 // UnlockModal — two-step: Warning → OTP input
 // ─────────────────────────────────────────────────────────────────────────────
-function UnlockModal({ stats, enqId, onClose, onSuccess }) {
-  const [step, setStep] = useState("warning"); // "warning" | "otp" | "loading"
+function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, onSuccess }) {
+  // If initialToken is provided, we already requested the OTP in handleUnlockClick
+  // — skip the warning step and go straight to OTP input.
+  const [step, setStep] = useState(initialToken ? "otp" : "warning");
   const [otp, setOtp] = useState("");
-  const [token, setToken] = useState("");
-  const [emailHint, setEmailHint] = useState("");
+  const [token, setToken] = useState(initialToken || "");
+  const [emailHint, setEmailHint] = useState(initialEmailHint || "");
   const [otpError, setOtpError] = useState("");
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -31,14 +33,13 @@ function UnlockModal({ stats, enqId, onClose, onSuccess }) {
 
   const quotaFull = !isUnlimited && remaining === 0;
 
-  // Step 1 — request OTP
+  // Step 1 — request OTP (only called from warning step when no initialToken)
   const handleRequestOtp = async () => {
     setSending(true);
     try {
       const { data } = await api.post(`/requirements/${enqId}/request-unlock`);
       if (data.already_unlocked) {
-        // Previously unlocked — pass through directly
-        onSuccess({ mobile: data.mobile, name: data.name });
+        onSuccess(enqId, { mobile: data.mobile, name: data.name });
         return;
       }
       setToken(data.token);
@@ -65,7 +66,7 @@ function UnlockModal({ stats, enqId, onClose, onSuccess }) {
         token,
         otp: otp.trim(),
       });
-      onSuccess({ mobile: data.mobile, name: data.name });
+      onSuccess(enqId, { mobile: data.mobile, name: data.name });
     } catch (e) {
       setOtpError(e.response?.data?.detail || "Incorrect OTP. Please try again.");
     } finally {
@@ -302,6 +303,8 @@ export default function RequirementsPage() {
 
   // Modal state
   const [modalEnqId, setModalEnqId] = useState(null); // null = closed
+  // Pre-fetched OTP token from handleUnlockClick (avoids double request-unlock call)
+  const [pendingUnlock, setPendingUnlock] = useState(null); // {id, token, emailHint}
 
   // ── Fetch categories ──
   useEffect(() => {
@@ -336,7 +339,7 @@ export default function RequirementsPage() {
   }, [user]);
 
   // ── Click "Unlock Contact" ──
-  const handleUnlockClick = (id) => {
+  const handleUnlockClick = async (id) => {
     if (!user) { navigate("/login"); return; }
     const hasPaidPlan = user.plan_name &&
       user.plan_name.toLowerCase() !== "free" &&
@@ -346,21 +349,47 @@ export default function RequirementsPage() {
       navigate("/pricing");
       return;
     }
-    setModalEnqId(id);
+
+    // Check if the lead is already in unlocked_enquiries on the server.
+    // This handles the case where the list came back as locked (e.g. auth
+    // wasn't sent on the public GET) but the lead was already unlocked before.
+    try {
+      const { data } = await api.post(`/requirements/${id}/request-unlock`);
+      if (data.already_unlocked) {
+        // Lead was already unlocked — reveal directly, no modal/email needed
+        setItems((arr) =>
+          arr.map((it) =>
+            it.id === id ? { ...it, is_unlocked: true, mobile: data.mobile, name: data.name } : it
+          )
+        );
+        toast.success("Contact revealed!");
+        return;
+      }
+      // Fresh unlock — store token & open modal
+      setPendingUnlock({ id, token: data.token, emailHint: data.email_hint });
+      setModalEnqId(id);
+    } catch (e) {
+      const msg = e.response?.data?.detail || "";
+      if (msg.toLowerCase().includes("upgrade") || msg.toLowerCase().includes("plan") || e.response?.status === 403) {
+        toast.error(msg || "Upgrade your plan to unlock contacts.");
+        if (msg.toLowerCase().includes("expired") || msg.toLowerCase().includes("upgrade")) navigate("/pricing");
+      } else {
+        toast.error(msg || "Could not initiate unlock. Please try again.");
+      }
+    }
   };
 
-  // ── Modal success callback ──
-  const handleUnlockSuccess = ({ mobile, name }) => {
+  // ── Modal success callback — receives enqId directly to avoid stale closure ──
+  const handleUnlockSuccess = (enqId, { mobile, name }) => {
     setModalEnqId(null);
+    setPendingUnlock(null);
     setItems((arr) =>
       arr.map((it) =>
-        it.id === modalEnqId
-          ? { ...it, is_unlocked: true, mobile, name }
-          : it
+        it.id === enqId ? { ...it, is_unlocked: true, mobile, name } : it
       )
     );
     toast.success("Contact unlocked! 🎉");
-    // Refresh stats
+    // Refresh quota stats
     api.get("/requirements/unlock-stats")
       .then((r) => setUnlockStats(r.data))
       .catch(() => {});
@@ -549,7 +578,9 @@ export default function RequirementsPage() {
         <UnlockModal
           stats={unlockStats}
           enqId={modalEnqId}
-          onClose={() => setModalEnqId(null)}
+          initialToken={pendingUnlock?.token}
+          initialEmailHint={pendingUnlock?.emailHint}
+          onClose={() => { setModalEnqId(null); setPendingUnlock(null); }}
           onSuccess={handleUnlockSuccess}
         />
       )}

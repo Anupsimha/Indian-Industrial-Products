@@ -2,18 +2,147 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
-import { Phone, MapPin, Tag, Clock, MessageSquare, Play, Lock, Sparkles, Filter, ChevronDown, CheckCircle2 } from "lucide-react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Phone, MapPin, Tag, Clock, MessageSquare, Play, Lock, Sparkles, Filter, ChevronDown, CheckCircle2,
+  AlertTriangle, Mail, X, ShieldCheck, Loader2, CheckCircle } from "lucide-react";
+import { Navigate, useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 
+
+// ─── OTP Unlock Modal (same as RequirementsPage) ──────────────────────────────
+function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, onSuccess }) {
+  const [step, setStep] = useState(initialToken ? "otp" : "warning");
+  const [otp, setOtp] = useState("");
+  const [token, setToken] = useState(initialToken || "");
+  const [emailHint, setEmailHint] = useState(initialEmailHint || "");
+  const [otpError, setOtpError] = useState("");
+  const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+
+  const usedCount = stats?.used_this_month ?? 0;
+  const totalLimit = stats?.unlocks_per_month;
+  const remaining = stats?.remaining;
+  const isUnlimited = totalLimit == null;
+  const quotaFull = !isUnlimited && remaining === 0;
+
+  const handleRequestOtp = async () => {
+    setSending(true);
+    try {
+      const { data } = await api.post(`/requirements/${enqId}/request-unlock`);
+      if (data.already_unlocked) { onSuccess(enqId, { mobile: data.mobile, name: data.name }); return; }
+      setToken(data.token); setEmailHint(data.email_hint); setStep("otp");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Could not send OTP."); onClose();
+    } finally { setSending(false); }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (otp.trim().length !== 6) { setOtpError("Please enter the 6-digit OTP."); return; }
+    setVerifying(true); setOtpError("");
+    try {
+      const { data } = await api.post(`/requirements/${enqId}/confirm-unlock`, { token, otp: otp.trim() });
+      onSuccess(enqId, { mobile: data.mobile, name: data.name });
+    } catch (e) { setOtpError(e.response?.data?.detail || "Incorrect OTP."); }
+    finally { setVerifying(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+      style={{ background: "rgba(15,23,42,0.65)", backdropFilter: "blur(4px)" }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden"
+        style={{ animation: "slideUp 0.25s ease" }}>
+        {/* Header */}
+        <div className="bg-gradient-to-r from-slate-900 to-blue-900 px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {step === "warning" ? <AlertTriangle size={18} className="text-amber-400" /> : <Mail size={18} className="text-blue-300" />}
+            <span className="text-white font-semibold text-sm">{step === "warning" ? "Confirm Unlock" : "Enter OTP"}</span>
+          </div>
+          <button onClick={onClose} className="text-white/60 hover:text-white" disabled={sending || verifying}><X size={18} /></button>
+        </div>
+
+        {/* Warning step */}
+        {step === "warning" && (
+          <div className="p-5 space-y-4">
+            {!isUnlimited && (
+              <div className={`rounded-xl p-4 border ${quotaFull ? "bg-red-50 border-red-200" : usedCount > 0 ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <ShieldCheck size={15} className={quotaFull ? "text-red-500" : usedCount > 0 ? "text-amber-500" : "text-emerald-500"} />
+                  <span className={`text-xs font-bold uppercase tracking-wide ${quotaFull ? "text-red-600" : usedCount > 0 ? "text-amber-700" : "text-emerald-700"}`}>Monthly Quota</span>
+                </div>
+                <div className="flex items-end gap-1">
+                  <span className={`text-3xl font-black ${quotaFull ? "text-red-600" : "text-slate-800"}`}>{usedCount}</span>
+                  <span className="text-slate-400 font-medium mb-1"> / {totalLimit} used</span>
+                </div>
+                <div className="mt-2 h-2 bg-white/70 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${quotaFull ? "bg-red-500" : usedCount / totalLimit > 0.7 ? "bg-amber-500" : "bg-emerald-500"}`}
+                    style={{ width: `${Math.min(100, (usedCount / totalLimit) * 100)}%` }} />
+                </div>
+                <p className={`text-xs mt-2 ${quotaFull ? "text-red-600 font-medium" : "text-slate-500"}`}>
+                  {quotaFull ? "Monthly limit reached. Resets on the 1st." : `${remaining} unlock${remaining === 1 ? "" : "s"} remaining`}
+                </p>
+              </div>
+            )}
+            {!quotaFull && <p className="text-sm text-slate-600">An OTP will be sent to your registered email to confirm this unlock.</p>}
+            <div className="flex gap-2">
+              <button onClick={onClose} disabled={sending} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+              {!quotaFull ? (
+                <button onClick={handleRequestOtp} disabled={sending}
+                  className="flex-1 py-2.5 rounded-xl bg-orange-600 text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60">
+                  {sending ? <><Loader2 size={15} className="animate-spin" /> Sending…</> : <><Mail size={14} /> Send OTP</>}
+                </button>
+              ) : (
+                <Link to="/pricing" onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-blue-700 text-white text-sm font-semibold text-center">Upgrade Plan</Link>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* OTP step */}
+        {step === "otp" && (
+          <div className="p-5 space-y-4">
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-blue-50 mb-3"><Mail size={24} className="text-blue-600" /></div>
+              <p className="text-sm text-slate-600">OTP sent to <strong>{emailHint}</strong>. Enter it below.</p>
+            </div>
+            <div>
+              <input type="text" inputMode="numeric" maxLength={6} value={otp}
+                onChange={(e) => { setOtp(e.target.value.replace(/\D/g, "")); setOtpError(""); }}
+                placeholder="• • • • • •"
+                className={`w-full text-center text-3xl font-black tracking-[0.5em] py-4 rounded-xl border-2 outline-none ${otpError ? "border-red-400 bg-red-50" : "border-slate-200 focus:border-blue-500"}`}
+                autoFocus onKeyDown={(e) => e.key === "Enter" && handleVerifyOtp()} />
+              {otpError && <p className="text-xs text-red-600 mt-1.5 flex items-center gap-1"><X size={12} /> {otpError}</p>}
+            </div>
+            <p className="text-xs text-slate-400 text-center">⏱ OTP expires in 10 minutes</p>
+            <div className="flex gap-2">
+              <button onClick={() => { setStep("warning"); setOtp(""); setOtpError(""); }} disabled={verifying}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600">Back</button>
+              <button onClick={handleVerifyOtp} disabled={verifying || otp.length !== 6}
+                className="flex-1 py-2.5 rounded-xl bg-orange-600 text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60">
+                {verifying ? <><Loader2 size={15} className="animate-spin" /> Verifying…</> : <><CheckCircle size={14} /> Verify &amp; Unlock</>}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      <style>{`@keyframes slideUp { from{transform:translateY(40px);opacity:0} to{transform:translateY(0);opacity:1} }`}</style>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 export default function LeadsPage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const [leads, setLeads] = useState([]);
-  const [activeTab, setActiveTab] = useState("recent"); // 'recent' | 'trending' | 'high_value'
-  const [statusFilter, setStatusFilter] = useState("All"); // 'All' | 'new' | 'in_progress' | 'closed' | 'my_leads'
-  const [unlockedLeads, setUnlockedLeads] = useState({}); // leadId -> boolean
+  const [activeTab, setActiveTab] = useState("recent");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [unlockedLeads, setUnlockedLeads] = useState({}); // leadId -> {mobile, name}
+
+  // OTP modal state
+  const [modalLeadId, setModalLeadId] = useState(null);
+  const [pendingUnlock, setPendingUnlock] = useState(null); // {id, token, emailHint}
+  const [unlockStats, setUnlockStats] = useState(null);
 
   // Dropdown filter states
   const [stateFilter, setStateFilter] = useState("All");
@@ -25,13 +154,19 @@ export default function LeadsPage() {
   useEffect(() => {
     if (!user) return;
     api.get("/enquiries").then((r) => setLeads(r.data)).catch(() => {});
-    
+
+    // Seed unlocked map from user's existing unlocked_enquiries
     if (user.unlocked_enquiries) {
-      const initialUnlocked = {};
-      user.unlocked_enquiries.forEach((id) => {
-        initialUnlocked[id] = true;
-      });
-      setUnlockedLeads(initialUnlocked);
+      const init = {};
+      user.unlocked_enquiries.forEach((id) => { init[id] = true; });
+      setUnlockedLeads(init);
+    }
+
+    // Fetch quota stats if paid plan
+    const hasPlan = user.plan_name && user.plan_name.toLowerCase() !== "free" &&
+      (!user.plan_expires_at || new Date(user.plan_expires_at) > new Date());
+    if (hasPlan || user.role === "admin") {
+      api.get("/requirements/unlock-stats").then((r) => setUnlockStats(r.data)).catch(() => {});
     }
   }, [user]);
 
@@ -49,15 +184,30 @@ export default function LeadsPage() {
       return;
     }
     try {
-      await api.post(`/requirements/${leadId}/unlock`);
-      setUnlockedLeads((prev) => ({ ...prev, [leadId]: true }));
-      toast.success("Contact Details Unlocked Successfully!", {
-        description: "Premium access granted for this lead.",
-        icon: <Sparkles className="text-orange-500" size={16} />
-      });
+      const { data } = await api.post(`/requirements/${leadId}/request-unlock`);
+      if (data.already_unlocked) {
+        // Already unlocked — reveal directly without modal/email
+        setUnlockedLeads((prev) => ({ ...prev, [leadId]: true }));
+        setLeads((arr) => arr.map((l) => l.id === leadId ? { ...l, name: data.name, mobile: data.mobile } : l));
+        toast.success("Contact revealed!");
+        return;
+      }
+      // Fresh unlock — open OTP modal
+      setPendingUnlock({ id: leadId, token: data.token, emailHint: data.email_hint });
+      setModalLeadId(leadId);
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Failed to unlock contact");
+      toast.error(e.response?.data?.detail || "Failed to initiate unlock");
     }
+  };
+
+  const handleModalSuccess = (leadId, { mobile, name }) => {
+    setModalLeadId(null);
+    setPendingUnlock(null);
+    setUnlockedLeads((prev) => ({ ...prev, [leadId]: true }));
+    setLeads((arr) => arr.map((l) => l.id === leadId ? { ...l, name, mobile } : l));
+    toast.success("Contact unlocked! 🎉");
+    // Refresh quota
+    api.get("/requirements/unlock-stats").then((r) => setUnlockStats(r.data)).catch(() => {});
   };
 
   const updateStatus = async (id, status) => {
@@ -76,38 +226,22 @@ export default function LeadsPage() {
   const citiesList = ["All", ...Array.from(new Set(leads.map((l) => l.city).filter(Boolean)))];
   const areasList = ["All", ...Array.from(new Set(leads.map((l) => l.industrial_area).filter(Boolean)))];
 
-  // Filtering & Sorting logic
+  // Status / tab filter logic
   const filteredLeads = leads
     .filter((l) => {
       const matchState = stateFilter === "All" || l.state === stateFilter;
       const matchCity = cityFilter === "All" || l.city === cityFilter;
       const matchArea = areaFilter === "All" || l.industrial_area === areaFilter;
       const matchCat = categoryFilter === "All" || l.category === categoryFilter;
-      
-      // Tab filter
       let matchTab = true;
-      if (activeTab === "high_value") {
-        matchTab = l.quantity?.toLowerCase().includes("ton") || l.id % 2 === 0;
-      } else if (activeTab === "trending") {
-        matchTab = l.id % 3 === 0;
-      }
-      
-      // Status filter
+      if (activeTab === "high_value") matchTab = l.quantity?.toLowerCase().includes("ton") || l.id % 2 === 0;
+      else if (activeTab === "trending") matchTab = l.id % 3 === 0;
       let matchStatus = true;
-      if (statusFilter === "my_leads") {
-        matchStatus = unlockedLeads[l.id] === true;
-      } else if (statusFilter !== "All") {
-        matchStatus = l.status === statusFilter;
-      }
-      
+      if (statusFilter === "my_leads") matchStatus = !!unlockedLeads[l.id];
+      else if (statusFilter !== "All") matchStatus = l.status === statusFilter;
       return matchState && matchCity && matchArea && matchCat && matchTab && matchStatus;
     })
-    .sort((a, b) => {
-      if (sortFilter === "Latest") {
-        return new Date(b.created_at) - new Date(a.created_at);
-      }
-      return 0;
-    });
+    .sort((a, b) => sortFilter === "Latest" ? new Date(b.created_at) - new Date(a.created_at) : 0);
 
   return (
     <div className="pb-28 px-4 pt-4" data-testid="leads-page">
@@ -264,7 +398,7 @@ export default function LeadsPage() {
             )}
 
             {filteredLeads.map((lead) => {
-              const isUnlocked = unlockedLeads[lead.id];
+              const isUnlocked = !!unlockedLeads[lead.id];
               // Generate clean tags
               const badgeType = lead.id % 2 === 0 ? "New" : "High Value";
               const hotType = lead.id % 2 === 0 ? "HOT" : "PREMIUM";
@@ -398,6 +532,18 @@ export default function LeadsPage() {
             </button>
           </div>
         </>
+      )}
+
+      {/* OTP Unlock Modal */}
+      {modalLeadId && (
+        <UnlockModal
+          stats={unlockStats}
+          enqId={modalLeadId}
+          initialToken={pendingUnlock?.token}
+          initialEmailHint={pendingUnlock?.emailHint}
+          onClose={() => { setModalLeadId(null); setPendingUnlock(null); }}
+          onSuccess={handleModalSuccess}
+        />
       )}
     </div>
   );

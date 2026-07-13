@@ -2090,14 +2090,22 @@ async def admin_assign_plan(user_id: str, plan_id: str, user: dict = Depends(get
 
 # -------------------- Public Lead / Requirement Feed --------------------
 def _can_see_contact(user: Optional[dict], enquiry: dict) -> bool:
+    """
+    Returns True only for contacts that should be ALWAYS visible without an
+    explicit per-lead unlock:
+      - Admins see everything.
+      - A user sees their own company's enquiries.
+
+    Paid-plan users must still explicitly unlock each lead (tracked via
+    unlocked_enquiries). Removing the old "any paid plan → see all" logic
+    prevents leads from flickering back to Locked on page reload when the
+    auth cookie is not yet available in the list request.
+    """
     if not user:
         return False
     if user.get("role") == "admin":
         return True
     if enquiry.get("company_id") and user.get("company_id") == enquiry.get("company_id"):
-        return True
-    plan = (user.get("plan_name") or "").lower()
-    if plan and plan not in ("free", ""):
         return True
     return False
 
