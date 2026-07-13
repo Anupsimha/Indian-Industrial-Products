@@ -4,6 +4,9 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# Email utility (imported after load_dotenv so env vars are available)
+from email_utils import send_email, build_otp_email
+
 import os
 import uuid
 import logging
@@ -79,6 +82,8 @@ class User(Base):
     plan_name = Column(String(255), nullable=True)
     plan_expires_at = Column(String(255), nullable=True)
     unlocked_enquiries = Column(JSON, default=list, nullable=True)
+    # Per-month unlock tracking: {"2026-07": ["enq_id1", "enq_id2", ...]}
+    monthly_unlocks = Column(JSON, default=dict, nullable=True)
     created_at = Column(String(255), nullable=False)
 
 class Company(Base):
@@ -2172,21 +2177,273 @@ async def list_requirements(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Unlock OTP Store  (in-memory, server-restart will clear — acceptable for OTP)
+# token -> {user_id, enq_id, otp, expires_at}
+# ---------------------------------------------------------------------------
+import random
+import string
+_unlock_otp_store: dict = {}
+
+
+def _generate_otp(length: int = 6) -> str:
+    return "".join(random.choices(string.digits, k=length))
+
+
+def _clean_expired_otps() -> None:
+    """Remove expired OTP entries to avoid unbounded growth."""
+    now = datetime.now(timezone.utc)
+    expired = [k for k, v in _unlock_otp_store.items() if v["expires_at"] < now]
+    for k in expired:
+        del _unlock_otp_store[k]
+
+
+# ---------------------------------------------------------------------------
+# Helpers for monthly unlock tracking
+# ---------------------------------------------------------------------------
+
+def _current_month_key() -> str:
+    """Returns a key like '2026-07' for the current UTC month."""
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def _get_monthly_used(u: User) -> list:
+    """Return list of enq_ids unlocked in the current calendar month."""
+    monthly = u.monthly_unlocks or {}
+    return list(monthly.get(_current_month_key(), []))
+
+
+async def _get_plan_monthly_limit(plan_name: str, db: AsyncSession) -> int:
+    """
+    Fetch unlocks_per_month from the Plan table.
+    Falls back to a hardcoded map if the plan row has no limit set.
+    """
+    if not plan_name or plan_name.lower() in ("free", ""):
+        return 0
+    stmt = select(Plan).where(Plan.name.ilike(plan_name))
+    plan_row = (await db.execute(stmt)).scalar_one_or_none()
+    if plan_row and plan_row.unlocks_per_month is not None:
+        return plan_row.unlocks_per_month
+    # Fallback hardcoded map
+    p = plan_name.lower()
+    fallback = {"basic": 30, "seo boost": 100, "business development": 200,
+                "premium": 999999, "enterprise": 999999, "admin": 999999}
+    return fallback.get(p, 50)  # default 50 for unknown paid plans
+
+
 def get_plan_unlock_limit(plan_name: str) -> int:
+    """Sync fallback — kept for compatibility."""
     if not plan_name:
         return 0
     p = plan_name.lower()
     if p == "free":
         return 0
-    elif p == "basic":
-        return 30
-    elif p == "seo boost":
-        return 100
-    elif p == "business development":
-        return 200
-    elif p in ("premium", "enterprise", "admin"):
-        return 999999
-    return 0
+    fallback = {"basic": 30, "seo boost": 100, "business development": 200,
+                "premium": 999999, "enterprise": 999999, "admin": 999999}
+    return fallback.get(p, 50)
+
+
+# ---------------------------------------------------------------------------
+# New API: GET /requirements/unlock-stats
+# ---------------------------------------------------------------------------
+
+@api.get("/requirements/unlock-stats")
+async def unlock_stats(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Return current-month unlock quota usage for the logged-in user."""
+    plan_name = user.get("plan_name") or "Free"
+    stmt_user = select(User).where(User.id == user["id"])
+    u = (await db.execute(stmt_user)).scalar_one()
+
+    used_this_month = _get_monthly_used(u)
+    limit = await _get_plan_monthly_limit(plan_name, db)
+    is_admin = user.get("role") == "admin"
+
+    return {
+        "plan_name": plan_name,
+        "unlocks_per_month": None if is_admin else limit,
+        "used_this_month": len(used_this_month),
+        "remaining": None if is_admin else max(0, limit - len(used_this_month)),
+        "total_all_time": len(u.unlocked_enquiries or []),
+    }
+
+
+# ---------------------------------------------------------------------------
+# New API: POST /requirements/{enq_id}/request-unlock  (sends OTP email)
+# ---------------------------------------------------------------------------
+
+@api.post("/requirements/{enq_id}/request-unlock")
+async def request_unlock(
+    enq_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Step 1 of the OTP unlock flow.
+    - Verifies plan & quota.
+    - If already unlocked → returns already_unlocked: true (no OTP needed).
+    - Otherwise generates OTP, stores it, sends email, returns a token.
+    """
+    stmt_enq = select(Enquiry).where(Enquiry.id == enq_id)
+    enq = (await db.execute(stmt_enq)).scalar_one_or_none()
+    if not enq:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    plan_name = user.get("plan_name") or "Free"
+    is_admin = user.get("role") == "admin"
+
+    # Plan check
+    if not is_admin and plan_name.lower() in ("free", ""):
+        raise HTTPException(status_code=403, detail="Upgrade plan to unlock contact")
+
+    # Expiry check
+    expires_at_str = user.get("plan_expires_at")
+    if expires_at_str and not is_admin:
+        try:
+            expires_at = datetime.fromisoformat(expires_at_str)
+            if datetime.now(timezone.utc) > expires_at:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Your subscription plan has expired. Please upgrade or renew."
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    stmt_user = select(User).where(User.id == user["id"])
+    u = (await db.execute(stmt_user)).scalar_one()
+
+    current_unlocked = list(u.unlocked_enquiries or [])
+
+    # Already unlocked all-time — skip OTP, return contact
+    if enq_id in current_unlocked:
+        return {"already_unlocked": True, "mobile": enq.mobile, "name": enq.name}
+
+    # Monthly quota check
+    if not is_admin:
+        monthly_used = _get_monthly_used(u)
+        limit = await _get_plan_monthly_limit(plan_name, db)
+        if len(monthly_used) >= limit:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"You have used all {limit} unlock(s) for this month on the "
+                    f"{plan_name} plan. Your quota resets on the 1st of next month."
+                )
+            )
+
+    # Generate OTP + token
+    _clean_expired_otps()
+    otp = _generate_otp()
+    token = str(uuid.uuid4())
+    _unlock_otp_store[token] = {
+        "user_id": user["id"],
+        "enq_id": enq_id,
+        "otp": otp,
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
+    }
+
+    # Send OTP email (fire and forget errors — log but don't fail the request)
+    try:
+        html = build_otp_email(
+            otp=otp,
+            user_name=user.get("name", "User"),
+            action="unlock a lead contact",
+        )
+        await send_email(
+            to=user["email"],
+            subject="🔓 IIP — Your Lead Unlock OTP",
+            html_body=html,
+        )
+    except Exception as exc:
+        logger.error("Failed to send unlock OTP email to %s: %s", user["email"], exc)
+        raise HTTPException(status_code=500, detail="Failed to send OTP email. Please try again.")
+
+    # Mask email for frontend display
+    raw_email = user["email"]
+    parts = raw_email.split("@")
+    email_hint = parts[0][:2] + "***@" + parts[1] if len(parts) == 2 else raw_email
+
+    return {"already_unlocked": False, "token": token, "email_hint": email_hint}
+
+
+# ---------------------------------------------------------------------------
+# New API: POST /requirements/{enq_id}/confirm-unlock  (verify OTP)
+# ---------------------------------------------------------------------------
+
+class ConfirmUnlockIn(BaseModel):
+    token: str
+    otp: str
+
+
+@api.post("/requirements/{enq_id}/confirm-unlock")
+async def confirm_unlock(
+    enq_id: str,
+    payload: ConfirmUnlockIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Step 2 of the OTP unlock flow.
+    Validates OTP + token, then reveals the contact and records the unlock.
+    """
+    entry = _unlock_otp_store.get(payload.token)
+
+    if not entry:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP session. Please request a new OTP.")
+
+    if entry["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Token does not belong to this user.")
+
+    if entry["enq_id"] != enq_id:
+        raise HTTPException(status_code=400, detail="Token does not match this enquiry.")
+
+    if datetime.now(timezone.utc) > entry["expires_at"]:
+        del _unlock_otp_store[payload.token]
+        raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
+
+    if entry["otp"] != payload.otp.strip():
+        raise HTTPException(status_code=400, detail="Incorrect OTP. Please try again.")
+
+    # OTP valid — consume it
+    del _unlock_otp_store[payload.token]
+
+    # Fetch enquiry
+    stmt_enq = select(Enquiry).where(Enquiry.id == enq_id)
+    enq = (await db.execute(stmt_enq)).scalar_one_or_none()
+    if not enq:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Record unlock
+    stmt_user = select(User).where(User.id == user["id"])
+    u = (await db.execute(stmt_user)).scalar_one()
+
+    current_unlocked = list(u.unlocked_enquiries or [])
+    if enq_id not in current_unlocked:
+        current_unlocked.append(enq_id)
+        u.unlocked_enquiries = current_unlocked
+
+        # Update monthly tracker
+        month_key = _current_month_key()
+        monthly = dict(u.monthly_unlocks or {})
+        month_list = list(monthly.get(month_key, []))
+        if enq_id not in month_list:
+            month_list.append(enq_id)
+        monthly[month_key] = month_list
+        u.monthly_unlocks = monthly
+
+        await db.commit()
+
+    return {"ok": True, "mobile": enq.mobile, "name": enq.name}
+
+
+# ---------------------------------------------------------------------------
+# Existing unlock endpoint — updated to enforce monthly quota
+# (kept for backward compatibility; prefer the OTP flow above)
+# ---------------------------------------------------------------------------
 
 @api.post("/requirements/{enq_id}/unlock")
 async def unlock_requirement(enq_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -2194,14 +2451,16 @@ async def unlock_requirement(enq_id: str, user: dict = Depends(get_current_user)
     enq = (await db.execute(stmt_enq)).scalar_one_or_none()
     if not enq:
         raise HTTPException(status_code=404, detail="Not found")
-        
+
     plan_name = user.get("plan_name") or "Free"
-    if user.get("role") != "admin" and plan_name.lower() in ("free", ""):
+    is_admin = user.get("role") == "admin"
+
+    if not is_admin and plan_name.lower() in ("free", ""):
         raise HTTPException(status_code=403, detail="Upgrade plan to unlock contact")
-        
+
     # Check expiry
     expires_at_str = user.get("plan_expires_at")
-    if expires_at_str and user.get("role") != "admin":
+    if expires_at_str and not is_admin:
         try:
             expires_at = datetime.fromisoformat(expires_at_str)
             if datetime.now(timezone.utc) > expires_at:
@@ -2213,16 +2472,36 @@ async def unlock_requirement(enq_id: str, user: dict = Depends(get_current_user)
 
     stmt_user = select(User).where(User.id == user["id"])
     u = (await db.execute(stmt_user)).scalar_one()
-    
+
     current_unlocked = list(u.unlocked_enquiries or [])
     if enq_id not in current_unlocked:
-        limit = get_plan_unlock_limit(plan_name)
-        if user.get("role") != "admin" and len(current_unlocked) >= limit:
-            raise HTTPException(status_code=403, detail=f"You have reached your limit of {limit} unlocks for the {plan_name} plan. Please upgrade to unlock more contact details.")
+        # Monthly quota check
+        if not is_admin:
+            monthly_used = _get_monthly_used(u)
+            limit = await _get_plan_monthly_limit(plan_name, db)
+            if len(monthly_used) >= limit:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"You have used all {limit} unlock(s) for this month on the "
+                        f"{plan_name} plan. Your quota resets on the 1st of next month."
+                    )
+                )
+
         current_unlocked.append(enq_id)
         u.unlocked_enquiries = current_unlocked
+
+        # Update monthly tracker
+        month_key = _current_month_key()
+        monthly = dict(u.monthly_unlocks or {})
+        month_list = list(monthly.get(month_key, []))
+        if enq_id not in month_list:
+            month_list.append(enq_id)
+        monthly[month_key] = month_list
+        u.monthly_unlocks = monthly
+
         await db.commit()
-        
+
     return {"ok": True, "mobile": enq.mobile, "name": enq.name}
 
 
