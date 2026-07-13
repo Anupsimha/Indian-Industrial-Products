@@ -3171,10 +3171,14 @@ async def _seed_slides_if_empty(db: AsyncSession):
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    
+    async with engine.begin() as conn:
         try:
             await conn.execute(text("ALTER TABLE products ADD COLUMN stock_left INTEGER"))
         except Exception:
             pass
+            
+    async with engine.begin() as conn:
         try:
             await conn.execute(text("ALTER TABLE products ADD COLUMN location VARCHAR(255)"))
         except Exception:

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { Home, Film, PlusSquare, Package, Inbox, FileText, X, Briefcase } from "lucide-react";
+import { Home, Film, PlusSquare, Package, Inbox, FileText, X, Briefcase, ListTodo } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 import { PostDialog, ReelDialog, JobDialog } from "./CreateDialogs";
@@ -30,8 +30,8 @@ export const BottomNav = () => {
       navigate("/login");
       return;
     }
-    if (user.role !== "manufacturer" && user.role !== "supplier") {
-      toast.error("Access Denied: Only Manufacturers and Sellers can create posts/videos.");
+    if (user.role !== "manufacturer" && user.role !== "supplier" && user.role !== "buyer") {
+      toast.error("Access Denied: Only Manufacturers, Sellers and Buyers can create posts/requirements.");
       return;
     }
     setPromptOpen(true);
@@ -106,69 +106,88 @@ export const BottomNav = () => {
             </div>
             
             <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => {
-                  setPromptOpen(false);
-                  setPostOpen(true);
-                }}
-                data-testid="prompt-feed-btn"
-                className="flex flex-col items-center justify-center p-3 border border-slate-200 rounded-xl hover:border-blue-500 hover:bg-blue-50/50 transition-all group text-left"
-              >
-                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center mb-1.5 text-blue-700 group-hover:scale-110 transition-transform">
-                  <FileText size={20} />
-                </div>
-                <span className="text-xs font-bold text-slate-800">Feed Post</span>
-                <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">Images, text updates</span>
-              </button>
+              {user?.role === "buyer" ? (
+                <button
+                  onClick={() => {
+                    setPromptOpen(false);
+                    navigate("/post-enquiry");
+                  }}
+                  data-testid="prompt-requirement-btn"
+                  className="flex flex-col items-center justify-center p-3 border border-slate-200 rounded-xl hover:border-orange-500 hover:bg-orange-50/50 transition-all group text-left col-span-2"
+                >
+                  <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center mb-1.5 text-orange-700 group-hover:scale-110 transition-transform">
+                    <ListTodo size={20} />
+                  </div>
+                  <span className="text-xs font-bold text-slate-800">Post Requirement</span>
+                  <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">What products do you need?</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      setPromptOpen(false);
+                      setPostOpen(true);
+                    }}
+                    data-testid="prompt-feed-btn"
+                    className="flex flex-col items-center justify-center p-3 border border-slate-200 rounded-xl hover:border-blue-500 hover:bg-blue-50/50 transition-all group text-left"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center mb-1.5 text-blue-700 group-hover:scale-110 transition-transform">
+                      <FileText size={20} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-800">Feed Post</span>
+                    <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">Images, text updates</span>
+                  </button>
 
-              <button
-                onClick={() => {
-                  setPromptOpen(false);
-                  setReelOpen(true);
-                }}
-                data-testid="prompt-video-btn"
-                className="flex flex-col items-center justify-center p-3 border border-slate-200 rounded-xl hover:border-orange-500 hover:bg-orange-50/50 transition-all group text-left"
-              >
-                <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center mb-1.5 text-orange-700 group-hover:scale-110 transition-transform">
-                  <Film size={20} />
-                </div>
-                <span className="text-xs font-bold text-slate-800">Video / Reel</span>
-                <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">Short product videos</span>
-              </button>
+                  <button
+                    onClick={() => {
+                      setPromptOpen(false);
+                      setReelOpen(true);
+                    }}
+                    data-testid="prompt-video-btn"
+                    className="flex flex-col items-center justify-center p-3 border border-slate-200 rounded-xl hover:border-orange-500 hover:bg-orange-50/50 transition-all group text-left"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center mb-1.5 text-orange-700 group-hover:scale-110 transition-transform">
+                      <Film size={20} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-800">Video / Reel</span>
+                    <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">Short product videos</span>
+                  </button>
 
-              <button
-                onClick={() => {
-                  setPromptOpen(false);
-                  setJobOpen(true);
-                }}
-                data-testid="prompt-job-btn"
-                className="flex flex-col items-center justify-center p-3 border border-slate-200 rounded-xl hover:border-emerald-500 hover:bg-emerald-50/50 transition-all group text-left"
-              >
-                <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center mb-1.5 text-emerald-700 group-hover:scale-110 transition-transform">
-                  <Briefcase size={20} />
-                </div>
-                <span className="text-xs font-bold text-slate-800">Job Vacancy</span>
-                <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">List job openings</span>
-              </button>
+                  <button
+                    onClick={() => {
+                      setPromptOpen(false);
+                      setJobOpen(true);
+                    }}
+                    data-testid="prompt-job-btn"
+                    className="flex flex-col items-center justify-center p-3 border border-slate-200 rounded-xl hover:border-emerald-500 hover:bg-emerald-50/50 transition-all group text-left"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center mb-1.5 text-emerald-700 group-hover:scale-110 transition-transform">
+                      <Briefcase size={20} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-800">Job Vacancy</span>
+                    <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">List job openings</span>
+                  </button>
 
-              <button
-                onClick={() => {
-                  if (user?.role !== "manufacturer" && user?.role !== "supplier") {
-                    toast.error("Access Denied: Only Manufacturers and Sellers can publish products.");
-                    return;
-                  }
-                  setPromptOpen(false);
-                  setProductOpen(true);
-                }}
-                data-testid="prompt-product-btn"
-                className="flex flex-col items-center justify-center p-3 border border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50/50 transition-all group text-left"
-              >
-                <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center mb-1.5 text-indigo-700 group-hover:scale-110 transition-transform">
-                  <Package size={20} />
-                </div>
-                <span className="text-xs font-bold text-slate-800">Products</span>
-                <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">Publish new product</span>
-              </button>
+                  <button
+                    onClick={() => {
+                      if (user?.role !== "manufacturer" && user?.role !== "supplier") {
+                        toast.error("Access Denied: Only Manufacturers and Sellers can publish products.");
+                        return;
+                      }
+                      setPromptOpen(false);
+                      setProductOpen(true);
+                    }}
+                    data-testid="prompt-product-btn"
+                    className="flex flex-col items-center justify-center p-3 border border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50/50 transition-all group text-left"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center mb-1.5 text-indigo-700 group-hover:scale-110 transition-transform">
+                      <Package size={20} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-800">Products</span>
+                    <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">Publish new product</span>
+                  </button>
+                </>
+              )}
             </div>
 
             <button

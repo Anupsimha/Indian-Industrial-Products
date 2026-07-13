@@ -71,6 +71,26 @@ export default function ManageVacanciesPage() {
     }
   };
 
+  const handleDownloadResume = async (resumeUrl, filename) => {
+    try {
+      const url = resumeUrl.startsWith("http") ? resumeUrl : `${BACKEND_URL}${resumeUrl}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Failed to fetch file");
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.setAttribute('download', filename || 'resume.pdf');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to download resume");
+    }
+  };
+
   if (loading || fetching) {
     return <div className="p-10 text-center text-slate-400 font-semibold">Loading...</div>;
   }
@@ -275,16 +295,14 @@ export default function ManageVacanciesPage() {
                         <p className="text-xs text-slate-500 font-medium">{app.qualification}</p>
                       </div>
                       
-                      {/* Resume Download/View */}
-                      <a
-                        href={`${BACKEND_URL}${app.resume_url}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      {/* Resume Download */}
+                      <button
+                        onClick={() => handleDownloadResume(app.resume_url, `${app.name}_Resume${app.resume_filename ? app.resume_filename.slice(app.resume_filename.lastIndexOf('.')) : '.pdf'}`)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-800 text-[10.5px] font-bold transition-colors shrink-0"
                         data-testid={`resume-download-${app.user_id}`}
                       >
                         <Download size={12} /> Resume
-                      </a>
+                      </button>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-500 pt-1 border-t border-slate-100/60">
