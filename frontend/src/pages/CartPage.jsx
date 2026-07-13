@@ -103,38 +103,63 @@ export default function CartPage() {
     }
   };
 
-  const handleRazorpayPayment = () => {
+  const handleRazorpayPayment = async () => {
     if (!rzpLoaded || !window.Razorpay) {
       toast.error("Payment gateway is loading, please wait a moment.");
       return;
     }
-    const options = {
-      key: "rzp_test_1DP5mmOlF5G5ag",   // Razorpay Test Key
-      amount: Math.round(cartTotal * 100), // paise
-      currency: "INR",
-      name: "IIP – Indian Industrial Products",
-      description: `Payment for ${cartCount} item(s)`,
-      image: "https://images.unsplash.com/photo-1581094288338-2314dddb7ece?w=100&h=100&fit=crop",
-      handler: (response) => {
-        toast.success("Payment successful!");
-        placeOrder(response.razorpay_payment_id, "razorpay");
-      },
-      prefill: {
-        name: user?.name || "Guest User",
-        email: user?.email || "guest@example.com",
-        contact: user?.mobile || "9999999999",
-      },
-      notes: { address: "IIP Industrial Marketplace" },
-      theme: { color: "#1e3a5f" },
-      modal: {
-        ondismiss: () => toast.info("Payment cancelled."),
-      },
-    };
+    
+    setIsPlacing(true);
     try {
+      const orderRes = await api.post("/payments/create-order-cart", {
+        amount: cartTotal
+      });
+      const orderData = orderRes.data;
+      
+      const options = {
+        key: orderData.key,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "IIP – Indian Industrial Products",
+        description: `Payment for ${cartCount} item(s)`,
+        order_id: orderData.order_id,
+        image: "https://images.unsplash.com/photo-1581094288338-2314dddb7ece?w=100&h=100&fit=crop",
+        handler: async (response) => {
+          try {
+            setStep("processing");
+            await api.post("/payments/verify-cart", {
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+            toast.success("Payment successful!");
+            placeOrder(response.razorpay_payment_id, "razorpay");
+          } catch (verifyErr) {
+            toast.error("Payment signature verification failed.");
+            setStep("payment");
+            setIsPlacing(false);
+          }
+        },
+        prefill: {
+          name: user?.name || "Guest User",
+          email: user?.email || "guest@example.com",
+          contact: user?.mobile || "9999999999",
+        },
+        notes: { address: "IIP Industrial Marketplace" },
+        theme: { color: "#1e3a5f" },
+        modal: {
+          ondismiss: () => {
+            toast.info("Payment cancelled.");
+            setIsPlacing(false);
+          },
+        },
+      };
+      
       const rzp = new window.Razorpay(options);
       rzp.open();
     } catch (err) {
       toast.error("Failed to open payment gateway. Try another method.");
+      setIsPlacing(false);
     }
   };
 

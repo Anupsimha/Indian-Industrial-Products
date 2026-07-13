@@ -4,6 +4,7 @@ import { Home, Film, PlusSquare, Package, Inbox, FileText, X, Briefcase } from "
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 import { PostDialog, ReelDialog, JobDialog } from "./CreateDialogs";
+import { ProductDialog } from "./ProductDialog";
 
 const items = [
   { to: "/", label: "Home", icon: Home, testid: "nav-home" },
@@ -20,6 +21,7 @@ export const BottomNav = () => {
   const [postOpen, setPostOpen] = useState(false);
   const [reelOpen, setReelOpen] = useState(false);
   const [jobOpen, setJobOpen] = useState(false);
+  const [productOpen, setProductOpen] = useState(false);
 
   const handlePostClick = (e) => {
     e.preventDefault();
@@ -103,7 +105,7 @@ export const BottomNav = () => {
               </button>
             </div>
             
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => {
                   setPromptOpen(false);
@@ -148,6 +150,25 @@ export const BottomNav = () => {
                 <span className="text-xs font-bold text-slate-800">Job Vacancy</span>
                 <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">List job openings</span>
               </button>
+
+              <button
+                onClick={() => {
+                  if (user?.role !== "manufacturer" && user?.role !== "supplier") {
+                    toast.error("Access Denied: Only Manufacturers and Sellers can publish products.");
+                    return;
+                  }
+                  setPromptOpen(false);
+                  setProductOpen(true);
+                }}
+                data-testid="prompt-product-btn"
+                className="flex flex-col items-center justify-center p-3 border border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50/50 transition-all group text-left"
+              >
+                <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center mb-1.5 text-indigo-700 group-hover:scale-110 transition-transform">
+                  <Package size={20} />
+                </div>
+                <span className="text-xs font-bold text-slate-800">Products</span>
+                <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">Publish new product</span>
+              </button>
             </div>
 
             <button
@@ -164,6 +185,7 @@ export const BottomNav = () => {
       <PostDialog open={postOpen} onClose={() => setPostOpen(false)} onSaved={() => toast.success("Feed post created!")} />
       <ReelDialog open={reelOpen} onClose={() => setReelOpen(false)} onSaved={() => toast.success("Video reel uploaded!")} />
       <JobDialog open={jobOpen} onClose={() => setJobOpen(false)} onSaved={() => toast.success("Job vacancy published!")} />
+      <ProductDialog open={productOpen} onClose={() => setProductOpen(false)} onSaved={() => toast.success("Product published successfully!")} />
     </>
   );
 };

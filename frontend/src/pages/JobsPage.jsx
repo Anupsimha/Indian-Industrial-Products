@@ -22,6 +22,10 @@ export default function JobsPage() {
       navigate("/login");
       return;
     }
+    if (user?.company_id && user.company_id === j.company_id) {
+      toast.error("You cannot apply to your own job vacancy");
+      return;
+    }
     setSelectedJob(j);
     setApplyOpen(true);
   };

@@ -84,3 +84,32 @@ def test_job_application_lifecycle(s, manu_token, buyer_token):
     r_file = s.get(resume_url)
     assert r_file.status_code == 200
     assert r_file.content == b"%PDF-1.4 mock content for testing"
+
+
+def test_publisher_cannot_apply_to_own_job(s, manu_token):
+    # 1. Fetch jobs
+    r = s.get(f"{API}/jobs")
+    assert r.status_code == 200
+    jobs = r.json()
+    assert len(jobs) > 0
+    
+    # Select Pune job (Bharat Steel, which is published by manu_token)
+    target_job = next((j for j in jobs if j["company_name"] == "Bharat Steel Industries"), jobs[0])
+    job_id = target_job["id"]
+
+    # 2. Try to apply as publisher
+    payload = {
+        "name": "Rajesh publisher",
+        "phone": "919800000000",
+        "location_preferred": "Pune, Maharashtra",
+        "qualification": "CEO"
+    }
+    files = {
+        "resume": ("resume.pdf", b"%PDF-1.4 mock content for testing", "application/pdf")
+    }
+    
+    r = s.post(f"{API}/jobs/{job_id}/apply", data=payload, files=files, headers=h(manu_token))
+    # It must fail with status code 400
+    assert r.status_code == 400
+    assert "You cannot apply to your own job vacancy" in r.text
+

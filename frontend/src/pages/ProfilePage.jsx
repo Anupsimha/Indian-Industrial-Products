@@ -135,75 +135,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* 3. Quick Access Grid */}
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        {isBusiness && (
-          <>
-            <button
-              onClick={() => setActiveTab("products")}
-              className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-blue-200 transition-all hover:shadow-sm"
-            >
-              <span className="grid place-items-center w-9 h-9 rounded-xl bg-blue-50 text-blue-600 mb-1.5">
-                <Package size={18} />
-              </span>
-              <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">My Products</span>
-            </button>
 
-            <button
-              onClick={() => navigate("/leads")}
-              className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-orange-200 transition-all hover:shadow-sm"
-            >
-              <span className="grid place-items-center w-9 h-9 rounded-xl bg-orange-50 text-orange-600 mb-1.5">
-                <Inbox size={18} />
-              </span>
-              <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">My Leads</span>
-            </button>
-
-            <button
-              onClick={() => navigate("/my-vacancies")}
-              data-testid="profile-vacancies-btn"
-              className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 transition-all hover:shadow-sm"
-            >
-              <span className="grid place-items-center w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 mb-1.5">
-                <Briefcase size={18} />
-              </span>
-              <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">My Vacancies</span>
-            </button>
-          </>
-        )}
-
-        <button
-          onClick={() => navigate("/orders")}
-          className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-indigo-200 transition-all hover:shadow-sm"
-        >
-          <span className="grid place-items-center w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 mb-1.5">
-            <Package size={18} />
-          </span>
-          <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">My Orders</span>
-        </button>
-
-        <button
-          onClick={() => navigate("/bookmarks")}
-          className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-purple-200 transition-all hover:shadow-sm"
-        >
-          <span className="grid place-items-center w-9 h-9 rounded-xl bg-purple-50 text-purple-600 mb-1.5">
-            <Bookmark size={18} />
-          </span>
-          <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">Saved</span>
-        </button>
-
-        {!isBusiness && (
-          <button
-            onClick={() => toast.success("Analytics dashboard coming soon!")}
-            className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 transition-all hover:shadow-sm"
-          >
-            <span className="grid place-items-center w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 mb-1.5">
-              <BarChart3 size={18} />
-            </span>
-            <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-tight text-center">Analytics</span>
-          </button>
-        )}
-      </div>
 
       {/* 4. Content Tabs */}
       <div className="mt-6 border-b border-slate-200">
@@ -249,7 +181,7 @@ export default function ProfilePage() {
                 No products uploaded yet.
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
                 {products.map((p) => (
                   <div
                     key={p.id}
@@ -281,11 +213,11 @@ export default function ProfilePage() {
         {activeTab === "reels" && (
           <div>
             {reels.length === 0 ? (
-              <div className="text-center text-sm text-slate-500 py-8 bg-white rounded-2xl border border-slate-100">
+              <div className="text-center text-xs text-slate-400 py-4 bg-white rounded-xl border border-slate-100">
                 No reels uploaded yet.
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-2 max-w-md mx-auto">
                 {reels.map((r) => (
                   <div
                     key={r.id}
@@ -384,16 +316,7 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {/* 6. Sign Out Button */}
-      <div className="mt-8">
-        <button
-          onClick={handleLogout}
-          data-testid="logout-btn"
-          className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-full bg-rose-50 text-rose-700 font-semibold hover:bg-rose-100 active:scale-95 transition-all shadow-sm"
-        >
-          <LogOut size={16} /> Sign out
-        </button>
-      </div>
+
     </div>
   );
 }

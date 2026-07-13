@@ -64,6 +64,25 @@ webpackConfig.devServer = (devServerConfig) => {
   // Fix allowedHosts validation error
   devServerConfig.allowedHosts = "all";
 
+  devServerConfig.proxy = {
+    "/api": {
+      target: "http://backend:8000",
+      changeOrigin: true,
+    },
+    "/products-images": {
+      target: "http://backend:8000",
+      changeOrigin: true,
+    },
+    "/reels-uploaded": {
+      target: "http://backend:8000",
+      changeOrigin: true,
+    },
+    "/uploads": {
+      target: "http://backend:8000",
+      changeOrigin: true,
+    }
+  };
+
 
   // Add health check endpoints if enabled
   if (config.enableHealthCheck && setupHealthEndpoints && healthPluginInstance) {

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
+import { useAuth } from "../context/AuthContext";
 
 const parsePrice = (priceStr) => {
   if (!priceStr || typeof priceStr !== "string") return null;
@@ -44,6 +45,7 @@ export default function ProductsPage() {
 
   // Global Cart Context
   const { cart, addToCart: ctxAddToCart, updateQty, clearCart, cartSubtotal } = useCart();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   // Buying Flow State (local to this page's checkout modal)
@@ -132,6 +134,40 @@ export default function ProductsPage() {
   const deliveryCost = cart.length > 0 ? deliveryOptions[selectedDelivery].cost : 0;
   const gstCost = Math.round(cartSubtotal * 0.18);
   const cartTotal = cartSubtotal + deliveryCost + gstCost;
+
+  const placeOrder = async () => {
+    try {
+      const orderPayload = {
+        items: cart.map((item) => ({
+          product_id: item.id,
+          name: item.name,
+          qty: item.qty,
+          price: item.price || "On Request",
+          image_url: item.image_url,
+          company_name: item.company_name || "",
+        })),
+        subtotal: cartSubtotal,
+        delivery_cost: deliveryCost,
+        gst: gstCost,
+        total: cartTotal,
+        delivery_option: selectedDelivery,
+        payment_method: selectedPayment,
+        payment_id: selectedPayment === "upi" ? upiId : "mock_card_" + Date.now(),
+        address: user ? `${user.name}, India` : "India",
+      };
+
+      if (user) {
+        await api.post("/orders", orderPayload);
+      }
+    } catch (error) {
+      console.error("Failed to place order via backend:", error);
+    }
+  };
+
+  const handlePaymentConfirm = async () => {
+    setBuyingStep("processing");
+    await placeOrder();
+  };
 
   // Simulated processing screen
   useEffect(() => {
@@ -284,9 +320,9 @@ export default function ProductsPage() {
             {/* Product Image and detail modal trigger */}
             <div className="relative aspect-square w-full overflow-hidden bg-slate-50 cursor-pointer" onClick={() => setSelectedProduct(p)}>
               <img src={p.image_url} alt={p.name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
-              {/* In stock badge */}
+              {/* Stock Left / In Stock badge */}
               <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase tracking-wider">
-                In Stock
+                {p.stock_left !== undefined && p.stock_left !== null ? `Qty: ${p.stock_left}` : "In Stock"}
               </span>
             </div>
 
@@ -298,6 +334,12 @@ export default function ProductsPage() {
                 <Link to={`/company/${p.company_id}`} className="text-[10px] text-slate-400 hover:text-blue-900 font-bold truncate block mt-1">
                   {p.company_name}
                 </Link>
+                {p.location && (
+                  <div className="flex items-center gap-0.5 text-[10px] text-slate-500 mt-1 font-medium">
+                    <MapPin size={10} className="text-slate-400" />
+                    <span>{p.location}</span>
+                  </div>
+                )}
               </div>
 
               {/* Price and Add to Cart action */}
@@ -350,8 +392,17 @@ export default function ProductsPage() {
                 </span>
               </div>
               <h2 className="font-display font-extrabold text-slate-900 text-lg leading-snug">{selectedProduct.name}</h2>
-              <div className="text-xs text-slate-400 font-semibold mt-1">
-                By {selectedProduct.company_name}
+              <div className="text-xs text-slate-400 font-semibold mt-1 flex items-center gap-1 flex-wrap">
+                <span>By {selectedProduct.company_name}</span>
+                {selectedProduct.location && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-0.5 text-slate-500 font-medium">
+                      <MapPin size={12} className="text-slate-400" />
+                      <span>{selectedProduct.location}</span>
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -370,7 +421,7 @@ export default function ProductsPage() {
                 </div>
               </div>
               <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase tracking-wider">
-                In Stock
+                {selectedProduct.stock_left !== undefined && selectedProduct.stock_left !== null ? `Qty Left: ${selectedProduct.stock_left}` : "In Stock"}
               </span>
             </div>
 
@@ -675,7 +726,7 @@ export default function ProductsPage() {
 
                 {/* Pay button */}
                 <button
-                  onClick={() => setBuyingStep("processing")}
+                  onClick={handlePaymentConfirm}
                   className="w-full py-3.5 rounded-xl bg-emerald-600 text-white font-extrabold text-xs hover:bg-emerald-700 shadow-md active:scale-95 transition-all flex items-center justify-center gap-1"
                 >
                   Pay Securely ₹{cartTotal.toLocaleString()}
