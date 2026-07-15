@@ -51,7 +51,21 @@ export const ApplyJobDialog = ({ open, onClose, job, onApplied }) => {
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
-      setResumeFile(e.target.files[0]);
+      const file = e.target.files[0];
+      const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+      if (ext !== '.pdf' && ext !== '.doc' && ext !== '.docx') {
+        toast.error("Invalid file format. Please upload a PDF or Word document (.pdf, .doc, .docx).");
+        e.target.value = null;
+        setResumeFile(null);
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("File size exceeds 5MB limit.");
+        e.target.value = null;
+        setResumeFile(null);
+        return;
+      }
+      setResumeFile(file);
     }
   };
 
@@ -59,6 +73,11 @@ export const ApplyJobDialog = ({ open, onClose, job, onApplied }) => {
     e.preventDefault();
     if (!resumeFile) {
       toast.error("Please upload your resume");
+      return;
+    }
+    const ext = resumeFile.name.slice(resumeFile.name.lastIndexOf('.')).toLowerCase();
+    if (ext !== '.pdf' && ext !== '.doc' && ext !== '.docx') {
+      toast.error("Invalid file format. Please upload a PDF or Word document (.pdf, .doc, .docx).");
       return;
     }
     setSubmitting(true);
