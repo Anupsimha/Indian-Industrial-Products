@@ -316,7 +316,7 @@ export default function MyVacanciesPage() {
                       
                       {/* Resume Download */}
                       <button
-                        onClick={() => handleDownloadResume(app.resume_url, `${app.name}_Resume${app.resume_filename.slice(app.resume_filename.lastIndexOf('.'))}`)}
+                        onClick={() => handleDownloadResume(app.resume_url, `${app.name}_Resume${app.resume_filename ? app.resume_filename.slice(app.resume_filename.lastIndexOf('.')) : '.pdf'}`)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-800 text-[10.5px] font-bold transition-colors shrink-0"
                         data-testid={`resume-download-${app.user_id}`}
                       >
