@@ -687,7 +687,7 @@ export default function HomePage() {
 
         {/* Sidebar/Right Column - 4 cols on desktop, hidden on mobile/tablet */}
         <div className="hidden lg:block lg:col-span-4 space-y-6">
-          <Link to="/requirements" data-testid="home-requirements-cta" className="block p-5 rounded-2xl bg-gradient-to-br from-orange-600 to-orange-500 text-white shadow-md hover:shadow-lg transition-all active:scale-[0.98]">
+          <Link to="/leads" data-testid="home-requirements-cta" className="block p-5 rounded-2xl bg-gradient-to-br from-orange-600 to-orange-500 text-white shadow-md hover:shadow-lg transition-all active:scale-[0.98]">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[10px] font-bold tracking-[0.25em] uppercase text-white/80">Live Buyer Feed</div>

@@ -6,14 +6,6 @@ import { toast } from "sonner";
 import { PostDialog, ReelDialog, JobDialog } from "./CreateDialogs";
 import { ProductDialog } from "./ProductDialog";
 
-const items = [
-  { to: "/", label: "Home", icon: Home, testid: "nav-home" },
-  { to: "/reels", label: "Reels", icon: Film, testid: "nav-reels" },
-  { to: "/post-enquiry", label: "Post", icon: PlusSquare, testid: "nav-post", isCenter: true },
-  { to: "/products", label: "Products", icon: Package, testid: "nav-products" },
-  { to: "/leads", label: "Leads", icon: Inbox, testid: "nav-leads" },
-];
-
 export const BottomNav = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -22,6 +14,17 @@ export const BottomNav = () => {
   const [reelOpen, setReelOpen] = useState(false);
   const [jobOpen, setJobOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
+
+  const isBuyer = user && user.role === "buyer";
+  const navItems = [
+    { to: "/", label: "Home", icon: Home, testid: "nav-home" },
+    { to: "/reels", label: "Reels", icon: Film, testid: "nav-reels" },
+    { to: "/post-enquiry", label: "Post", icon: PlusSquare, testid: "nav-post", isCenter: true },
+    { to: "/products", label: "Products", icon: Package, testid: "nav-products" },
+    isBuyer
+      ? { to: "/requirements", label: "My Requirements", icon: Inbox, testid: "nav-requirements" }
+      : { to: "/leads", label: "Leads", icon: Inbox, testid: "nav-leads" },
+  ];
 
   const handlePostClick = (e) => {
     e.preventDefault();
@@ -49,8 +52,8 @@ export const BottomNav = () => {
       >
         <div className="max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto">
           <ul className="grid grid-cols-5 lg:flex lg:justify-evenly lg:items-center lg:h-20">
-            {items.map(({ to, label, icon: Icon, testid, isCenter }) => {
-              const requiresAuth = to === "/leads" && !user;
+            {navItems.map(({ to, label, icon: Icon, testid, isCenter }) => {
+              const requiresAuth = (to === "/leads" || to === "/requirements") && !user;
               
               if (isCenter) {
                 return (
