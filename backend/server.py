@@ -1170,6 +1170,17 @@ async def list_products(category: Optional[str] = None, limit: int = 50, db: Asy
     return out
 
 
+@api.get("/products/{product_id}", response_model=ProductOut)
+async def get_product(product_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(Product).where(Product.id == product_id)
+    p = (await db.execute(stmt)).scalar_one_or_none()
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    stmt_comp = select(Company).where(Company.id == p.company_id)
+    company = (await db.execute(stmt_comp)).scalar_one_or_none()
+    return make_product_out(p, company)
+
+
 def process_product_images(user_id: str, product_id: str, image_url: str, images: List[str], request: Request) -> tuple[str, List[str]]:
     PRODUCT_IMAGES_DIR.mkdir(exist_ok=True)
     

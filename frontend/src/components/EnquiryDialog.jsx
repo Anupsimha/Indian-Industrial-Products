@@ -2,8 +2,10 @@ import React, { useEffect, useState } from "react";
 import api, { formatApiError } from "../lib/api";
 import { toast } from "sonner";
 import { X } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 
 export const EnquiryDialog = ({ open, onClose, companyId, postId, defaultCategory, companyName }) => {
+  const { user } = useAuth();
   const [form, setForm] = useState({
     name: "", mobile: "", requirement: "", category: defaultCategory || "", location: "",
   });
@@ -11,9 +13,28 @@ export const EnquiryDialog = ({ open, onClose, companyId, postId, defaultCategor
 
   useEffect(() => {
     if (open) {
-      setForm((f) => ({ ...f, category: defaultCategory || f.category }));
+      setForm((f) => ({
+        ...f,
+        name: user?.name || "",
+        mobile: user?.mobile || "",
+        category: defaultCategory || f.category
+      }));
+
+      if (user?.company_id) {
+        api.get(`/companies/${user.company_id}`)
+          .then((res) => {
+            if (res.data && res.data.location) {
+              setForm((f) => ({ ...f, location: res.data.location }));
+            }
+          })
+          .catch(() => {
+            setForm((f) => ({ ...f, location: "Peenya, Bengaluru" }));
+          });
+      } else {
+        setForm((f) => ({ ...f, location: "Peenya, Bengaluru" }));
+      }
     }
-  }, [open, defaultCategory]);
+  }, [open, user, defaultCategory]);
 
   if (!open) return null;
 
@@ -55,18 +76,18 @@ export const EnquiryDialog = ({ open, onClose, companyId, postId, defaultCategor
           <div>
             <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Name</label>
             <input
-              required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+              required readOnly value={form.name}
               data-testid="enquiry-name-input"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-500 cursor-not-allowed focus:outline-none"
               placeholder="Your full name"
             />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Mobile</label>
             <input
-              required value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })}
+              required readOnly value={form.mobile}
               data-testid="enquiry-mobile-input"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-500 cursor-not-allowed focus:outline-none"
               placeholder="91XXXXXXXXXX"
             />
           </div>
@@ -93,9 +114,9 @@ export const EnquiryDialog = ({ open, onClose, companyId, postId, defaultCategor
             <div>
               <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Location</label>
               <input
-                required value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
+                required readOnly value={form.location}
                 data-testid="enquiry-location-input"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-500 cursor-not-allowed focus:outline-none"
                 placeholder="City, State"
               />
             </div>

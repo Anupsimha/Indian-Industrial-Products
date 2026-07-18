@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { Home, Film, PlusSquare, Package, Inbox, FileText, X, Briefcase, ListTodo } from "lucide-react";
+import { Home, Film, PlusSquare, Package, Inbox, FileText, X, Briefcase, ListTodo, User } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 import { PostDialog, ReelDialog, JobDialog } from "./CreateDialogs";
@@ -32,6 +32,10 @@ export const BottomNav = () => {
     }
     if (user.role !== "manufacturer" && user.role !== "supplier" && user.role !== "buyer") {
       toast.error("Access Denied: Only Manufacturers, Sellers and Buyers can create posts/requirements.");
+      return;
+    }
+    if (user.role === "buyer") {
+      navigate("/post-enquiry");
       return;
     }
     setPromptOpen(true);

@@ -7,3 +7,12 @@
 7. Track the number of Leads Unlocked.
 8. Admin posting the featured posts section
 9. PWA
+
+
+1. Verify and Register API
+2. Follow Functionality - 
+    Get followers api for only Manufacture/Seller
+    POST api for follow company from User api 
+    Get Following Feed Api for only User
+3. Views Count Functionality - 
+    

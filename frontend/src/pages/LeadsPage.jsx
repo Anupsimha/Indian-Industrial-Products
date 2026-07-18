@@ -244,7 +244,7 @@ export default function LeadsPage() {
     .sort((a, b) => sortFilter === "Latest" ? new Date(b.created_at) - new Date(a.created_at) : 0);
 
   return (
-    <div className="pb-28 px-4 pt-4" data-testid="leads-page">
+    <div className="pb-52 px-4 pt-4" data-testid="leads-page">
       <BackButton className="mb-2" />
 
       {/* 1. Header Section */}
@@ -516,7 +516,7 @@ export default function LeadsPage() {
           </div>
 
           {/* 5. Bottom Upgrade Banner */}
-          <div className="mt-6 bg-gradient-to-r from-blue-950 to-blue-900 text-white rounded-2xl p-4 shadow-md border border-slate-800 flex items-center justify-between gap-4">
+          <div className="fixed bottom-[72px] left-4 right-4 max-w-md md:max-w-lg mx-auto bg-gradient-to-r from-blue-950 to-blue-900 text-white rounded-2xl p-4 shadow-lg border border-slate-800 flex items-center justify-between gap-4 z-20">
             <div>
               <h4 className="font-display font-black text-sm">Unlock Unlimited Leads</h4>
               <p className="text-[10px] text-white/70 mt-0.5">Upgrade to premium and unlock all buyer contact details instantly.</p>

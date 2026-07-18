@@ -22,6 +22,7 @@ import BookmarksPage from "@/pages/BookmarksPage";
 import SearchPage from "@/pages/SearchPage";
 import CompaniesPage from "@/pages/CompaniesPage";
 import ProductsPage from "@/pages/ProductsPage";
+import ProductDetailPage from "@/pages/ProductDetailPage";
 import JobsPage from "@/pages/JobsPage";
 import AdminPage from "@/pages/AdminPage";
 import RequirementsPage from "@/pages/RequirementsPage";
@@ -75,6 +76,7 @@ function App() {
               <Route path="/bookmarks" element={<BookmarksPage />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/products" element={<ProductsPage />} />
+              <Route path="/product/:id" element={<ProductDetailPage />} />
               <Route path="/jobs" element={<JobsPage />} />
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/requirements" element={<RequirementsPage />} />
