@@ -1,18 +1,10 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { Home, Film, PlusSquare, Package, Inbox, FileText, X, Briefcase, ListTodo } from "lucide-react";
+import { Home, Film, PlusSquare, Package, Inbox, FileText, X, Briefcase, ListTodo, User } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 import { PostDialog, ReelDialog, JobDialog } from "./CreateDialogs";
 import { ProductDialog } from "./ProductDialog";
-
-const items = [
-  { to: "/", label: "Home", icon: Home, testid: "nav-home" },
-  { to: "/reels", label: "Reels", icon: Film, testid: "nav-reels" },
-  { to: "/post-enquiry", label: "Post", icon: PlusSquare, testid: "nav-post", isCenter: true },
-  { to: "/products", label: "Products", icon: Package, testid: "nav-products" },
-  { to: "/leads", label: "Leads", icon: Inbox, testid: "nav-leads" },
-];
 
 export const BottomNav = () => {
   const { user } = useAuth();
@@ -23,6 +15,17 @@ export const BottomNav = () => {
   const [jobOpen, setJobOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
 
+  const isBuyer = user && user.role === "buyer";
+  const navItems = [
+    { to: "/", label: "Home", icon: Home, testid: "nav-home" },
+    { to: "/reels", label: "Reels", icon: Film, testid: "nav-reels" },
+    { to: "/post-enquiry", label: "Post", icon: PlusSquare, testid: "nav-post", isCenter: true },
+    { to: "/products", label: "Products", icon: Package, testid: "nav-products" },
+    isBuyer
+      ? { to: "/requirements", label: "My Requirements", icon: Inbox, testid: "nav-requirements" }
+      : { to: "/leads", label: "Leads", icon: Inbox, testid: "nav-leads" },
+  ];
+
   const handlePostClick = (e) => {
     e.preventDefault();
     if (!user) {
@@ -32,6 +35,10 @@ export const BottomNav = () => {
     }
     if (user.role !== "manufacturer" && user.role !== "supplier" && user.role !== "buyer") {
       toast.error("Access Denied: Only Manufacturers, Sellers and Buyers can create posts/requirements.");
+      return;
+    }
+    if (user.role === "buyer") {
+      navigate("/post-enquiry");
       return;
     }
     setPromptOpen(true);
@@ -45,8 +52,8 @@ export const BottomNav = () => {
       >
         <div className="max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto">
           <ul className="grid grid-cols-5 lg:flex lg:justify-evenly lg:items-center lg:h-20">
-            {items.map(({ to, label, icon: Icon, testid, isCenter }) => {
-              const requiresAuth = to === "/leads" && !user;
+            {navItems.map(({ to, label, icon: Icon, testid, isCenter }) => {
+              const requiresAuth = (to === "/leads" || to === "/requirements") && !user;
               
               if (isCenter) {
                 return (

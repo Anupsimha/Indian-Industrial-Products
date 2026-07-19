@@ -20,6 +20,9 @@ export const TopHeader = () => {
     setDropdownOpen(!dropdownOpen);
   };
 
+  const isBuyer = user && user.role === "buyer";
+  const isSeller = user && (user.role === "manufacturer" || user.role === "supplier");
+
   return (
     <header
       className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200"
@@ -33,13 +36,25 @@ export const TopHeader = () => {
         </Link>
 
         <div className="flex items-center gap-1 lg:gap-3">
-          <Link to="/search" className="p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors" data-testid="header-search"><Search size={22} /></Link>
-          <Link to="/bookmarks" className="p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors" data-testid="header-bookmarks"><Bookmark size={22} /></Link>
+          <Link
+            to="/search"
+            className={`p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${isBuyer ? "hidden md:block" : "block"}`}
+            data-testid="header-search"
+          >
+            <Search size={22} />
+          </Link>
+          <Link
+            to="/bookmarks"
+            className={`p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${isBuyer ? "hidden md:block" : "block"}`}
+            data-testid="header-bookmarks"
+          >
+            <Bookmark size={22} />
+          </Link>
 
           {/* Cart Button with Badge */}
           <Link
             to="/cart"
-            className="relative p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors"
+            className={`relative p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${user ? "hidden md:block" : "block"}`}
             data-testid="header-cart"
           >
             <ShoppingCart size={22} />
@@ -52,14 +67,14 @@ export const TopHeader = () => {
 
           <Link
             to={user ? "/chats" : "/login"}
-            className="p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors"
+            className={`p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${user ? "hidden md:block" : "block"}`}
             data-testid="header-chats"
           >
             <MessageSquare size={22} />
           </Link>
           <Link
             to={user ? "/notifications" : "/login"}
-            className="relative p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors"
+            className="relative p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors block"
             data-testid="header-notifications"
           >
             <Bell size={22} />
@@ -101,6 +116,43 @@ export const TopHeader = () => {
                 >
                   Profile
                 </Link>
+
+                {/* Mobile-only Search for Buyer */}
+                {isBuyer && (
+                  <Link
+                    to="/search"
+                    onClick={() => setDropdownOpen(false)}
+                    className="block md:hidden px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                  >
+                    Search Products
+                  </Link>
+                )}
+
+                {/* Mobile-only Cart */}
+                <Link
+                  to="/cart"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block md:hidden px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <span>Cart</span>
+                    {cartCount > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-orange-600 text-[9px] font-bold text-white leading-none">
+                        {cartCount}
+                      </span>
+                    )}
+                  </div>
+                </Link>
+
+                {/* Mobile-only Chat */}
+                <Link
+                  to="/chats"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block md:hidden px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                >
+                  Chats / Messages
+                </Link>
+
                 <Link
                   to="/orders"
                   onClick={() => setDropdownOpen(false)}

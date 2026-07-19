@@ -64,10 +64,16 @@ def _send_email_sync(
     cfg = _get_smtp_config()
 
     if not cfg["user"] or not cfg["password"]:
-        raise RuntimeError(
-            "SMTP credentials are not configured. "
-            "Set SMTP_USER and SMTP_PASSWORD in your .env file."
+        logger.warning(
+            "\n" + "="*80 + "\n"
+            "[MOCK EMAIL - SMTP NOT CONFIGED]\n"
+            f"TO: {recipients}\n"
+            f"SUBJECT: {subject}\n"
+            f"BODY SUMMARY (STRIPIED TAGS):\n"
+            f"{_html_to_plain(html_body)}\n"
+            + "="*80 + "\n"
         )
+        return
 
     recipients = [to] if isinstance(to, str) else to
 
