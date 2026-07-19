@@ -4,7 +4,7 @@ import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import {
   Phone, MapPin, Tag, Clock, MessageSquare, Play, Lock, Sparkles, X,
-  ShieldCheck, Loader2, CheckCircle, Mail, AlertTriangle, Search, ChevronDown, CheckCircle2
+  ShieldCheck, Loader2, CheckCircle, Mail, AlertTriangle, Search, ChevronDown, CheckCircle2, Image
 } from "lucide-react";
 import { Navigate, useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -193,6 +193,79 @@ function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, on
       </div>
       <style>{`@keyframes slideUp { from{transform:translateY(40px);opacity:0} to{transform:translateY(0);opacity:1} }`}</style>
     </div>
+  );
+}
+
+// ─── Media thumbnail strip (always visible, not gated) ────────────────────────
+function LeadMediaStrip({ urls }) {
+  const [lightbox, setLightbox] = useState(null);
+  if (!urls || urls.length === 0) return null;
+
+  const BASE = import.meta.env.VITE_API_BASE || "";
+  const toSrc = (u) => (u.startsWith("http") ? u : `${BASE}${u}`);
+
+  const isPdf = (u) => u.toLowerCase().endsWith(".pdf");
+  const visible = urls.slice(0, 3);
+  const extra = urls.length - visible.length;
+
+  return (
+    <>
+      <div className="mt-3 flex gap-2 flex-wrap">
+        {visible.map((url, i) => (
+          isPdf(url) ? (
+            <a
+              key={i}
+              href={toSrc(url)}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+            >
+              <Image size={13} className="text-red-500" />
+              PDF
+            </a>
+          ) : (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setLightbox(toSrc(url))}
+              className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 hover:border-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 shrink-0"
+            >
+              <img
+                src={toSrc(url)}
+                alt={`Attachment ${i + 1}`}
+                className="w-full h-full object-cover"
+              />
+              {i === 2 && extra > 0 && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                  <span className="text-white text-xs font-black">+{extra}</span>
+                </div>
+              )}
+            </button>
+          )
+        ))}
+      </div>
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 text-white/70 hover:text-white"
+          >
+            <X size={24} />
+          </button>
+          <img
+            src={lightbox}
+            alt="Attachment"
+            className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -549,6 +622,9 @@ export default function LeadsPage() {
                   <p className="mt-3 text-xs text-slate-600 leading-relaxed whitespace-pre-line">
                     {lead.requirement}
                   </p>
+
+                  {/* Media attachments — visible before and after unlock */}
+                  <LeadMediaStrip urls={lead.media_urls} />
 
                   <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                     <div className="text-xs">

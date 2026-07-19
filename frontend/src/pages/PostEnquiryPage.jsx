@@ -15,10 +15,8 @@ export default function PostEnquiryPage() {
   const [categories, setCategories] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
-  // File attachments state
-  const [attachments, setAttachments] = useState([
-    { name: "drawing.pdf", size: "2.4 MB" }
-  ]);
+  // File attachments state — each entry: { file: File, name: string, size: string }
+  const [attachments, setAttachments] = useState([]);
 
   // Suppliers permissions state
   const [supplierTypes, setSupplierTypes] = useState({
@@ -33,12 +31,17 @@ export default function PostEnquiryPage() {
   }, []);
 
   const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
-      setAttachments((prev) => [...prev, { name: file.name, size: `${sizeMB} MB` }]);
-      toast.success(`Attached file: ${file.name}`);
-    }
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const newEntries = files.map((file) => ({
+      file,
+      name: file.name,
+      size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+    }));
+    setAttachments((prev) => [...prev, ...newEntries]);
+    toast.success(`${files.length > 1 ? `${files.length} files` : files[0].name} attached`);
+    // reset so same file can be re-added after removal
+    e.target.value = "";
   };
 
   const removeAttachment = (index) => {
@@ -67,12 +70,26 @@ export default function PostEnquiryPage() {
     }
     setSubmitting(true);
     try {
-      const payload = {
-        ...form,
-        location: `${loc.industrial_area}, ${loc.city}, ${loc.state}`,
-        state: loc.state, city: loc.city, industrial_area: loc.industrial_area,
-      };
-      await api.post("/enquiries", payload);
+      const fd = new FormData();
+      fd.append("name", form.name);
+      fd.append("mobile", form.mobile);
+      fd.append("requirement", form.requirement);
+      fd.append("category", form.category);
+      fd.append("location", `${loc.industrial_area}, ${loc.city}, ${loc.state}`);
+      fd.append("state", loc.state);
+      fd.append("city", loc.city);
+      fd.append("industrial_area", loc.industrial_area);
+      if (form.product_name) fd.append("product_name", form.product_name);
+      if (form.quantity)     fd.append("quantity", form.quantity);
+
+      // Attach each real File object under the "media" key
+      attachments.forEach(({ file }) => {
+        if (file) fd.append("media", file);
+      });
+
+      await api.post("/enquiries", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       toast.success("Requirement posted! Verified suppliers will contact you on your number.", {
         description: "An SMS confirmation has been sent.",
         icon: <CheckCircle2 className="text-emerald-500" size={16} />
@@ -250,6 +267,8 @@ export default function PostEnquiryPage() {
           <label className="relative border-2 border-dashed border-slate-200 hover:border-blue-300 rounded-xl p-5 flex flex-col items-center justify-center cursor-pointer transition-all bg-slate-50/50 hover:bg-slate-50">
             <input
               type="file"
+              multiple
+              accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
               onChange={handleFileUpload}
               className="absolute inset-0 opacity-0 cursor-pointer"
             />

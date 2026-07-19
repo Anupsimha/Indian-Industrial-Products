@@ -53,6 +53,8 @@ REEL_DIR = ROOT_DIR / "reels-uploaded"
 REEL_DIR.mkdir(exist_ok=True)
 PRODUCT_IMAGES_DIR = ROOT_DIR / "products-images"
 PRODUCT_IMAGES_DIR.mkdir(exist_ok=True)
+ENQUIRY_MEDIA_DIR = ROOT_DIR / "enquiry-media"
+ENQUIRY_MEDIA_DIR.mkdir(exist_ok=True)
 
 # -------------------- Setup JWT --------------------
 JWT_SECRET = os.environ.get('JWT_SECRET', 'supersecretjwtkeyforiipmarketplace')
@@ -62,11 +64,13 @@ app = FastAPI(title="IIP - Indian Industrial Products")
 app.mount("/api/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads_api")
 app.mount("/api/reels-uploaded", StaticFiles(directory=str(REEL_DIR)), name="reels_local_api")
 app.mount("/api/products-images", StaticFiles(directory=str(PRODUCT_IMAGES_DIR)), name="products_images_api")
+app.mount("/api/enquiry-media", StaticFiles(directory=str(ENQUIRY_MEDIA_DIR)), name="enquiry_media_api")
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 app.mount("/VacancyResume", StaticFiles(directory=str(VACANCY_RESUME_DIR)), name="vacancy_resumes")
 app.mount("/reels-uploaded", StaticFiles(directory=str(REEL_DIR)), name="reels_local")
 app.mount("/products-images", StaticFiles(directory=str(PRODUCT_IMAGES_DIR)), name="products_images")
+app.mount("/enquiry-media", StaticFiles(directory=str(ENQUIRY_MEDIA_DIR)), name="enquiry_media")
 
 api = APIRouter(prefix="/api")
 
@@ -181,6 +185,7 @@ class Enquiry(Base):
     company_id = Column(String(36), nullable=True)
     post_id = Column(String(36), nullable=True)
     status = Column(String(50), nullable=False)  # new, in_progress, closed
+    media_urls = Column(JSON, default=list, nullable=True)  # list of uploaded image/file URLs
     created_at = Column(String(255), nullable=False)
 
 class Follow(Base):
@@ -526,6 +531,7 @@ class EnquiryOut(BaseModel):
     company_id: Optional[str] = None
     post_id: Optional[str] = None
     status: Literal["new", "in_progress", "closed", "completed", "pending"]
+    media_urls: Optional[List[str]] = None
     created_at: str
 
 
@@ -1697,27 +1703,71 @@ async def admin_delete_company(company_id: str, user: dict = Depends(get_current
 
 
 # -------------------- Enquiries / Leads --------------------
+ALLOWED_ENQUIRY_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"}
+MAX_ENQUIRY_MEDIA_SIZE = 10 * 1024 * 1024  # 10 MB per file
+
 @api.post("/enquiries", response_model=EnquiryOut)
-async def create_enquiry(payload: EnquiryCreate, db: AsyncSession = Depends(get_db)):
-    company_id = payload.company_id
-    if payload.post_id and not company_id:
-        stmt_post = select(Post).where(Post.id == payload.post_id)
+async def create_enquiry(
+    request: Request,
+    name: str = Form(...),
+    mobile: str = Form(...),
+    requirement: str = Form(...),
+    category: str = Form(...),
+    location: str = Form(...),
+    product_name: Optional[str] = Form(None),
+    quantity: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+    city: Optional[str] = Form(None),
+    industrial_area: Optional[str] = Form(None),
+    company_id: Optional[str] = Form(None),
+    post_id: Optional[str] = Form(None),
+    media: List[UploadFile] = File(default=[]),
+    db: AsyncSession = Depends(get_db),
+):
+    # Resolve company_id from post if not provided
+    if post_id and not company_id:
+        stmt_post = select(Post).where(Post.id == post_id)
         post = (await db.execute(stmt_post)).scalar_one_or_none()
         if post:
             company_id = post.company_id
-            
+
+    # Save uploaded media files to enquiry-media/ folder
+    saved_media_urls: List[str] = []
+    for upload in media:
+        if not upload.filename:
+            continue
+        content_type = upload.content_type or ""
+        if content_type not in ALLOWED_ENQUIRY_MEDIA_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File '{upload.filename}' has unsupported type '{content_type}'. Allowed: JPG, PNG, WEBP, GIF, PDF."
+            )
+        file_data = await upload.read()
+        if len(file_data) > MAX_ENQUIRY_MEDIA_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File '{upload.filename}' exceeds the 10 MB size limit."
+            )
+        file_ext = Path(upload.filename).suffix.lower() or ".jpg"
+        unique_filename = f"{uuid.uuid4().hex}{file_ext}"
+        file_path = ENQUIRY_MEDIA_DIR / unique_filename
+        with file_path.open("wb") as buf:
+            buf.write(file_data)
+        saved_media_urls.append(f"/api/enquiry-media/{unique_filename}")
+
     eid = str(uuid.uuid4())
     doc = Enquiry(
-        id=eid, name=payload.name, mobile=payload.mobile,
-        requirement=payload.requirement, category=payload.category,
-        location=payload.location, company_id=company_id,
-        post_id=payload.post_id, status="new", created_at=now_iso(),
-        product_name=payload.product_name, quantity=payload.quantity,
-        state=payload.state, city=payload.city,
-        industrial_area=payload.industrial_area,
+        id=eid, name=name, mobile=mobile,
+        requirement=requirement, category=category,
+        location=location, company_id=company_id,
+        post_id=post_id, status="new", created_at=now_iso(),
+        product_name=product_name, quantity=quantity,
+        state=state, city=city,
+        industrial_area=industrial_area,
+        media_urls=saved_media_urls if saved_media_urls else None,
     )
     db.add(doc)
-    
+
     if company_id:
         stmt_comp = select(Company).where(Company.id == company_id)
         company = (await db.execute(stmt_comp)).scalar_one_or_none()
@@ -1725,13 +1775,13 @@ async def create_enquiry(payload: EnquiryCreate, db: AsyncSession = Depends(get_
             notif = Notification(
                 id=str(uuid.uuid4()), user_id=company.owner_id,
                 title="New Lead!",
-                body=f"{payload.name} - {payload.requirement[:60]}",
+                body=f"{name} - {requirement[:60]}",
                 read=False, created_at=now_iso(),
             )
             db.add(notif)
-            
+
     await db.commit()
-    
+
     stmt_reload = select(Enquiry).where(Enquiry.id == eid)
     doc_loaded = (await db.execute(stmt_reload)).scalar_one()
     return EnquiryOut(
@@ -1743,6 +1793,7 @@ async def create_enquiry(payload: EnquiryCreate, db: AsyncSession = Depends(get_
         product_name=doc_loaded.product_name, quantity=doc_loaded.quantity,
         state=doc_loaded.state, city=doc_loaded.city,
         industrial_area=doc_loaded.industrial_area,
+        media_urls=doc_loaded.media_urls,
     )
 
 
@@ -1769,7 +1820,8 @@ async def list_enquiries(
         category=d.category, location=d.location, product_name=d.product_name,
         quantity=d.quantity, state=d.state, city=d.city,
         industrial_area=d.industrial_area, company_id=d.company_id,
-        post_id=d.post_id, status=d.status, created_at=d.created_at
+        post_id=d.post_id, status=d.status, created_at=d.created_at,
+        media_urls=d.media_urls,
     ) for d in docs]
 
 
@@ -2381,6 +2433,8 @@ async def list_requirements(
             "is_unlocked": unlocked,
             "mobile": d.mobile if unlocked else _mask_mobile(d.mobile),
             "company_id": d.company_id,
+            # media is always visible — only contact details are gated
+            "media_urls": d.media_urls or [],
         }
         out.append(item)
     return out
@@ -3527,6 +3581,12 @@ async def startup():
         except Exception:
             pass
         
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text("ALTER TABLE enquiries ADD COLUMN media_urls JSONB"))
+        except Exception:
+            pass
+
     async with AsyncSessionLocal() as session:
         await seed_data(session)
         await _seed_plans_if_empty(session)
