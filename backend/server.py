@@ -1078,7 +1078,7 @@ async def create_reel(
             size = file.file.tell()
             file.file.seek(0)
             if size > 100 * 1024 * 1024:
-                raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
+                raise HTTPException(status_code=400, detail="Video size must be less than 100 MB")
 
             file_ext = Path(file.filename).suffix if file.filename else ".mp4"
             unique_filename = f"{user['id']}-{rid}{file_ext}"
@@ -1095,8 +1095,8 @@ async def create_reel(
             
             # Check size
             size = demo_path.stat().st_size
-            if size > 10 * 1024 * 1024:
-                raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
+            if size > 100 * 1024 * 1024:
+                raise HTTPException(status_code=400, detail="Video size must be less than 100 MB")
                 
             unique_filename = f"{user['id']}-{rid}.mp4"
             file_path = REEL_DIR / unique_filename

@@ -90,13 +90,13 @@ def test_reels_upload_size_limit(s, auth_headers):
     
     # 1. Try to upload a video larger than 10MB
     # 11MB = 11 * 1024 * 1024 bytes
-    large_content = b"x" * (11 * 1024 * 1024)
+    large_content = b"x" * (101 * 1024 * 1024)
     files = {"file": ("huge_reel.mp4", large_content, "video/mp4")}
     data = {"content": "Too large reel"}
     
     r = s.post(f"{API}/reels", files=files, data=data, headers=headers)
     assert r.status_code == 400, r.text
-    assert "Video size must be less than 10 MB" in r.json()["detail"]
+    assert "Video size must be less than 100 MB" in r.json()["detail"]
 
 
 def test_cart_payment_gateway(s, auth_headers):
