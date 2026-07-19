@@ -217,8 +217,8 @@ export const ReelDialog = ({ open, onClose, onSaved }) => {
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) {
-                  if (file.size > 10 * 1024 * 1024) {
-                    toast.error("Video size must be less than 10 MB");
+                  if (file.size > 100 * 1024 * 1024) {
+                    toast.error("Video size must be less than 100 MB");
                     return;
                   }
                   setVideoFile(file);
