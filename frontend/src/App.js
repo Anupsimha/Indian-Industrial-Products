@@ -5,6 +5,7 @@ import "@/App.css";
 
 import { AuthProvider } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
+import { InstallAppBanner } from "@/components/InstallAppBanner";
 import { TopHeader } from "@/components/TopHeader";
 import { BottomNav } from "@/components/BottomNav";
 
@@ -60,6 +61,7 @@ function App() {
       <CartProvider>
         <BrowserRouter>
           <Toaster position="top-center" richColors />
+          <InstallAppBanner />
           <Layout>
             <Routes>
               <Route path="/" element={<HomePage />} />

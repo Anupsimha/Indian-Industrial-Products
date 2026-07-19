@@ -1077,7 +1077,7 @@ async def create_reel(
             file.file.seek(0, 2)
             size = file.file.tell()
             file.file.seek(0)
-            if size > 10 * 1024 * 1024:
+            if size > 100 * 1024 * 1024:
                 raise HTTPException(status_code=400, detail="Video size must be less than 10 MB")
 
             file_ext = Path(file.filename).suffix if file.filename else ".mp4"
