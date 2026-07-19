@@ -17,13 +17,14 @@ export const Logo = ({ size = 36, withText = true }) => {
       </div>
       {withText && (
         <div className="leading-none flex flex-col justify-center select-none font-display font-black text-blue-900 tracking-tight uppercase">
-          {/* Desktop view name */}
-          <span className="hidden sm:inline-block text-[13px] whitespace-nowrap">
-            Indian Industrial Platform
-          </span>
-          {/* Mobile view name */}
-          <span className="inline-block sm:hidden text-base">
+          <span className="text-base sm:text-lg leading-none font-black">
             IIP
+          </span>
+          <span className="text-[9px] sm:text-[10px] font-bold text-orange-600 tracking-wider leading-none mt-0 whitespace-nowrap">
+            ENGINEERING
+          </span>
+          <span className="text-[9px] sm:text-[10px] font-bold text-orange-600 tracking-wider leading-none whitespace-nowrap">
+            TOMORROW
           </span>
         </div>
       )}

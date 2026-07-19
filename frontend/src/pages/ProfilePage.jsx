@@ -8,10 +8,13 @@ import {
   LogOut, Briefcase, Inbox, Bookmark, Bell, Star, ChevronRight,
   Building2, Verified, MapPin, Globe, Camera, FileText, Users,
   UserPlus, Package, BarChart3, Edit, Plus, Trash2, Calendar,
-  ShieldCheck, Phone, Mail
+  ShieldCheck, Phone, Mail, Target
 } from "lucide-react";
 import { PostCard } from "../components/PostCard";
 import { toast } from "sonner";
+import { PostDialog, ReelDialog } from "../components/CreateDialogs";
+import { ProductDialog } from "../components/ProductDialog";
+import { CompanyEditDialog } from "../components/CompanyEditDialog";
 
 export default function ProfilePage() {
   const { user, loading, logout } = useAuth();
@@ -20,6 +23,10 @@ export default function ProfilePage() {
   const [products, setProducts] = useState([]);
   const [reels, setReels] = useState([]);
   const [activeTab, setActiveTab] = useState("posts");
+  const [postOpen, setPostOpen] = useState(false);
+  const [reelOpen, setReelOpen] = useState(false);
+  const [productOpen, setProductOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const navigate = useNavigate();
   const isBusiness = user?.role === "manufacturer" || user?.role === "supplier";
 
@@ -113,25 +120,67 @@ export default function ProfilePage() {
       <div className="mt-4 bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
         <div className="grid grid-cols-4 gap-2 text-center divide-x divide-slate-100">
           <div className="flex flex-col items-center justify-center">
-            <FileText size={16} className="text-slate-400 mb-1" />
+            <FileText size={16} className="text-blue-600 mb-1" />
             <span className="font-display font-extrabold text-slate-900 text-lg">{posts.length || 245}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Posts</span>
           </div>
           <div className="flex flex-col items-center justify-center pl-1">
-            <Users size={16} className="text-slate-400 mb-1" />
+            <Users size={16} className="text-orange-500 mb-1" />
             <span className="font-display font-extrabold text-slate-900 text-lg">{company?.followers_count || "12.5K"}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Followers</span>
           </div>
           <div className="flex flex-col items-center justify-center pl-1">
-            <UserPlus size={16} className="text-slate-400 mb-1" />
+            <UserPlus size={16} className="text-green-500 mb-1" />
             <span className="font-display font-extrabold text-slate-900 text-lg">1.2K</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Following</span>
           </div>
           <div className="flex flex-col items-center justify-center pl-1">
-            <Inbox size={16} className="text-slate-400 mb-1" />
+            <Inbox size={16} className="text-purple-600 mb-1" />
             <span className="font-display font-extrabold text-slate-900 text-lg">85</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Enquiries</span>
           </div>
+        </div>
+      </div>
+
+      {/* 3. Quick Actions Section */}
+      <div className="mt-4 bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+        <div className="grid grid-cols-4 gap-2 text-center divide-x divide-slate-100">
+          <button
+            onClick={() => setActiveTab("products")}
+            className="flex flex-col items-center justify-center hover:bg-slate-50 py-2 rounded-xl transition-all duration-200"
+          >
+            <div className="p-2 rounded-full bg-blue-50 text-blue-600 mb-1 hover:scale-110 transition-transform">
+              <Package size={20} />
+            </div>
+            <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">My Products</span>
+          </button>
+          <Link
+            to="/leads"
+            className="flex flex-col items-center justify-center pl-1 hover:bg-slate-50 py-2 rounded-xl transition-all duration-200"
+          >
+            <div className="p-2 rounded-full bg-orange-50 text-orange-600 mb-1 hover:scale-110 transition-transform">
+              <Target size={20} />
+            </div>
+            <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">My Leads</span>
+          </Link>
+          <Link
+            to="/bookmarks"
+            className="flex flex-col items-center justify-center pl-1 hover:bg-slate-50 py-2 rounded-xl transition-all duration-200"
+          >
+            <div className="p-2 rounded-full bg-purple-50 text-purple-600 mb-1 hover:scale-110 transition-transform">
+              <Bookmark size={20} />
+            </div>
+            <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">Saved</span>
+          </Link>
+          <button
+            onClick={() => toast.info("Analytics dashboard coming soon!")}
+            className="flex flex-col items-center justify-center pl-1 hover:bg-slate-50 py-2 rounded-xl transition-all duration-200 w-full"
+          >
+            <div className="p-2 rounded-full bg-green-50 text-green-600 mb-1 hover:scale-110 transition-transform">
+              <BarChart3 size={20} />
+            </div>
+            <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">Analytics</span>
+          </button>
         </div>
       </div>
 
@@ -156,8 +205,44 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* Tab Actions Button */}
+      <div className="mt-4 mb-2 flex justify-end">
+        {activeTab === "posts" && (
+          <button
+            onClick={() => setPostOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-full font-bold text-xs shadow transition-colors"
+          >
+            <Plus size={14} /> Add Post
+          </button>
+        )}
+        {activeTab === "products" && (
+          <button
+            onClick={() => setProductOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-full font-bold text-xs shadow transition-colors"
+          >
+            <Plus size={14} /> Add Product
+          </button>
+        )}
+        {activeTab === "reels" && (
+          <button
+            onClick={() => setReelOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-full font-bold text-xs shadow transition-colors"
+          >
+            <Plus size={14} /> Add Reel
+          </button>
+        )}
+        {activeTab === "about" && (
+          <button
+            onClick={() => setEditOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-full font-bold text-xs shadow transition-colors"
+          >
+            <Edit size={14} /> Update Info
+          </button>
+        )}
+      </div>
+
       {/* 5. Tab Content Area */}
-      <div className="mt-4">
+      <div className="mt-2">
         {/* POSTS TAB */}
         {activeTab === "posts" && (
           <div className="space-y-4">
@@ -185,7 +270,8 @@ export default function ProfilePage() {
                 {products.map((p) => (
                   <div
                     key={p.id}
-                    className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-200"
+                    onClick={() => navigate(`/product/${p.id}`)}
+                    className="cursor-pointer bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-200"
                   >
                     <div className="relative aspect-square w-full bg-slate-50">
                       <img
@@ -193,6 +279,24 @@ export default function ProfilePage() {
                         alt={p.name}
                         className="w-full h-full object-cover"
                       />
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (window.confirm("Are you sure you want to delete this product?")) {
+                            try {
+                              await api.delete(`/products/${p.id}`);
+                              toast.success("Product deleted successfully");
+                              loadCompanyData();
+                            } catch (err) {
+                              console.error(err);
+                              toast.error("Failed to delete product");
+                            }
+                          }
+                        }}
+                        className="absolute top-2 right-2 p-1.5 rounded-full bg-red-50 hover:bg-red-100 text-red-600 shadow transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                     <div className="p-3">
                       <div className="font-semibold text-sm text-slate-900 line-clamp-1">{p.name}</div>
@@ -229,6 +333,24 @@ export default function ProfilePage() {
                     ) : (
                       <video src={r.video_url} className="w-full h-full object-cover" muted />
                     )}
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (window.confirm("Are you sure you want to delete this reel?")) {
+                          try {
+                            await api.delete(`/reels/${r.id}`);
+                            toast.success("Reel deleted successfully");
+                            loadCompanyData();
+                          } catch (err) {
+                            console.error(err);
+                            toast.error("Failed to delete reel");
+                          }
+                        }
+                      }}
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-red-500/80 hover:bg-red-600 text-white shadow transition-colors z-10 animate-in fade-in"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                     <div className="absolute bottom-2 left-2 right-2 text-white text-[9px] font-semibold line-clamp-2 leading-tight">
                       {r.content}
@@ -316,7 +438,13 @@ export default function ProfilePage() {
         )}
       </div>
 
-
+      {/* Dialogs */}
+      <PostDialog open={postOpen} onClose={() => setPostOpen(false)} onSaved={loadCompanyData} />
+      <ReelDialog open={reelOpen} onClose={() => setReelOpen(false)} onSaved={loadCompanyData} />
+      <ProductDialog open={productOpen} onClose={() => setProductOpen(false)} onSaved={loadCompanyData} />
+      {company && (
+        <CompanyEditDialog open={editOpen} onClose={() => setEditOpen(false)} company={company} onSaved={loadCompanyData} />
+      )}
     </div>
   );
 }

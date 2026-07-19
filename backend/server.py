@@ -525,7 +525,7 @@ class EnquiryOut(BaseModel):
     industrial_area: Optional[str] = None
     company_id: Optional[str] = None
     post_id: Optional[str] = None
-    status: Literal["new", "in_progress", "closed"]
+    status: Literal["new", "in_progress", "closed", "completed", "pending"]
     created_at: str
 
 
@@ -1170,6 +1170,17 @@ async def list_products(category: Optional[str] = None, limit: int = 50, db: Asy
     return out
 
 
+@api.get("/products/{product_id}", response_model=ProductOut)
+async def get_product(product_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(Product).where(Product.id == product_id)
+    p = (await db.execute(stmt)).scalar_one_or_none()
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    stmt_comp = select(Company).where(Company.id == p.company_id)
+    company = (await db.execute(stmt_comp)).scalar_one_or_none()
+    return make_product_out(p, company)
+
+
 def process_product_images(user_id: str, product_id: str, image_url: str, images: List[str], request: Request) -> tuple[str, List[str]]:
     PRODUCT_IMAGES_DIR.mkdir(exist_ok=True)
     
@@ -1765,7 +1776,7 @@ async def list_enquiries(
 @api.patch("/enquiries/{enquiry_id}/status")
 async def update_enquiry_status(
     enquiry_id: str,
-    new_status: Literal["new", "in_progress", "closed"] = Query(...),
+    new_status: Literal["new", "in_progress", "closed", "completed", "pending"] = Query(...),
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -1773,10 +1784,55 @@ async def update_enquiry_status(
     enq = (await db.execute(stmt)).scalar_one_or_none()
     if not enq:
         raise HTTPException(status_code=404, detail="Not found")
-    if user.get("role") != "admin" and enq.company_id != user.get("company_id"):
+        
+    is_allowed = (
+        user.get("role") == "admin" or
+        (enq.company_id and enq.company_id == user.get("company_id")) or
+        (enq.mobile == user.get("mobile"))
+    )
+    if not is_allowed:
         raise HTTPException(status_code=403, detail="Forbidden")
     
     enq.status = new_status
+    await db.commit()
+    return {"ok": True}
+
+
+@api.get("/requirements/my", response_model=List[EnquiryOut])
+async def list_my_requirements(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Enquiry).where(Enquiry.mobile == user["mobile"]).order_by(desc(Enquiry.created_at))
+    docs = (await db.execute(stmt)).scalars().all()
+    return [EnquiryOut(
+        id=d.id, name=d.name, mobile=d.mobile, requirement=d.requirement,
+        category=d.category, location=d.location, product_name=d.product_name,
+        quantity=d.quantity, state=d.state, city=d.city,
+        industrial_area=d.industrial_area, company_id=d.company_id,
+        post_id=d.post_id, status=d.status, created_at=d.created_at
+    ) for d in docs]
+
+
+@api.delete("/enquiries/{enquiry_id}")
+async def delete_enquiry(
+    enquiry_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Enquiry).where(Enquiry.id == enquiry_id)
+    enq = (await db.execute(stmt)).scalar_one_or_none()
+    if not enq:
+        raise HTTPException(status_code=404, detail="Not found")
+        
+    is_allowed = (
+        user.get("role") == "admin" or
+        (enq.mobile == user.get("mobile"))
+    )
+    if not is_allowed:
+        raise HTTPException(status_code=403, detail="Forbidden")
+        
+    await db.delete(enq)
     await db.commit()
     return {"ok": True}
 

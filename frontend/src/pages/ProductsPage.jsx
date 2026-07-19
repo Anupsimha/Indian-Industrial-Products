@@ -5,7 +5,7 @@ import { whatsappLink } from "../lib/api";
 import {
   MessageSquare, Search, SlidersHorizontal, ShoppingCart, Plus, Minus,
   CheckCircle, MapPin, CreditCard, Clock, ChevronRight, X, Star, ShieldCheck,
-  Truck, ArrowRight, ShieldAlert, Award
+  Truck, ArrowRight, ShieldAlert, Award, Bookmark
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
@@ -304,8 +304,92 @@ export default function ProductsPage() {
         ))}
       </div>
 
-      {/* Products Grid */}
-      <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+      {/* Mobile Horizontal Cards List (sm:hidden) */}
+      <div className="flex flex-col gap-3 sm:hidden mt-4">
+        {filtered.length === 0 && (
+          <div className="text-center text-sm text-slate-500 py-8 bg-white border border-slate-100 rounded-2xl">
+            No products found.
+          </div>
+        )}
+        {filtered.map((p, idx) => {
+          const isTopSeller = idx % 4 === 0;
+          return (
+            <div
+              key={p.id}
+              className="bg-white border border-slate-100 rounded-2xl p-3 flex gap-3 shadow-sm hover:shadow-md transition-all relative"
+              data-testid={`product-mobile-${p.id}`}
+            >
+              {/* Save/Bookmark Button at Top Right */}
+              <button 
+                onClick={() => toast.success(`${p.name} saved!`)}
+                className="absolute top-3 right-3 p-1 text-slate-400 hover:text-blue-900 transition-colors"
+              >
+                <Bookmark size={16} />
+              </button>
+
+              {/* Left: Product Image */}
+              <div 
+                className="relative w-24 h-24 sm:w-28 sm:h-28 shrink-0 bg-slate-50 rounded-xl overflow-hidden cursor-pointer"
+                onClick={() => navigate(`/product/${p.id}`)}
+              >
+                <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                {isTopSeller && (
+                  <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-amber-500 text-white text-[8px] font-black uppercase tracking-wider">
+                    Top Seller
+                  </span>
+                )}
+              </div>
+
+              {/* Right: Details and Actions */}
+              <div className="flex-1 min-w-0 flex flex-col justify-between">
+                {/* Info */}
+                <div className="cursor-pointer" onClick={() => navigate(`/product/${p.id}`)}>
+                  <h3 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1 leading-snug hover:text-blue-900 pr-6">
+                    {p.name}
+                  </h3>
+                  <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                    {p.category || "Industrial Grade"}
+                  </p>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <span className="text-[10px] font-semibold text-slate-700 truncate">{p.company_name}</span>
+                    <CheckCircle size={10} className="text-blue-600 fill-blue-50 shrink-0" />
+                  </div>
+                  {p.location && (
+                    <div className="flex items-center gap-0.5 text-[9px] text-slate-400 mt-0.5">
+                      <MapPin size={9} className="shrink-0" />
+                      <span className="truncate">{p.location}</span>
+                    </div>
+                  )}
+                  <div className="font-display font-extrabold text-blue-900 text-xs sm:text-sm mt-1">
+                    {p.price || "On Request"}
+                  </div>
+                </div>
+
+                {/* Quick Actions Row */}
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => navigate(`/product/${p.id}`)}
+                    className="flex-1 py-1.5 border border-slate-200 text-slate-700 hover:bg-slate-50 text-[10px] font-bold rounded-lg text-center transition-colors"
+                  >
+                    Enquiry
+                  </button>
+                  <a
+                    href={whatsappLink(p.whatsapp || "+919876543210", `Hi, interested in ${p.name}`)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex-1 py-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white text-[10px] font-bold rounded-lg flex items-center justify-center gap-1 transition-colors"
+                  >
+                    <MessageSquare size={10} className="shrink-0" /> WhatsApp
+                  </a>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop Products Grid (hidden sm:grid) */}
+      <div className="hidden sm:grid mt-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
         {filtered.length === 0 && (
           <div className="col-span-full text-center text-sm text-slate-500 py-8 bg-white border border-slate-100 rounded-2xl">
             No products found.
@@ -318,7 +402,7 @@ export default function ProductsPage() {
             data-testid={`product-${p.id}`}
           >
             {/* Product Image and detail modal trigger */}
-            <div className="relative aspect-square w-full overflow-hidden bg-slate-50 cursor-pointer" onClick={() => setSelectedProduct(p)}>
+            <div className="relative aspect-square w-full overflow-hidden bg-slate-50 cursor-pointer" onClick={() => navigate(`/product/${p.id}`)}>
               <img src={p.image_url} alt={p.name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
               {/* Stock Left / In Stock badge */}
               <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase tracking-wider">
@@ -328,7 +412,7 @@ export default function ProductsPage() {
 
             <div className="p-3 flex-grow flex flex-col justify-between">
               <div>
-                <div onClick={() => setSelectedProduct(p)} className="font-semibold text-xs sm:text-sm text-slate-900 hover:text-blue-900 cursor-pointer line-clamp-2 leading-snug min-h-[2.5rem]">
+                <div onClick={() => navigate(`/product/${p.id}`)} className="font-semibold text-xs sm:text-sm text-slate-900 hover:text-blue-900 cursor-pointer line-clamp-2 leading-snug min-h-[2.5rem]">
                   {p.name}
                 </div>
                 <Link to={`/company/${p.company_id}`} className="text-[10px] text-slate-400 hover:text-blue-900 font-bold truncate block mt-1">
@@ -365,109 +449,7 @@ export default function ProductsPage() {
         ))}
       </div>
 
-      {/* PRODUCT DETAILS MODAL */}
-      {selectedProduct && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center sm:items-center p-4">
-          <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto shadow-2xl p-5 border border-slate-100 animate-in slide-in-from-bottom duration-250 relative">
-            <button
-              onClick={() => setSelectedProduct(null)}
-              className="absolute top-4 right-4 p-1.5 rounded-full bg-slate-50 hover:bg-slate-100 text-slate-500"
-            >
-              <X size={18} />
-            </button>
 
-            {/* Slider / Image */}
-            <div className="aspect-square w-full rounded-xl overflow-hidden bg-slate-50 border border-slate-100">
-              <img src={selectedProduct.image_url} alt={selectedProduct.name} className="w-full h-full object-cover" />
-            </div>
-
-            {/* Title & Metadata */}
-            <div className="mt-4">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 text-[10px] font-extrabold uppercase tracking-wide">
-                  Verified Platform
-                </span>
-                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded bg-blue-50 text-blue-800 text-[10px] font-extrabold uppercase tracking-wide">
-                  <Star size={10} className="fill-blue-800 text-blue-800" /> 4.6 (128 Reviews)
-                </span>
-              </div>
-              <h2 className="font-display font-extrabold text-slate-900 text-lg leading-snug">{selectedProduct.name}</h2>
-              <div className="text-xs text-slate-400 font-semibold mt-1 flex items-center gap-1 flex-wrap">
-                <span>By {selectedProduct.company_name}</span>
-                {selectedProduct.location && (
-                  <>
-                    <span>•</span>
-                    <span className="flex items-center gap-0.5 text-slate-500 font-medium">
-                      <MapPin size={12} className="text-slate-400" />
-                      <span>{selectedProduct.location}</span>
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Price Detail */}
-            <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Best Price</span>
-                <div className="flex items-baseline gap-2">
-                  <span className="font-display font-extrabold text-blue-900 text-lg">
-                    {selectedProduct.price || "₹4,500"}
-                  </span>
-                  <span className="text-xs text-slate-400 line-through">
-                    ₹{Math.round(getNumericPrice(selectedProduct.price) * 1.2)}
-                  </span>
-                  <span className="text-[10px] font-bold text-emerald-600">Save 20%</span>
-                </div>
-              </div>
-              <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase tracking-wider">
-                {selectedProduct.stock_left !== undefined && selectedProduct.stock_left !== null ? `Qty Left: ${selectedProduct.stock_left}` : "In Stock"}
-              </span>
-            </div>
-
-            {/* Highlights */}
-            <div className="mt-4">
-              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2">Product Highlights</h4>
-              <ul className="text-xs text-slate-600 space-y-1.5 list-disc pl-4 leading-relaxed">
-                <li>High performance PLC/industrial component suited for automation</li>
-                <li>Compact design with powerful processing speed</li>
-                <li>Easy programming and swift system configuration</li>
-                <li>Wide input voltage support with overload protection</li>
-              </ul>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="mt-6 grid grid-cols-3 gap-2">
-              <a
-                href={whatsappLink(selectedProduct.whatsapp, `Hi, interested in ${selectedProduct.name}`)}
-                target="_blank" rel="noreferrer"
-                className="py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <MessageSquare size={14} /> WhatsApp
-              </a>
-              <button
-                onClick={() => {
-                  addToCart(selectedProduct);
-                  setSelectedProduct(null);
-                }}
-                className="py-3 rounded-xl border border-blue-900 text-blue-900 font-bold text-xs hover:bg-blue-50 transition-colors"
-              >
-                Add to Cart
-              </button>
-              <button
-                onClick={() => {
-                  addToCart(selectedProduct);
-                  setSelectedProduct(null);
-                  setBuyingStep("cart");
-                }}
-                className="py-3 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs transition-all active:scale-95 shadow-md"
-              >
-                Buy Now
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* CART & BUYING FLOW MODAL */}
       {buyingStep && (
