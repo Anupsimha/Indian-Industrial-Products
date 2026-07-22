@@ -212,6 +212,39 @@ export default function ProductDetailPage() {
                 <span className="text-[8px] text-slate-400 leading-tight">Response in 2 hrs</span>
               </div>
             </div>
+            {/* Desktop Actions */}
+            <div className="hidden lg:flex flex-col gap-3 pt-4 border-t border-slate-100">
+              <div className="flex gap-3">
+                <button
+                  onClick={handleAddToCart}
+                  className="flex-grow py-3 border border-blue-900 text-blue-900 font-bold text-sm rounded-2xl hover:bg-blue-50 active:scale-[0.98] transition-all"
+                >
+                  Add to Cart
+                </button>
+                <button
+                  onClick={() => {
+                    if (isOwnProduct) {
+                      toast.error("You cannot send inquiries to your own business.");
+                      return;
+                    }
+                    setEnquiryOpen(true);
+                  }}
+                  className={`flex-grow py-3 rounded-2xl font-bold text-sm transition-all shadow-sm ${
+                    isOwnProduct
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : "bg-orange-600 hover:bg-orange-700 text-white active:scale-[0.98]"
+                  }`}
+                >
+                  Enquiry Now
+                </button>
+              </div>
+              <button
+                onClick={handleBuyNow}
+                className="w-full py-3.5 bg-blue-900 hover:bg-blue-950 text-white font-bold text-sm rounded-2xl shadow-sm active:scale-[0.98] transition-all"
+              >
+                Buy Now
+              </button>
+            </div>
           </div>
 
           {/* Seller details card */}
@@ -309,13 +342,14 @@ export default function ProductDetailPage() {
               toast.error("You cannot contact yourself.");
             }
           }}
-          className={`flex-1 py-3 text-center rounded-2xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all ${
+          className={`p-3 rounded-2xl flex items-center justify-center shadow-sm transition-all shrink-0 ${
             isOwnProduct
               ? "bg-slate-100 text-slate-400 cursor-not-allowed"
               : "bg-[#25D366] hover:bg-[#20bd5a] text-white active:scale-[0.98]"
           }`}
+          title="WhatsApp Enquiry"
         >
-          <MessageSquare size={14} /> WhatsApp
+          <MessageSquare size={18} />
         </a>
         <button
           onClick={() => {

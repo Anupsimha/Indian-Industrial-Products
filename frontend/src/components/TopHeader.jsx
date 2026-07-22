@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart } from "lucide-react";
+import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings } from "lucide-react";
 import { Logo } from "./Logo";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
@@ -43,13 +43,6 @@ export const TopHeader = () => {
           >
             <Search size={22} />
           </Link>
-          <Link
-            to="/bookmarks"
-            className={`p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${isBuyer ? "hidden md:block" : "block"}`}
-            data-testid="header-bookmarks"
-          >
-            <Bookmark size={22} />
-          </Link>
 
           {/* Cart Button with Badge */}
           <Link
@@ -71,6 +64,14 @@ export const TopHeader = () => {
             data-testid="header-chats"
           >
             <MessageSquare size={22} />
+          </Link>
+          <Link
+            to="/bookmarks"
+            className="p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors block"
+            data-testid="header-bookmarks"
+            title="Bookmarks"
+          >
+            <Bookmark size={22} />
           </Link>
           <Link
             to={user ? "/notifications" : "/login"}
@@ -97,15 +98,15 @@ export const TopHeader = () => {
 
             {/* Click-outside backdrop */}
             {user && dropdownOpen && (
-              <div 
-                className="fixed inset-0 z-40 bg-transparent" 
-                onClick={() => setDropdownOpen(false)} 
+              <div
+                className="fixed inset-0 z-40 bg-transparent"
+                onClick={() => setDropdownOpen(false)}
               />
             )}
 
             {/* Dropdown Menu */}
             {user && dropdownOpen && (
-              <div 
+              <div
                 className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-150"
                 data-testid="profile-dropdown"
               >
@@ -115,6 +116,17 @@ export const TopHeader = () => {
                   className="block px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
                 >
                   Profile
+                </Link>
+
+                <Link
+                  to="/settings"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                  data-testid="dropdown-settings-link"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>Settings</span>
+                  </div>
                 </Link>
 
                 {/* Mobile-only Search for Buyer */}

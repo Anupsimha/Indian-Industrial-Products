@@ -32,6 +32,7 @@ import ChatsPage from "@/pages/ChatsPage";
 import ChatWindowPage from "@/pages/ChatWindowPage";
 import CartPage from "@/pages/CartPage";
 import OrdersPage from "@/pages/OrdersPage";
+import SettingsPage from "@/pages/SettingsPage";
 
 const Layout = ({ children }) => {
   const location = useLocation();
@@ -86,6 +87,7 @@ function App() {
               <Route path="/chat/:id" element={<ChatWindowPage />} />
               <Route path="/cart" element={<CartPage />} />
               <Route path="/orders" element={<OrdersPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </Layout>
         </BrowserRouter>

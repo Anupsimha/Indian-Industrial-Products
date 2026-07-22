@@ -115,6 +115,7 @@ export const ProductDialog = ({ open, onClose, onSaved, initial }) => {
   });
   const [images, setImages] = useState([]); // [{url, resource_type}]
   const [submitting, setSubmitting] = useState(false);
+  const [addAnother, setAddAnother] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -164,12 +165,28 @@ export const ProductDialog = ({ open, onClose, onSaved, initial }) => {
       if (isEdit) {
         await api.patch(`/products/${initial.id}`, payload);
         toast.success("Product updated!");
+        onSaved?.();
+        onClose?.();
       } else {
         await api.post("/products", payload);
         toast.success("Product published!");
+        onSaved?.();
+        if (addAnother) {
+          // Clear form fields for next product, keeping category and location for convenience
+          setForm({
+            name: "",
+            category: form.category,
+            price: "",
+            moq: "",
+            description: "",
+            stock_left: "",
+            location: form.location,
+          });
+          setImages([]);
+        } else {
+          onClose?.();
+        }
       }
-      onSaved?.();
-      onClose?.();
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail) || "Failed to save product");
     } finally {
@@ -336,19 +353,33 @@ export const ProductDialog = ({ open, onClose, onSaved, initial }) => {
             />
           </div>
 
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={submitting}
-            data-testid="product-save-btn"
-            className="w-full py-3 rounded-full bg-orange-600 text-white font-semibold hover:bg-orange-700 disabled:opacity-60 transition-all active:scale-95 shadow-md text-sm"
-          >
-            {submitting
-              ? "Publishing..."
-              : isEdit
-                ? "Save Changes"
-                : "Publish Product"}
-          </button>
+          {/* Submit Buttons */}
+          <div className="flex flex-col gap-2.5 pt-2">
+            <button
+              type="submit"
+              onClick={() => setAddAnother(false)}
+              disabled={submitting}
+              data-testid="product-save-btn"
+              className="w-full py-3 rounded-full bg-orange-600 text-white font-semibold hover:bg-orange-700 disabled:opacity-60 transition-all active:scale-95 shadow-md text-sm"
+            >
+              {submitting && !addAnother
+                ? "Publishing..."
+                : isEdit
+                  ? "Save Changes"
+                  : "Publish & Close"}
+            </button>
+
+            {!isEdit && (
+              <button
+                type="submit"
+                onClick={() => setAddAnother(true)}
+                disabled={submitting}
+                className="w-full py-3 rounded-full bg-white border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 disabled:opacity-60 transition-all active:scale-[0.98] shadow-sm text-sm"
+              >
+                {submitting && addAnother ? "Publishing..." : "Publish & Add Another"}
+              </button>
+            )}
+          </div>
         </form>
       </div>
     </div>
