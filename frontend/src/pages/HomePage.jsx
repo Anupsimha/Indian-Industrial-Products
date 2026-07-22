@@ -4,10 +4,11 @@ import api, { whatsappLink } from "../lib/api";
 import { PostCard } from "../components/PostCard";
 import { HeroSlider } from "../components/HeroSlider";
 import { JobsSection } from "../components/JobsSection";
+import { CategoryDrawer } from "../components/CategoryDrawer";
 import {
   Loader2, Verified, Search, Package, Target, Bookmark, BarChart3,
   Lock, Phone, MapPin, Tag, Clock, Boxes, ShieldCheck, Mail, CheckCircle, X, AlertTriangle,
-  LayoutGrid, Cpu, Settings, Zap, MoreHorizontal
+  LayoutGrid, Cpu, Settings, Zap, MoreHorizontal, ChevronRight, Layers, Users, Building2, Sparkles
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -291,6 +292,8 @@ export default function HomePage() {
   const [unlockStats, setUnlockStats] = useState(null);
   const [modalEnqId, setModalEnqId] = useState(null);
   const [pendingUnlock, setPendingUnlock] = useState(null);
+  const [openCatDrawer, setOpenCatDrawer] = useState(false);
+  const [industrialGroups, setIndustrialGroups] = useState([]);
 
   const sentinelRef = useRef();
   const navigate = useNavigate();
@@ -336,6 +339,7 @@ export default function HomePage() {
     fetchRequirements();
     fetchUnlockStats();
     api.get("/companies?limit=8").then((r) => setCompanies(r.data)).catch(() => {});
+    api.get("/industrial-groups").then((r) => setIndustrialGroups(r.data)).catch(() => {});
     api.get("/categories")
       .then((r) => {
         if (r.data && r.data.length > 0) {
@@ -515,73 +519,150 @@ export default function HomePage() {
 
           {/* ==================== MOBILE ONLY LAYOUT ==================== */}
           <div className="lg:hidden px-4 space-y-4">
-            {/* 1. Mobile Search Bar */}
-            <div className="relative mt-2">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search posts, companies, leads..."
-                className="w-full pl-9 pr-3 py-2.5 rounded-full bg-slate-100 border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 shadow-sm"
-              />
+            {/* 1. Mobile Featured Slides */}
+            <div className="rounded-2xl overflow-hidden shadow-sm">
+              <HeroSlider onCta={() => navigate("/post-enquiry")} />
             </div>
 
-            {/* 2. Mobile Quick Access Icons (Categories matching picture) */}
-            <div className="grid grid-cols-6 gap-1.5 bg-slate-50 p-1.5 rounded-2xl">
-              {[
-                { name: "All", label: "All", color: "text-blue-600 bg-blue-50/60 border-blue-200/50", icon: LayoutGrid },
-                { name: "Automation", label: "Automation", color: "text-orange-600 bg-orange-50/60 border-orange-200/50", icon: Cpu },
-                { name: "Machinery", label: "Machinery", color: "text-blue-700 bg-blue-50/60 border-blue-200/50", icon: Settings },
-                { name: "Electrical", label: "Electrical", color: "text-amber-500 bg-amber-50/60 border-amber-200/50", icon: Zap },
-                { name: "Steel", label: "Steel", color: "text-slate-600 bg-slate-100/60 border-slate-200/50", icon: SteelIBeam },
-                { name: "More", label: "More", color: "text-slate-500 bg-slate-100/60 border-slate-200/50", icon: MoreHorizontal }
-              ].map((cat) => {
-                const Icon = cat.icon;
-                const isSelected = activeCat === cat.name;
-                return (
+            {/* 2. Key Metrics Bar (50K+ Companies, 2L+ Products, 1L+ Leads, 5L+ Members) */}
+            <div className="grid grid-cols-4 gap-1.5 bg-gradient-to-r from-blue-900 via-slate-900 to-blue-950 p-2.5 rounded-2xl text-white shadow-sm text-center">
+              <div className="space-y-0.5">
+                <div className="font-display font-extrabold text-sm sm:text-base text-blue-300">50K+</div>
+                <div className="text-[9px] text-slate-300 font-semibold tracking-tight">Companies</div>
+              </div>
+              <div className="space-y-0.5 border-l border-white/10">
+                <div className="font-display font-extrabold text-sm sm:text-base text-orange-400">2L+</div>
+                <div className="text-[9px] text-slate-300 font-semibold tracking-tight">Products</div>
+              </div>
+              <div className="space-y-0.5 border-l border-white/10">
+                <div className="font-display font-extrabold text-sm sm:text-base text-emerald-400">1L+</div>
+                <div className="text-[9px] text-slate-300 font-semibold tracking-tight">Leads</div>
+              </div>
+              <div className="space-y-0.5 border-l border-white/10">
+                <div className="font-display font-extrabold text-sm sm:text-base text-amber-300">5L+</div>
+                <div className="text-[9px] text-slate-300 font-semibold tracking-tight">Members</div>
+              </div>
+            </div>
+
+            {/* 3. CATEGORIES with Only 4 Options on main page + View All action */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-700">CATEGORIES</h3>
+                <button
+                  onClick={() => setOpenCatDrawer(true)}
+                  data-testid="view-all-categories-btn"
+                  className="text-xs font-bold text-blue-800 hover:text-blue-900 inline-flex items-center gap-0.5"
+                >
+                  View All &gt;
+                </button>
+              </div>
+
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { name: "Machinery", icon: Settings, color: "text-blue-700 bg-blue-50/80 border-blue-200/60" },
+                  { name: "Electricals", icon: Zap, color: "text-amber-600 bg-amber-50/80 border-amber-200/60" },
+                  { name: "Raw Materials", icon: Layers, color: "text-emerald-600 bg-emerald-50/80 border-emerald-200/60" },
+                  { name: "Components", icon: Boxes, color: "text-indigo-600 bg-indigo-50/80 border-indigo-200/60" },
+                ].map((cat) => {
+                  const Icon = cat.icon;
+                  const isSelected = activeCat === cat.name;
+                  return (
+                    <button
+                      key={cat.name}
+                      onClick={() => setActiveCat(activeCat === cat.name ? "All" : cat.name)}
+                      data-testid={`cat-card-${cat.name}`}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-2xl border transition-all duration-200 ${
+                        isSelected
+                          ? "bg-blue-800 text-white border-blue-800 shadow-md scale-[1.02]"
+                          : "bg-white border-slate-200 hover:border-blue-300 text-slate-800"
+                      }`}
+                    >
+                      <div className={`p-2 rounded-xl mb-1.5 ${isSelected ? "bg-white/20 text-white" : cat.color} flex items-center justify-center`}>
+                        <Icon size={20} />
+                      </div>
+                      <span className={`text-[10px] text-center font-bold leading-tight ${isSelected ? "text-white" : "text-slate-800"}`}>
+                        {cat.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 4. INDUSTRIAL AREA GROUPS Section (Horizontal Scroll x-component) */}
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-orange-500" />
+                  <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">INDUSTRIAL AREA GROUPS</h3>
+                </div>
+                <button
+                  onClick={() => navigate("/industrial-groups")}
+                  data-testid="view-all-groups-btn"
+                  className="text-xs font-bold text-blue-800 hover:text-blue-900 inline-flex items-center gap-0.5"
+                >
+                  View All &gt;
+                </button>
+              </div>
+
+              <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+                {industrialGroups.slice(0, 5).map((g) => (
                   <button
-                    key={cat.name}
-                    onClick={() => {
-                      if (cat.name === "More") {
-                        toast.info("Opening all categories...");
-                        navigate("/products");
-                      } else {
-                        setActiveCat(cat.name);
-                      }
-                    }}
-                    className={`flex flex-col items-center justify-center py-2 px-0.5 rounded-xl border transition-all duration-200 ${
-                      isSelected 
-                        ? "bg-white border-blue-600 shadow-sm scale-[1.03] font-bold" 
-                        : "bg-white border-slate-100 hover:border-slate-300"
+                    key={g.id}
+                    onClick={() => navigate(`/industrial-groups/${g.id}`)}
+                    data-testid={`home-group-card-${g.id}`}
+                    className="shrink-0 w-44 bg-white border border-slate-200 rounded-2xl p-2.5 text-left hover:border-blue-400 hover:shadow-md transition-all space-y-2 group"
+                  >
+                    <div className="relative h-20 w-full rounded-xl overflow-hidden bg-slate-100">
+                      <img src={g.image_url} alt={g.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                      <span className="absolute bottom-1.5 left-2 text-[10px] font-bold text-white line-clamp-1">
+                        {g.name}
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5 px-0.5">
+                      <div className="text-[10px] text-slate-500 truncate flex items-center gap-1">
+                        <MapPin size={10} className="text-slate-400 shrink-0" />
+                        <span className="truncate">{g.location.split(",")[0]}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600">
+                        <span className="text-blue-700 font-bold">{g.members_count >= 1000 ? (g.members_count / 1000).toFixed(1) + "K" : g.members_count} Members</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 5. Mobile Search & Mobile Feed Tabs */}
+            <div className="space-y-2">
+              <div className="relative mt-2">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search posts, companies, leads..."
+                  className="w-full pl-9 pr-3 py-2.5 rounded-full bg-slate-100 border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 shadow-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-5 border-b border-slate-200 text-center w-full bg-white z-10">
+                {["For You", "Following", "Trending", "Local", "Leads"].map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveFeedTab(tab)}
+                    className={`py-3 text-[11px] sm:text-xs font-bold transition-colors border-b-2 ${
+                      activeFeedTab === tab
+                        ? "border-blue-800 text-blue-800 font-extrabold"
+                        : "border-transparent text-slate-500 hover:text-slate-700"
                     }`}
                   >
-                    <div className={`p-2 rounded-xl mb-1 ${cat.color} flex items-center justify-center`}>
-                      <Icon size={18} />
-                    </div>
-                    <span className={`text-[9px] tracking-tight ${isSelected ? "text-blue-800 font-extrabold" : "text-slate-700 font-semibold"}`}>
-                      {cat.label}
-                    </span>
+                    {tab}
                   </button>
-                );
-              })}
-            </div>
-
-            {/* 3. Mobile Feed Tabs */}
-            <div className="grid grid-cols-5 border-b border-slate-200 text-center w-full bg-white z-10">
-              {["For You", "Following", "Trending", "Local", "Leads"].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveFeedTab(tab)}
-                  className={`py-3 text-[11px] sm:text-xs font-bold transition-colors border-b-2 ${
-                    activeFeedTab === tab
-                      ? "border-blue-800 text-blue-800 font-extrabold"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
@@ -724,6 +805,15 @@ export default function HomePage() {
           onSuccess={handleUnlockSuccess}
         />
       )}
+
+      {/* ── Category Slide-over Drawer ── */}
+      <CategoryDrawer
+        open={openCatDrawer}
+        onClose={() => setOpenCatDrawer(false)}
+        selectedCategory={activeCat}
+        onSelectCategory={(cat) => setActiveCat(cat)}
+        categoriesList={categories}
+      />
     </div>
   );
 }

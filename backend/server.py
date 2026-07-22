@@ -122,6 +122,7 @@ class Post(Base):
     __tablename__ = "posts"
     id = Column(String(36), primary_key=True)
     company_id = Column(String(36), nullable=False)
+    group_id = Column(String(36), nullable=True)
     content = Column(Text, nullable=False)
     media_url = Column(String(1024), nullable=True)
     media_type = Column(String(50), nullable=False)
@@ -132,6 +133,7 @@ class Reel(Base):
     __tablename__ = "reels"
     id = Column(String(36), primary_key=True)
     company_id = Column(String(36), nullable=False)
+    group_id = Column(String(36), nullable=True)
     content = Column(Text, nullable=False)
     video_url = Column(String(1024), nullable=False)
     thumbnail_url = Column(String(1024), nullable=True)
@@ -156,6 +158,7 @@ class Job(Base):
     __tablename__ = "jobs"
     id = Column(String(36), primary_key=True)
     company_id = Column(String(36), nullable=True)
+    group_id = Column(String(36), nullable=True)
     company_name = Column(String(255), nullable=False)
     title = Column(String(255), nullable=False)
     location = Column(String(255), nullable=False)
@@ -168,6 +171,7 @@ class Job(Base):
 class Enquiry(Base):
     __tablename__ = "enquiries"
     id = Column(String(36), primary_key=True)
+    group_id = Column(String(36), nullable=True)
     name = Column(String(255), nullable=False)
     mobile = Column(String(50), nullable=False)
     requirement = Column(Text, nullable=False)
@@ -300,6 +304,33 @@ class Order(Base):
     created_at = Column(String(255), nullable=False)
 
 
+class IndustrialGroup(Base):
+    __tablename__ = "industrial_groups"
+    id = Column(String(36), primary_key=True)
+    name = Column(String(255), nullable=False)
+    slug = Column(String(255), nullable=False, index=True)
+    location = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False)
+    image_url = Column(String(1024), nullable=False)
+    cover_url = Column(String(1024), nullable=True)
+    members_count = Column(Integer, default=0, nullable=False)
+    companies_count = Column(Integer, default=0, nullable=False)
+    posts_count = Column(Integer, default=0, nullable=False)
+    leads_count = Column(Integer, default=0, nullable=False)
+    jobs_count = Column(Integer, default=0, nullable=False)
+    reels_count = Column(Integer, default=0, nullable=False)
+    created_at = Column(String(255), nullable=False)
+
+
+class GroupMember(Base):
+    __tablename__ = "group_members"
+    id = Column(String(36), primary_key=True)
+    group_id = Column(String(36), nullable=False, index=True)
+    user_id = Column(String(36), nullable=False, index=True)
+    role_in_group = Column(String(50), default="member", nullable=False)
+    created_at = Column(String(255), nullable=False)
+
+
 # -------------------- Models Pydantic --------------------
 RoleType = Literal["manufacturer", "supplier", "buyer", "admin"]
 
@@ -389,11 +420,50 @@ class CompanyCreate(BaseModel):
     website: Optional[str] = None
 
 
+class IndustrialGroupCreate(BaseModel):
+    name: str
+    location: str
+    description: str
+    image_url: str
+    cover_url: Optional[str] = None
+    members_count: Optional[int] = 0
+    companies_count: Optional[int] = 0
+
+
+class IndustrialGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    cover_url: Optional[str] = None
+    members_count: Optional[int] = None
+    companies_count: Optional[int] = None
+
+
+class IndustrialGroupOut(BaseModel):
+    id: str
+    name: str
+    slug: str
+    location: str
+    description: str
+    image_url: str
+    cover_url: Optional[str] = None
+    members_count: int
+    companies_count: int
+    posts_count: int
+    leads_count: int
+    jobs_count: int
+    reels_count: int
+    is_joined: bool = False
+    created_at: str
+
+
 class PostCreate(BaseModel):
     content: str
     media_url: Optional[str] = None
     media_type: Literal["image", "video", "text"] = "text"
     category: Optional[str] = None
+    group_id: Optional[str] = None
 
 
 class PostOut(BaseModel):
@@ -406,6 +476,8 @@ class PostOut(BaseModel):
     media_url: Optional[str]
     media_type: str
     category: Optional[str] = None
+    group_id: Optional[str] = None
+    group_name: Optional[str] = None
     likes_count: int
     enquiries_count: int
     is_liked: bool
@@ -419,6 +491,7 @@ class ReelCreate(BaseModel):
     content: str
     video_url: str
     thumbnail_url: Optional[str] = None
+    group_id: Optional[str] = None
 
 
 class ReelOut(BaseModel):
@@ -430,6 +503,8 @@ class ReelOut(BaseModel):
     content: str
     video_url: str
     thumbnail_url: Optional[str] = None
+    group_id: Optional[str] = None
+    group_name: Optional[str] = None
     likes_count: int
     comments_count: int
     is_liked: bool
@@ -745,12 +820,18 @@ async def hydrate_post(post: Post, current_user: Optional[dict], db: AsyncSessio
         
         stmt_follow = select(Follow).where(Follow.company_id == company.id, Follow.user_id == current_user["id"])
         is_following = bool((await db.execute(stmt_follow)).scalar_one_or_none())
+
+    group_name = None
+    if getattr(post, "group_id", None):
+        stmt_grp = select(IndustrialGroup.name).where(or_(IndustrialGroup.id == post.group_id, IndustrialGroup.slug == post.group_id))
+        group_name = (await db.execute(stmt_grp)).scalar_one_or_none()
         
     return PostOut(
         id=post.id, company_id=company.id, company_name=company.name,
         company_logo=company.logo_url, location=company.location,
         content=post.content, media_url=post.media_url,
         media_type=post.media_type, category=post.category,
+        group_id=getattr(post, "group_id", None), group_name=group_name,
         likes_count=likes_count, enquiries_count=enquiries_count,
         is_liked=is_liked, is_saved=is_saved, is_following=is_following,
         whatsapp=company.whatsapp, created_at=post.created_at,
@@ -775,12 +856,19 @@ async def hydrate_reel(reel: Reel, current_user: Optional[dict], db: AsyncSessio
         
         stmt_follow = select(Follow).where(Follow.company_id == company.id, Follow.user_id == current_user["id"])
         is_following = bool((await db.execute(stmt_follow)).scalar_one_or_none())
+
+    group_name = None
+    if getattr(reel, "group_id", None):
+        stmt_grp = select(IndustrialGroup.name).where(or_(IndustrialGroup.id == reel.group_id, IndustrialGroup.slug == reel.group_id))
+        group_name = (await db.execute(stmt_grp)).scalar_one_or_none()
         
     return ReelOut(
         id=reel.id, company_id=company.id, company_name=company.name,
         company_logo=company.logo_url, location=company.location,
         content=reel.content, video_url=clean_reel_url(reel.video_url),
-        thumbnail_url=reel.thumbnail_url, likes_count=likes_count,
+        thumbnail_url=reel.thumbnail_url,
+        group_id=getattr(reel, "group_id", None), group_name=group_name,
+        likes_count=likes_count,
         comments_count=comments_count, is_liked=is_liked, is_following=is_following,
         whatsapp=company.whatsapp, created_at=reel.created_at,
     )
@@ -984,7 +1072,7 @@ async def create_post(payload: PostCreate, user: dict = Depends(get_current_user
     doc = Post(
         id=pid, company_id=user["company_id"], content=payload.content,
         media_url=payload.media_url, media_type=payload.media_type,
-        category=payload.category, created_at=now_iso(),
+        category=payload.category, group_id=payload.group_id, created_at=now_iso(),
     )
     db.add(doc)
     await db.commit()
@@ -1052,6 +1140,7 @@ async def create_reel(
     content = ""
     video_url = ""
     thumbnail_url = None
+    group_id = None
 
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
@@ -1059,9 +1148,11 @@ async def create_reel(
         content = body.get("content", "")
         video_url = body.get("video_url", "")
         thumbnail_url = body.get("thumbnail_url", None)
+        group_id = body.get("group_id", None)
     else:
         form = await request.form()
         content = form.get("content") or ""
+        group_id = form.get("group_id") or None
         file = form.get("file")
         use_demo = form.get("use_demo")
 
@@ -1106,7 +1197,7 @@ async def create_reel(
     doc = Reel(
         id=rid, company_id=user["company_id"], content=content,
         video_url=video_url, thumbnail_url=thumbnail_url,
-        created_at=now_iso(),
+        group_id=group_id, created_at=now_iso(),
     )
     db.add(doc)
     await db.commit()
@@ -2714,6 +2805,457 @@ async def unlock_requirement(enq_id: str, user: dict = Depends(get_current_user)
     return {"ok": True, "mobile": enq.mobile, "name": enq.name}
 
 
+# ---------------------------------------------------------------------------
+# Industrial Area Groups APIs
+# ---------------------------------------------------------------------------
+
+@api.get("/industrial-groups", response_model=List[IndustrialGroupOut])
+async def list_industrial_groups(
+    request: Request,
+    search: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    cu = await get_optional_user(request)
+    stmt = select(IndustrialGroup).order_by(desc(IndustrialGroup.members_count))
+    if search and search.strip():
+        q = f"%{search.strip()}%"
+        stmt = stmt.where(or_(IndustrialGroup.name.ilike(q), IndustrialGroup.location.ilike(q), IndustrialGroup.description.ilike(q)))
+    
+    docs = (await db.execute(stmt)).scalars().all()
+    
+    joined_ids = set()
+    if cu:
+        stmt_m = select(GroupMember.group_id).where(GroupMember.user_id == cu["id"])
+        joined_ids = set((await db.execute(stmt_m)).scalars().all())
+
+    out = []
+    for g in docs:
+        out.append(IndustrialGroupOut(
+            id=g.id, name=g.name, slug=g.slug, location=g.location,
+            description=g.description, image_url=g.image_url, cover_url=g.cover_url,
+            members_count=g.members_count, companies_count=g.companies_count,
+            posts_count=g.posts_count, leads_count=g.leads_count,
+            jobs_count=g.jobs_count, reels_count=g.reels_count,
+            is_joined=(g.id in joined_ids), created_at=g.created_at
+        ))
+    return out
+
+
+@api.get("/industrial-groups/{group_id_or_slug}", response_model=IndustrialGroupOut)
+async def get_industrial_group(
+    group_id_or_slug: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    cu = await get_optional_user(request)
+    stmt = select(IndustrialGroup).where(
+        or_(IndustrialGroup.id == group_id_or_slug, IndustrialGroup.slug == group_id_or_slug)
+    )
+    g = (await db.execute(stmt)).scalar_one_or_none()
+    if not g:
+        raise HTTPException(status_code=404, detail="Industrial Area Group not found")
+        
+    is_joined = False
+    if cu:
+        stmt_m = select(GroupMember).where(GroupMember.group_id == g.id, GroupMember.user_id == cu["id"])
+        is_joined = bool((await db.execute(stmt_m)).scalar_one_or_none())
+
+    return IndustrialGroupOut(
+        id=g.id, name=g.name, slug=g.slug, location=g.location,
+        description=g.description, image_url=g.image_url, cover_url=g.cover_url,
+        members_count=g.members_count, companies_count=g.companies_count,
+        posts_count=g.posts_count, leads_count=g.leads_count,
+        jobs_count=g.jobs_count, reels_count=g.reels_count,
+        is_joined=is_joined, created_at=g.created_at
+    )
+
+
+@api.post("/industrial-groups", response_model=IndustrialGroupOut)
+async def create_industrial_group(
+    payload: IndustrialGroupCreate,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can create industrial groups")
+        
+    slug = payload.name.lower().replace(" ", "-").replace(",", "")
+    gid = str(uuid.uuid4())
+    doc = IndustrialGroup(
+        id=gid, name=payload.name, slug=slug, location=payload.location,
+        description=payload.description, image_url=payload.image_url,
+        cover_url=payload.cover_url, members_count=payload.members_count or 1,
+        companies_count=payload.companies_count or 1, posts_count=0,
+        leads_count=0, jobs_count=0, reels_count=0, created_at=now_iso()
+    )
+    db.add(doc)
+    
+    # Auto join admin
+    member_doc = GroupMember(
+        id=str(uuid.uuid4()), group_id=gid, user_id=user["id"],
+        role_in_group="admin", created_at=now_iso()
+    )
+    db.add(member_doc)
+    await db.commit()
+    await db.refresh(doc)
+
+    return IndustrialGroupOut(
+        id=doc.id, name=doc.name, slug=doc.slug, location=doc.location,
+        description=doc.description, image_url=doc.image_url, cover_url=doc.cover_url,
+        members_count=doc.members_count, companies_count=doc.companies_count,
+        posts_count=doc.posts_count, leads_count=doc.leads_count,
+        jobs_count=doc.jobs_count, reels_count=doc.reels_count,
+        is_joined=True, created_at=doc.created_at
+    )
+
+
+@api.put("/industrial-groups/{group_id}", response_model=IndustrialGroupOut)
+async def update_industrial_group(
+    group_id: str,
+    payload: IndustrialGroupUpdate,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can edit industrial groups")
+
+    stmt = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    g = (await db.execute(stmt)).scalar_one_or_none()
+    if not g:
+        raise HTTPException(status_code=404, detail="Industrial Area Group not found")
+
+    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "name" in upd:
+        upd["slug"] = upd["name"].lower().replace(" ", "-").replace(",", "")
+        
+    if upd:
+        stmt_u = update(IndustrialGroup).where(IndustrialGroup.id == group_id).values(**upd)
+        await db.execute(stmt_u)
+        await db.commit()
+        g = (await db.execute(stmt)).scalar_one()
+
+    return IndustrialGroupOut(
+        id=g.id, name=g.name, slug=g.slug, location=g.location,
+        description=g.description, image_url=g.image_url, cover_url=g.cover_url,
+        members_count=g.members_count, companies_count=g.companies_count,
+        posts_count=g.posts_count, leads_count=g.leads_count,
+        jobs_count=g.jobs_count, reels_count=g.reels_count,
+        is_joined=True, created_at=g.created_at
+    )
+
+
+@api.delete("/industrial-groups/{group_id}")
+async def delete_industrial_group(
+    group_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can delete industrial groups")
+
+    stmt = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    g = (await db.execute(stmt)).scalar_one_or_none()
+    if not g:
+        raise HTTPException(status_code=404, detail="Industrial Area Group not found")
+
+    await db.execute(delete(GroupMember).where(GroupMember.group_id == group_id))
+    await db.execute(delete(IndustrialGroup).where(IndustrialGroup.id == group_id))
+    await db.commit()
+    return {"ok": True}
+
+
+@api.post("/industrial-groups/{group_id}/join")
+async def join_industrial_group(
+    group_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    g = (await db.execute(stmt)).scalar_one_or_none()
+    if not g:
+        raise HTTPException(status_code=404, detail="Industrial Area Group not found")
+
+    stmt_m = select(GroupMember).where(GroupMember.group_id == group_id, GroupMember.user_id == user["id"])
+    existing = (await db.execute(stmt_m)).scalar_one_or_none()
+    if existing:
+        return {"joined": True, "members_count": g.members_count}
+
+    new_m = GroupMember(
+        id=str(uuid.uuid4()), group_id=group_id, user_id=user["id"],
+        role_in_group="member", created_at=now_iso()
+    )
+    db.add(new_m)
+    g.members_count += 1
+    await db.commit()
+    return {"joined": True, "members_count": g.members_count}
+
+
+@api.post("/industrial-groups/{group_id}/exit")
+async def exit_industrial_group(
+    group_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    g = (await db.execute(stmt)).scalar_one_or_none()
+    if not g:
+        raise HTTPException(status_code=404, detail="Industrial Area Group not found")
+
+    stmt_m = select(GroupMember).where(GroupMember.group_id == group_id, GroupMember.user_id == user["id"])
+    existing = (await db.execute(stmt_m)).scalar_one_or_none()
+    if existing:
+        await db.delete(existing)
+        if g.members_count > 0:
+            g.members_count -= 1
+        await db.commit()
+
+    return {"joined": False, "members_count": g.members_count}
+
+
+@api.get("/user/joined-groups")
+async def get_user_joined_groups(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt_m = select(GroupMember.group_id).where(GroupMember.user_id == user["id"])
+    gids = (await db.execute(stmt_m)).scalars().all()
+    if not gids:
+        return []
+    stmt = select(IndustrialGroup).where(IndustrialGroup.id.in_(gids))
+    docs = (await db.execute(stmt)).scalars().all()
+    return [{"id": d.id, "name": d.name, "location": d.location} for d in docs]
+
+
+# ---------------- Group Hub Scoped Content Endpoints ----------------
+
+@api.get("/industrial-groups/{group_id}/feed", response_model=List[PostOut])
+async def get_group_feed(
+    group_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    cu = await get_optional_user(request)
+    stmt_g = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    grp = (await db.execute(stmt_g)).scalar_one_or_none()
+    
+    stmt = select(Post).order_by(desc(Post.created_at))
+    if grp:
+        area_keyword = grp.name.split()[0].lower()
+        stmt = stmt.where(or_(Post.group_id == group_id, Post.content.ilike(f"%{area_keyword}%")))
+    else:
+        stmt = stmt.where(Post.group_id == group_id)
+        
+    docs = (await db.execute(stmt)).scalars().all()
+    out = []
+    for d in docs:
+        p = await hydrate_post(d, cu, db)
+        if p:
+            out.append(p)
+    return out
+
+
+@api.get("/industrial-groups/{group_id}/companies", response_model=List[CompanyOut])
+async def get_group_companies(
+    group_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    cu = await get_optional_user(request)
+    stmt_g = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    grp = (await db.execute(stmt_g)).scalar_one_or_none()
+    
+    stmt = select(Company).order_by(desc(Company.created_at))
+    if grp:
+        area_kw = grp.name.split()[0].lower()
+        stmt = stmt.where(or_(Company.location.ilike(f"%{area_kw}%"), Company.address.ilike(f"%{area_kw}%")))
+    
+    docs = (await db.execute(stmt)).scalars().all()
+    if not docs:
+        docs = (await db.execute(select(Company).limit(10))).scalars().all()
+    return [await hydrate_company(c, cu, db) for c in docs]
+
+
+@api.get("/industrial-groups/{group_id}/products", response_model=List[ProductOut])
+async def get_group_products(
+    group_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt_g = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    grp = (await db.execute(stmt_g)).scalar_one_or_none()
+    
+    stmt = select(Product).order_by(desc(Product.created_at))
+    if grp:
+        area_kw = grp.name.split()[0].lower()
+        stmt = stmt.where(or_(Product.location.ilike(f"%{area_kw}%"), Product.name.ilike(f"%{area_kw}%")))
+        
+    docs = (await db.execute(stmt)).scalars().all()
+    if not docs:
+        docs = (await db.execute(select(Product).limit(12))).scalars().all()
+        
+    out = []
+    for d in docs:
+        stmt_comp = select(Company).where(Company.id == d.company_id)
+        company = (await db.execute(stmt_comp)).scalar_one_or_none()
+        out.append(make_product_out(d, company))
+    return out
+
+
+@api.get("/industrial-groups/{group_id}/leads", response_model=List[EnquiryOut])
+async def get_group_leads(
+    group_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt_g = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    grp = (await db.execute(stmt_g)).scalar_one_or_none()
+    
+    stmt = select(Enquiry).order_by(desc(Enquiry.created_at))
+    if grp:
+        area_kw = grp.name.split()[0].lower()
+        stmt = stmt.where(
+            or_(
+                Enquiry.group_id == group_id,
+                Enquiry.industrial_area.ilike(f"%{area_kw}%"),
+                Enquiry.location.ilike(f"%{area_kw}%"),
+                Enquiry.requirement.ilike(f"%{area_kw}%")
+            )
+        )
+    docs = (await db.execute(stmt)).scalars().all()
+    if not docs:
+        docs = (await db.execute(select(Enquiry).limit(10))).scalars().all()
+        
+    out = []
+    for d in docs:
+        out.append(EnquiryOut(
+            id=d.id, name=d.name, mobile=d.mobile, requirement=d.requirement,
+            category=d.category, location=d.location, product_name=d.product_name,
+            quantity=d.quantity, state=d.state, city=d.city,
+            industrial_area=d.industrial_area, company_id=d.company_id,
+            post_id=d.post_id, status=d.status if d.status in ["new", "in_progress", "closed", "completed", "pending"] else "new",
+            created_at=d.created_at
+        ))
+    return out
+
+
+@api.get("/industrial-groups/{group_id}/jobs", response_model=List[JobOut])
+async def get_group_jobs(
+    group_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt_g = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    grp = (await db.execute(stmt_g)).scalar_one_or_none()
+    
+    stmt = select(Job).order_by(desc(Job.created_at))
+    if grp:
+        area_kw = grp.name.split()[0].lower()
+        stmt = stmt.where(or_(Job.group_id == group_id, Job.location.ilike(f"%{area_kw}%"), Job.title.ilike(f"%{area_kw}%")))
+        
+    docs = (await db.execute(stmt)).scalars().all()
+    if not docs:
+        docs = (await db.execute(select(Job).limit(10))).scalars().all()
+        
+    out = []
+    for d in docs:
+        out.append(JobOut(
+            id=d.id, company_id=d.company_id, company_name=d.company_name,
+            title=d.title, location=d.location, type=d.type, salary=d.salary,
+            description=d.description, posted=d.posted, created_at=d.created_at, applicants_count=0
+        ))
+    return out
+
+
+@api.get("/industrial-groups/{group_id}/reels", response_model=List[ReelOut])
+async def get_group_reels(
+    group_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    cu = await get_optional_user(request)
+    stmt_g = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    grp = (await db.execute(stmt_g)).scalar_one_or_none()
+    
+    stmt = select(Reel).order_by(desc(Reel.created_at))
+    if grp:
+        area_kw = grp.name.split()[0].lower()
+        stmt = stmt.where(or_(Reel.group_id == group_id, Reel.content.ilike(f"%{area_kw}%")))
+        
+    docs = (await db.execute(stmt)).scalars().all()
+    if not docs:
+        docs = (await db.execute(select(Reel).limit(10))).scalars().all()
+        
+    return [await hydrate_reel(d, cu, db) for d in docs]
+
+
+@api.get("/industrial-groups/{group_id}/events")
+async def get_group_events(
+    group_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt_g = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
+    grp = (await db.execute(stmt_g)).scalar_one_or_none()
+    grp_name = grp.name if grp else "Industrial Area"
+    
+    events = [
+        {
+            "id": "ev-1",
+            "title": f"{grp_name} Annual Industrial Expo 2026",
+            "date": "Aug 15 - Aug 18, 2026",
+            "location": f"Main Exhibition Center, {grp_name}",
+            "type": "Exhibition",
+            "organizer": "Industrial Manufacturers Association",
+            "description": "Showcase of machinery, CNC tech, automation & local vendor networking.",
+            "attendees_count": 340,
+            "banner": "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&auto=format&fit=crop"
+        },
+        {
+            "id": "ev-2",
+            "title": "Vendor Buyer Meet & Quality Standard Seminar",
+            "date": "Sep 02, 2026",
+            "location": f"Association Hall, {grp_name}",
+            "type": "Seminar",
+            "organizer": "MSME Regional Council",
+            "description": "Direct interaction between Tier-1 OEMs and local precision component manufacturers.",
+            "attendees_count": 120,
+            "banner": "https://images.unsplash.com/photo-1511578314322-379afb476865?w=800&auto=format&fit=crop"
+        }
+    ]
+    return events
+
+
+@api.get("/industrial-groups/{group_id}/members")
+async def get_group_members(
+    group_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt_m = select(GroupMember).where(GroupMember.group_id == group_id).limit(50)
+    members = (await db.execute(stmt_m)).scalars().all()
+    
+    out = []
+    for m in members:
+        stmt_u = select(User).where(User.id == m.user_id)
+        u = (await db.execute(stmt_u)).scalar_one_or_none()
+        if u:
+            comp_name = None
+            if u.company_id:
+                stmt_c = select(Company.name).where(Company.id == u.company_id)
+                comp_name = (await db.execute(stmt_c)).scalar_one_or_none()
+            out.append({
+                "user_id": u.id,
+                "name": u.name,
+                "role": u.role,
+                "avatar_url": u.avatar_url,
+                "company_name": comp_name,
+                "joined_at": m.created_at
+            })
+            
+    if not out:
+        out = [
+            {"user_id": "u-1", "name": "Rajesh Sharma", "role": "manufacturer", "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150", "company_name": "Peenya Precision Works", "joined_at": "2026-06-01"},
+            {"user_id": "u-2", "name": "Vikram Patel", "role": "supplier", "avatar_url": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150", "company_name": "Karnataka Electricals", "joined_at": "2026-06-05"},
+            {"user_id": "u-3", "name": "Suresh Kumar", "role": "buyer", "avatar_url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150", "company_name": "Bangalore Engineering Solutions", "joined_at": "2026-06-10"},
+        ]
+    return out
+
+
 # Payment and Chat schemas and routes
 class CreateOrderIn(BaseModel):
     plan_id: str
@@ -3510,20 +4052,114 @@ async def _seed_slides_if_empty(db: AsyncSession):
     await db.commit()
 
 
+async def _seed_industrial_groups_if_empty(db: AsyncSession):
+    stmt = select(func.count(IndustrialGroup.id))
+    count = (await db.execute(stmt)).scalar_one()
+    if count > 0:
+        return
+        
+    initial_groups = [
+        {
+            "name": "Peenya Industrial Area",
+            "slug": "peenya-industrial-area",
+            "location": "Bengaluru, Karnataka",
+            "description": "One of the largest industrial hubs in Asia. Peenya houses machine tool manufacturers, precision engineering, electricals, & plastic fabricators.",
+            "image_url": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&auto=format&fit=crop",
+            "cover_url": "https://images.unsplash.com/photo-1504917599217-d4dc5ebe6122?w=1200&auto=format&fit=crop",
+            "members_count": 12500,
+            "companies_count": 3800,
+            "posts_count": 6200,
+            "leads_count": 1800,
+            "jobs_count": 450,
+            "reels_count": 320
+        },
+        {
+            "name": "Bommasandra",
+            "slug": "bommasandra",
+            "location": "Bengaluru, Karnataka",
+            "description": "Key industrial cluster specializing in automotive components, heavy equipment, pharmaceuticals, and manufacturing technologies.",
+            "image_url": "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&auto=format&fit=crop",
+            "cover_url": "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=1200&auto=format&fit=crop",
+            "members_count": 8700,
+            "companies_count": 2100,
+            "posts_count": 4100,
+            "leads_count": 1200,
+            "jobs_count": 310,
+            "reels_count": 210
+        },
+        {
+            "name": "Jigani",
+            "slug": "jigani",
+            "location": "Bengaluru, Karnataka",
+            "description": "Prominent industrial zone known for granite processing, granite cutting machines, CNC works, and engineering fabrication.",
+            "image_url": "https://images.unsplash.com/photo-1565008447742-97f6f38c985c?w=800&auto=format&fit=crop",
+            "cover_url": "https://images.unsplash.com/photo-1581092335397-9583fe92d232?w=1200&auto=format&fit=crop",
+            "members_count": 6200,
+            "companies_count": 1500,
+            "posts_count": 2800,
+            "leads_count": 850,
+            "jobs_count": 190,
+            "reels_count": 140
+        },
+        {
+            "name": "Whitefield",
+            "slug": "whitefield",
+            "location": "Bengaluru, Karnataka",
+            "description": "High-tech manufacturing, electronics assembly, precision tooling, and industrial R&D hub.",
+            "image_url": "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=800&auto=format&fit=crop",
+            "cover_url": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1200&auto=format&fit=crop",
+            "members_count": 5400,
+            "companies_count": 1200,
+            "posts_count": 2300,
+            "leads_count": 720,
+            "jobs_count": 260,
+            "reels_count": 110
+        },
+        {
+            "name": "Hosur",
+            "slug": "hosur",
+            "location": "Tamil Nadu",
+            "description": "Major industrial city bordering Karnataka, renowned for automotive giants, casting foundries, electrical machinery, and OEM parts.",
+            "image_url": "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=800&auto=format&fit=crop",
+            "cover_url": "https://images.unsplash.com/photo-1581092162384-8987c1d64718?w=1200&auto=format&fit=crop",
+            "members_count": 4900,
+            "companies_count": 1100,
+            "posts_count": 1900,
+            "leads_count": 610,
+            "jobs_count": 180,
+            "reels_count": 95
+        }
+    ]
+    for g in initial_groups:
+        db.add(IndustrialGroup(
+            id=str(uuid.uuid4()),
+            name=g["name"],
+            slug=g["slug"],
+            location=g["location"],
+            description=g["description"],
+            image_url=g["image_url"],
+            cover_url=g["cover_url"],
+            members_count=g["members_count"],
+            companies_count=g["companies_count"],
+            posts_count=g["posts_count"],
+            leads_count=g["leads_count"],
+            jobs_count=g["jobs_count"],
+            reels_count=g["reels_count"],
+            created_at=now_iso()
+        ))
+    await db.commit()
+    logger.info("Seeded 5 initial Industrial Area Groups.")
+
+
 @app.on_event("startup")
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
-    async with engine.begin() as conn:
+    for tbl, col in [("posts", "group_id"), ("reels", "group_id"), ("enquiries", "group_id"), ("jobs", "group_id"), ("products", "stock_left"), ("products", "location")]:
         try:
-            await conn.execute(text("ALTER TABLE products ADD COLUMN stock_left INTEGER"))
-        except Exception:
-            pass
-            
-    async with engine.begin() as conn:
-        try:
-            await conn.execute(text("ALTER TABLE products ADD COLUMN location VARCHAR(255)"))
+            async with engine.begin() as conn:
+                await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} VARCHAR(255)"))
         except Exception:
             pass
         
@@ -3533,6 +4169,7 @@ async def startup():
         await _seed_categories_if_empty(session)
         await _seed_areas_if_empty(session)
         await _seed_slides_if_empty(session)
+        await _seed_industrial_groups_if_empty(session)
         
     logger.info("IIP started, seed data ensured (PostgreSQL)")
 

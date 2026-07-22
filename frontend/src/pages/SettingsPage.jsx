@@ -87,9 +87,6 @@ export default function SettingsPage() {
             Manage your account security, membership, and profile preferences.
           </p>
         </div>
-        <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center shrink-0">
-          <SettingsIcon size={24} className="text-white" />
-        </div>
       </div>
 
       {/* User Info Summary Card */}
