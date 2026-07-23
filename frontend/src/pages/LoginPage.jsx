@@ -18,7 +18,6 @@ export default function LoginPage() {
     setErr(""); setLoading(true);
     try {
       await login(identifier, password);
-      toast.success("Welcome back!");
       navigate("/");
     } catch (e2) {
       setErr(formatApiError(e2.response?.data?.detail) || "Login failed");

@@ -38,6 +38,7 @@ export default function AdminPage() {
 
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
+    { id: "industrial-groups", label: "Industrial Groups", icon: Building2 },
     { id: "plans", label: "Plans", icon: Crown },
     { id: "slides", label: "Slides", icon: Image },
     { id: "categories", label: "Categories", icon: Tag },
@@ -66,6 +67,7 @@ export default function AdminPage() {
       </div>
 
       {tab === "overview" && stats && analytics && <Overview stats={stats} analytics={analytics} />}
+      {tab === "industrial-groups" && <IndustrialGroupsTab />}
       {tab === "plans" && <PlansTab plans={plans} reload={reload} setPlanEdit={setPlanEdit} planEdit={planEdit} />}
       {tab === "slides" && <SlidesTab />}
       {tab === "categories" && <CategoriesTab />}
@@ -563,6 +565,124 @@ const SlidesTab = () => {
                   <Trash2 size={12} /> Delete
                 </button>
               </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+
+const IndustrialGroupsTab = () => {
+  const [list, setList] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({
+    name: "", location: "", description: "", image_url: "", cover_url: "", members_count: 500, companies_count: 100
+  });
+
+  const load = () => {
+    api.get("/industrial-groups").then((r) => setList(r.data)).catch(() => {});
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      if (editing) {
+        await api.put(`/industrial-groups/${editing.id}`, form);
+        toast.success("Industrial group updated");
+      } else {
+        await api.post("/industrial-groups", form);
+        toast.success("Industrial group created");
+      }
+      setEditing(null);
+      setForm({ name: "", location: "", description: "", image_url: "", cover_url: "", members_count: 500, companies_count: 100 });
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to save group");
+    }
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm("Delete this industrial group?")) return;
+    try {
+      await api.delete(`/industrial-groups/${id}`);
+      toast.success("Industrial group deleted");
+      load();
+    } catch {
+      toast.error("Failed to delete");
+    }
+  };
+
+  const edit = (g) => {
+    setEditing(g);
+    setForm({
+      name: g.name, location: g.location, description: g.description,
+      image_url: g.image_url, cover_url: g.cover_url || "",
+      members_count: g.members_count, companies_count: g.companies_count
+    });
+  };
+
+  return (
+    <div className="mt-4 space-y-6">
+      <form onSubmit={save} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm" data-testid="admin-group-form">
+        <h4 className="font-display font-bold text-sm text-slate-800">
+          {editing ? "Edit Industrial Area Group" : "Create New Industrial Area Group"}
+        </h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Group Name</label>
+            <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="e.g. Peenya Industrial Area" data-testid="admin-group-name" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Location</label>
+            <input required value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
+              placeholder="e.g. Bengaluru, Karnataka" data-testid="admin-group-location" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Description</label>
+            <textarea required rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Description of the industrial area..." data-testid="admin-group-desc" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Image URL</label>
+            <input required value={form.image_url} onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+              placeholder="https://images.unsplash.com/..." data-testid="admin-group-image" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Cover Banner URL</label>
+            <input value={form.cover_url} onChange={(e) => setForm({ ...form, cover_url: e.target.value })}
+              placeholder="https://images.unsplash.com/..." data-testid="admin-group-cover" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          {editing && (
+            <button type="button" onClick={() => { setEditing(null); setForm({ name: "", location: "", description: "", image_url: "", cover_url: "", members_count: 500, companies_count: 100 }); }} className="px-4 py-2 rounded-lg bg-slate-100 text-xs font-semibold">
+              Cancel
+            </button>
+          )}
+          <button type="submit" data-testid="admin-group-save-btn" className="px-5 py-2 rounded-lg bg-orange-600 text-white text-xs font-bold">
+            {editing ? "Save Changes" : "Create Group"}
+          </button>
+        </div>
+      </form>
+
+      <div className="space-y-3">
+        {list.map((g) => (
+          <div key={g.id} className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-3 shadow-sm" data-testid={`admin-group-item-${g.id}`}>
+            <div className="flex items-center gap-3">
+              <img src={g.image_url} alt="" className="w-12 h-12 rounded-lg object-cover" />
+              <div>
+                <h5 className="font-bold text-sm text-slate-900">{g.name}</h5>
+                <p className="text-xs text-slate-500">{g.location} • {g.members_count} Members • {g.companies_count} Companies</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => edit(g)} data-testid={`admin-group-edit-${g.id}`} className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 rounded-lg">Edit</button>
+              <button onClick={() => remove(g.id)} data-testid={`admin-group-delete-${g.id}`} className="px-2.5 py-1 text-xs font-semibold text-rose-600 bg-rose-50 rounded-lg">Delete</button>
             </div>
           </div>
         ))}

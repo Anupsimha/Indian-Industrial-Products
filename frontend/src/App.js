@@ -33,6 +33,9 @@ import ChatsPage from "@/pages/ChatsPage";
 import ChatWindowPage from "@/pages/ChatWindowPage";
 import CartPage from "@/pages/CartPage";
 import OrdersPage from "@/pages/OrdersPage";
+import SettingsPage from "@/pages/SettingsPage";
+import IndustrialGroupsPage from "@/pages/IndustrialGroupsPage";
+import IndustrialGroupDetailPage from "@/pages/IndustrialGroupDetailPage";
 
 const Layout = ({ children }) => {
   const location = useLocation();
@@ -73,6 +76,8 @@ function App() {
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/company/:id" element={<CompanyDetailPage />} />
               <Route path="/companies" element={<CompaniesPage />} />
+              <Route path="/industrial-groups" element={<IndustrialGroupsPage />} />
+              <Route path="/industrial-groups/:id" element={<IndustrialGroupDetailPage />} />
               <Route path="/pricing" element={<PricingPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/bookmarks" element={<BookmarksPage />} />
@@ -88,6 +93,7 @@ function App() {
               <Route path="/chat/:id" element={<ChatWindowPage />} />
               <Route path="/cart" element={<CartPage />} />
               <Route path="/orders" element={<OrdersPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </Layout>
         </BrowserRouter>

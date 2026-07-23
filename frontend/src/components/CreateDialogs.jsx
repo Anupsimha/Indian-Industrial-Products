@@ -8,9 +8,16 @@ export const PostDialog = ({ open, onClose, onSaved }) => {
   const [content, setContent] = useState("");
   const [media, setMedia] = useState([]);
   const [category, setCategory] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [groups, setGroups] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => { if (open) { setContent(""); setMedia([]); setCategory(""); } }, [open]);
+  useEffect(() => {
+    if (open) {
+      setContent(""); setMedia([]); setCategory(""); setGroupId("");
+      api.get("/industrial-groups").then((r) => setGroups(r.data)).catch(() => {});
+    }
+  }, [open]);
 
   if (!open) return null;
 
@@ -24,6 +31,7 @@ export const PostDialog = ({ open, onClose, onSaved }) => {
         media_url: first?.url || null,
         media_type: first ? (first.resource_type === "video" ? "video" : "image") : "text",
         category: category || null,
+        group_id: groupId || null,
       };
       await api.post("/posts", payload);
       toast.success("Post published");
@@ -44,6 +52,22 @@ export const PostDialog = ({ open, onClose, onSaved }) => {
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700" data-testid="post-dialog-close"><X size={20} /></button>
         </div>
         <form onSubmit={submit} className="p-5 space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-1">Share with</label>
+            <select
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+              data-testid="post-group-select"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white font-medium"
+            >
+              <option value="">Everyone (Public Feed)</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name} ({g.location})
+                </option>
+              ))}
+            </select>
+          </div>
           <textarea
             required rows={4} value={content} onChange={(e) => setContent(e.target.value)}
             placeholder="Share an update, project, or news..."
