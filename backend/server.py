@@ -87,7 +87,12 @@ class User(Base):
     avatar_url = Column(String(1024), nullable=True)
     plan_id = Column(String(36), nullable=True)
     plan_name = Column(String(255), nullable=True)
+    plan_started_at = Column(String(255), nullable=True)
     plan_expires_at = Column(String(255), nullable=True)
+    next_plan_id = Column(String(36), nullable=True)
+    next_plan_name = Column(String(255), nullable=True)
+    next_plan_starts_at = Column(String(255), nullable=True)
+    next_plan_expires_at = Column(String(255), nullable=True)
     unlocked_enquiries = Column(JSON, default=list, nullable=True)
     # Per-month unlock tracking: {"2026-07": ["enq_id1", "enq_id2", ...]}
     monthly_unlocks = Column(JSON, default=dict, nullable=True)
@@ -208,6 +213,8 @@ class Bookmark(Base):
     user_id = Column(String(36), nullable=False)
     post_id = Column(String(36), nullable=True)
     reel_id = Column(String(36), nullable=True)
+    product_id = Column(String(36), nullable=True)
+    requirement_id = Column(String(36), nullable=True)
     created_at = Column(String(255), nullable=False)
 
 class Comment(Base):
@@ -343,8 +350,14 @@ class UserPublic(BaseModel):
     role: RoleType
     company_id: Optional[str] = None
     avatar_url: Optional[str] = None
+    plan_id: Optional[str] = None
     plan_name: Optional[str] = None
+    plan_started_at: Optional[str] = None
     plan_expires_at: Optional[str] = None
+    next_plan_id: Optional[str] = None
+    next_plan_name: Optional[str] = None
+    next_plan_starts_at: Optional[str] = None
+    next_plan_expires_at: Optional[str] = None
 
 
 class RegisterIn(BaseModel):
@@ -375,6 +388,7 @@ class CompanyOut(BaseModel):
     website: Optional[str] = None
     owner_id: str
     owner_name: Optional[str] = None
+    owner_plan_name: Optional[str] = None
     gst: Optional[str] = None
     pan: Optional[str] = None
     business_type: Optional[str] = None
@@ -508,6 +522,7 @@ class ReelOut(BaseModel):
     likes_count: int
     comments_count: int
     is_liked: bool
+    is_saved: bool = False
     is_following: bool
     whatsapp: str
     created_at: str
@@ -687,8 +702,14 @@ def user_to_dict(user: User) -> dict:
         "role": user.role,
         "company_id": user.company_id,
         "avatar_url": user.avatar_url,
-        "plan_name": user.plan_name,
-        "plan_expires_at": user.plan_expires_at,
+        "plan_id": getattr(user, "plan_id", None),
+        "plan_name": getattr(user, "plan_name", None),
+        "plan_started_at": getattr(user, "plan_started_at", None),
+        "plan_expires_at": getattr(user, "plan_expires_at", None),
+        "next_plan_id": getattr(user, "next_plan_id", None),
+        "next_plan_name": getattr(user, "next_plan_name", None),
+        "next_plan_starts_at": getattr(user, "next_plan_starts_at", None),
+        "next_plan_expires_at": getattr(user, "next_plan_expires_at", None),
         "unlocked_enquiries": user.unlocked_enquiries or [],
         "created_at": user.created_at,
     }
@@ -709,6 +730,24 @@ async def get_current_user(request: Request) -> dict:
             user = (await session.execute(stmt)).scalar_one_or_none()
             if not user:
                 raise HTTPException(status_code=401, detail="User not found")
+            
+            # Check if current plan has expired and queue plan needs auto-promotion
+            if user.plan_expires_at and user.next_plan_name:
+                try:
+                    exp_dt = datetime.fromisoformat(user.plan_expires_at)
+                    if datetime.now(timezone.utc) >= exp_dt:
+                        user.plan_id = user.next_plan_id
+                        user.plan_name = user.next_plan_name
+                        user.plan_started_at = user.next_plan_starts_at
+                        user.plan_expires_at = user.next_plan_expires_at
+                        user.next_plan_id = None
+                        user.next_plan_name = None
+                        user.next_plan_starts_at = None
+                        user.next_plan_expires_at = None
+                        await session.commit()
+                except Exception:
+                    pass
+
             return user_to_dict(user)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -779,13 +818,21 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
         stmt_follow = select(Follow).where(Follow.company_id == company.id, Follow.user_id == current_user["id"])
         is_following = bool((await db.execute(stmt_follow)).scalar_one_or_none())
         is_owner = company.owner_id == current_user["id"] or current_user.get("role") == "admin"
+    
+    owner_plan_name = None
+    if company.owner_id:
+        stmt_owner = select(User).where(User.id == company.owner_id)
+        owner_usr = (await db.execute(stmt_owner)).scalar_one_or_none()
+        if owner_usr:
+            owner_plan_name = owner_usr.plan_name
+
     return CompanyOut(
         id=company.id, name=company.name, description=company.description,
         location=company.location, logo_url=company.logo_url,
         cover_url=company.cover_url, category=company.category,
         mobile=company.mobile, whatsapp=company.whatsapp, email=company.email,
         website=company.website, owner_id=company.owner_id,
-        owner_name=company.owner_name,
+        owner_name=company.owner_name, owner_plan_name=owner_plan_name,
         gst=company.gst, pan=company.pan,
         business_type=company.business_type,
         year_established=company.year_established,
@@ -849,11 +896,15 @@ async def hydrate_reel(reel: Reel, current_user: Optional[dict], db: AsyncSessio
     comments_count = (await db.execute(stmt_comments)).scalar_one()
     
     is_liked = False
+    is_saved = False
     is_following = False
     if current_user:
         stmt_like = select(Like).where(Like.target_id == reel.id, Like.target_type == "reel", Like.user_id == current_user["id"])
         is_liked = bool((await db.execute(stmt_like)).scalar_one_or_none())
         
+        stmt_save = select(Bookmark).where(Bookmark.reel_id == reel.id, Bookmark.user_id == current_user["id"])
+        is_saved = bool((await db.execute(stmt_save)).scalar_one_or_none())
+
         stmt_follow = select(Follow).where(Follow.company_id == company.id, Follow.user_id == current_user["id"])
         is_following = bool((await db.execute(stmt_follow)).scalar_one_or_none())
 
@@ -869,7 +920,7 @@ async def hydrate_reel(reel: Reel, current_user: Optional[dict], db: AsyncSessio
         thumbnail_url=reel.thumbnail_url,
         group_id=getattr(reel, "group_id", None), group_name=group_name,
         likes_count=likes_count,
-        comments_count=comments_count, is_liked=is_liked, is_following=is_following,
+        comments_count=comments_count, is_liked=is_liked, is_saved=is_saved, is_following=is_following,
         whatsapp=company.whatsapp, created_at=reel.created_at,
     )
 
@@ -1948,11 +1999,70 @@ async def read_all_notifications(user: dict = Depends(get_current_user), db: Asy
 
 
 # -------------------- Bookmarks --------------------
-@api.get("/me/bookmarks", response_model=List[PostOut])
+@api.post("/products/{product_id}/save")
+async def toggle_product_save(product_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt = select(Bookmark).where(Bookmark.product_id == product_id, Bookmark.user_id == user["id"])
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if existing:
+        await db.delete(existing)
+        await db.commit()
+        return {"saved": False}
+    
+    new_bookmark = Bookmark(
+        id=str(uuid.uuid4()), product_id=product_id,
+        user_id=user["id"], created_at=now_iso(),
+    )
+    db.add(new_bookmark)
+    await db.commit()
+    return {"saved": True}
+
+
+@api.post("/reels/{reel_id}/save")
+async def toggle_reel_save(reel_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt = select(Bookmark).where(Bookmark.reel_id == reel_id, Bookmark.user_id == user["id"])
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if existing:
+        await db.delete(existing)
+        await db.commit()
+        return {"saved": False}
+    
+    new_bookmark = Bookmark(
+        id=str(uuid.uuid4()), reel_id=reel_id,
+        user_id=user["id"], created_at=now_iso(),
+    )
+    db.add(new_bookmark)
+    await db.commit()
+    return {"saved": True}
+
+
+@api.post("/requirements/{req_id}/save")
+async def toggle_requirement_save(req_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt = select(Bookmark).where(Bookmark.requirement_id == req_id, Bookmark.user_id == user["id"])
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if existing:
+        await db.delete(existing)
+        await db.commit()
+        return {"saved": False}
+    
+    new_bookmark = Bookmark(
+        id=str(uuid.uuid4()), requirement_id=req_id,
+        user_id=user["id"], created_at=now_iso(),
+    )
+    db.add(new_bookmark)
+    await db.commit()
+    return {"saved": True}
+
+
+@api.get("/me/bookmarks")
 async def my_bookmarks(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     stmt_bookmarks = select(Bookmark).where(Bookmark.user_id == user["id"]).order_by(desc(Bookmark.created_at))
     docs = (await db.execute(stmt_bookmarks)).scalars().all()
-    out = []
+    
+    posts = []
+    products = []
+    reels = []
+    requirements = []
+
     for b in docs:
         if b.post_id:
             stmt_post = select(Post).where(Post.id == b.post_id)
@@ -1960,8 +2070,116 @@ async def my_bookmarks(user: dict = Depends(get_current_user), db: AsyncSession 
             if post:
                 p = await hydrate_post(post, user, db)
                 if p:
-                    out.append(p)
-    return out
+                    posts.append(p.model_dump())
+        elif b.product_id:
+            stmt_prod = select(Product).where(Product.id == b.product_id)
+            prod = (await db.execute(stmt_prod)).scalar_one_or_none()
+            if prod:
+                stmt_comp = select(Company).where(Company.id == prod.company_id)
+                comp = (await db.execute(stmt_comp)).scalar_one_or_none()
+                products.append(make_product_out(prod, comp).model_dump())
+        elif b.reel_id:
+            stmt_reel = select(Reel).where(Reel.id == b.reel_id)
+            reel = (await db.execute(stmt_reel)).scalar_one_or_none()
+            if reel:
+                r = await hydrate_reel(reel, user, db)
+                if r:
+                    reels.append(r.model_dump())
+        elif b.requirement_id:
+            stmt_req = select(Enquiry).where(Enquiry.id == b.requirement_id)
+            req = (await db.execute(stmt_req)).scalar_one_or_none()
+            if req:
+                requirements.append({
+                    "id": req.id, "name": req.name, "mobile": req.mobile,
+                    "requirement": req.requirement, "category": req.category,
+                    "location": req.location, "product_name": req.product_name,
+                    "quantity": req.quantity, "state": req.state, "city": req.city,
+                    "industrial_area": req.industrial_area, "status": req.status,
+                    "created_at": req.created_at, "company_id": req.company_id,
+                })
+
+    return {
+        "posts": posts,
+        "products": products,
+        "reels": reels,
+        "requirements": requirements,
+    }
+
+
+# -------------------- Payment & Subscription Plan Endpoints --------------------
+class PaymentCreateOrderIn(BaseModel):
+    plan_id: str
+    billing_cycle: Optional[str] = "monthly"
+
+class PaymentVerifyIn(BaseModel):
+    razorpay_payment_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
+    plan_id: str
+    billing_cycle: Optional[str] = "monthly"
+
+@api.post("/payments/create-order")
+async def create_payment_order(payload: PaymentCreateOrderIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt_plan = select(Plan).where(Plan.id == payload.plan_id)
+    plan = (await db.execute(stmt_plan)).scalar_one_or_none()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    amount = int((plan.yearly_price if payload.billing_cycle == "yearly" else plan.monthly_price) * 100)
+    mock_order_id = f"order_mock_{uuid.uuid4().hex[:12]}"
+    
+    return {
+        "order_id": mock_order_id,
+        "amount": amount,
+        "currency": plan.currency or "INR",
+        "key": os.environ.get("RAZORPAY_KEY_ID", "rzp_test_mockkey12345"),
+    }
+
+@api.post("/payments/verify")
+async def verify_payment(payload: PaymentVerifyIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt_plan = select(Plan).where(Plan.id == payload.plan_id)
+    plan = (await db.execute(stmt_plan)).scalar_one_or_none()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    stmt_user = select(User).where(User.id == user["id"])
+    u = (await db.execute(stmt_user)).scalar_one()
+
+    duration_days = 365 if payload.billing_cycle == "yearly" else (plan.duration_days or 30)
+    now_dt = datetime.now(timezone.utc)
+    now_iso_str = now_dt.isoformat()
+
+    # Check if user currently has an active unexpired plan
+    has_active_plan = False
+    active_exp_dt = None
+    if u.plan_expires_at:
+        try:
+            active_exp_dt = datetime.fromisoformat(u.plan_expires_at)
+            if active_exp_dt > now_dt:
+                has_active_plan = True
+        except Exception:
+            pass
+
+    if has_active_plan and active_exp_dt:
+        # Queue the new plan to start when current plan expires
+        u.next_plan_id = plan.id
+        u.next_plan_name = plan.name
+        u.next_plan_starts_at = active_exp_dt.isoformat()
+        next_exp = active_exp_dt + timedelta(days=duration_days)
+        u.next_plan_expires_at = next_exp.isoformat()
+    else:
+        # Activate immediately
+        u.plan_id = plan.id
+        u.plan_name = plan.name
+        u.plan_started_at = now_iso_str
+        u.plan_expires_at = (now_dt + timedelta(days=duration_days)).isoformat()
+        u.next_plan_id = None
+        u.next_plan_name = None
+        u.next_plan_starts_at = None
+        u.next_plan_expires_at = None
+
+    await db.commit()
+    return {"ok": True, "user": user_to_dict(u)}
 
 
 
@@ -4156,7 +4374,13 @@ async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
-    for tbl, col in [("posts", "group_id"), ("reels", "group_id"), ("enquiries", "group_id"), ("jobs", "group_id"), ("products", "stock_left"), ("products", "location")]:
+    for tbl, col in [
+        ("posts", "group_id"), ("reels", "group_id"), ("enquiries", "group_id"), ("jobs", "group_id"),
+        ("products", "stock_left"), ("products", "location"),
+        ("users", "plan_started_at"), ("users", "next_plan_id"), ("users", "next_plan_name"),
+        ("users", "next_plan_starts_at"), ("users", "next_plan_expires_at"),
+        ("bookmarks", "product_id"), ("bookmarks", "requirement_id")
+    ]:
         try:
             async with engine.begin() as conn:
                 await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} VARCHAR(255)"))

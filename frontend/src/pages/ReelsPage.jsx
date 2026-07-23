@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Heart, MessageCircle, Share2, UserPlus, UserCheck, MapPin, ArrowLeft, Volume2, VolumeX, Pause, Play } from "lucide-react";
+import { Heart, MessageCircle, Share2, UserPlus, UserCheck, MapPin, ArrowLeft, Volume2, VolumeX, Pause, Play, Bookmark } from "lucide-react";
 import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
@@ -12,6 +12,7 @@ const ReelItem = ({ reel, active, muted, onMuteToggle }) => {
   const { user } = useAuth();
   const [liked, setLiked] = useState(reel.is_liked);
   const [likes, setLikes] = useState(reel.likes_count);
+  const [saved, setSaved] = useState(reel.is_saved);
   const [following, setFollowing] = useState(reel.is_following);
   const [showEnq, setShowEnq] = useState(false);
   const [playing, setPlaying] = useState(true);
@@ -43,6 +44,24 @@ const ReelItem = ({ reel, active, muted, onMuteToggle }) => {
     setLiked((v) => !v);
     setLikes((n) => n + (liked ? -1 : 1));
     try { await api.post(`/reels/${reel.id}/like`); } catch {}
+  };
+
+  const toggleSave = async (e) => {
+    if (e) e.stopPropagation();
+    if (!requireAuth()) return;
+    const next = !saved;
+    setSaved(next);
+    try {
+      const res = await api.post(`/reels/${reel.id}/save`);
+      if (res.data.saved) {
+        toast.success("Reel saved to bookmarks!", { duration: 3000 });
+      } else {
+        toast.info("Removed from saved feed", { duration: 3000 });
+      }
+    } catch {
+      setSaved(!next);
+      toast.error("Failed to update bookmark", { duration: 3000 });
+    }
   };
 
   const toggleFollow = async () => {
@@ -167,6 +186,10 @@ const ReelItem = ({ reel, active, muted, onMuteToggle }) => {
         <button onClick={(e) => { e.stopPropagation(); share(); }} data-testid={`reel-share-${reel.id}`} className="flex flex-col items-center active:scale-95">
           <Share2 size={28} />
           <span className="text-xs mt-1">Share</span>
+        </button>
+        <button onClick={toggleSave} data-testid={`reel-save-${reel.id}`} className="flex flex-col items-center active:scale-95">
+          <Bookmark size={28} className={saved ? "fill-blue-400 text-blue-400" : ""} />
+          <span className="text-xs mt-1">Save</span>
         </button>
         <a
           href={whatsappLink(reel.whatsapp, `Hi! I saw your reel: "${reel.content.slice(0, 80)}"`)}

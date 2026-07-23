@@ -4,7 +4,8 @@ import api, { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
 import {
   ArrowLeft, ShoppingCart, MessageSquare, MapPin, Star, CheckCircle,
-  Clock, ShieldCheck, Truck, Bookmark, Award, Sparkles, Loader2, Package
+  Clock, ShieldCheck, Truck, Bookmark, Award, Sparkles, Loader2, Package,
+  ChevronLeft, ChevronRight, CreditCard
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
@@ -21,6 +22,12 @@ export default function ProductDetailPage() {
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [enquiryOpen, setEnquiryOpen] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+
+  // Image Swiping / Gallery State
+  const [activeImgIndex, setActiveImgIndex] = useState(0);
+  const [touchStartX, setTouchStartX] = useState(null);
+  const [touchEndX, setTouchEndX] = useState(null);
 
   useEffect(() => {
     const fetchProductDetails = async () => {
@@ -28,6 +35,7 @@ export default function ProductDetailPage() {
       try {
         const { data } = await api.get(`/products/${id}`);
         setProduct(data);
+        setActiveImgIndex(0);
         
         // Fetch recommendations from the same category
         if (data && data.category) {
@@ -38,21 +46,30 @@ export default function ProductDetailPage() {
             setRecommendations(filtered.slice(0, 6)); // Limit to 6
           }
         }
+
+        // Check if bookmarked
+        if (user) {
+          api.get("/me/bookmarks").then((res) => {
+            if (res.data && res.data.products) {
+              setIsBookmarked(res.data.products.some((p) => p.id === data.id));
+            }
+          }).catch(() => {});
+        }
       } catch (err) {
         console.error("Error fetching product detail:", err);
-        toast.error("Failed to load product details.");
+        toast.error("Failed to load product details.", { duration: 3000 });
       } finally {
         setLoading(false);
       }
     };
 
     fetchProductDetails();
-  }, [id]);
+  }, [id, user]);
 
   const handleAddToCart = () => {
     if (!product) return;
     addToCart(product);
-    toast.success(`${product.name} added to cart!`);
+    toast.success(`${product.name} added to cart!`, { duration: 3000 });
   };
 
   const handleBuyNow = () => {
@@ -61,12 +78,66 @@ export default function ProductDetailPage() {
     navigate("/cart");
   };
 
+  const toggleBookmark = async () => {
+    if (!user) {
+      toast.error("Please login to save this product", { duration: 3000 });
+      return;
+    }
+    try {
+      const res = await api.post(`/products/${id}/save`);
+      if (res.data.saved) {
+        setIsBookmarked(true);
+        toast.success(`${product.name} saved to bookmarks!`, { duration: 3000 });
+      } else {
+        setIsBookmarked(false);
+        toast.info(`Removed ${product.name} from bookmarks`, { duration: 3000 });
+      }
+    } catch {
+      toast.error("Failed to update bookmark", { duration: 3000 });
+    }
+  };
+
   const getNumericPrice = (priceStr) => {
     if (!priceStr || typeof priceStr !== "string") return 4500;
     if (priceStr.toLowerCase().includes("request")) return 4500;
     const cleaned = priceStr.replace(/[^\d.]/g, "");
     const parsed = parseFloat(cleaned);
     return isNaN(parsed) ? 4500 : parsed;
+  };
+
+  // Image gallery swiping calculations
+  const rawImages = product ? [product.image_url, ...(product.images || [])].filter(Boolean) : [];
+  const allImages = Array.from(new Set(rawImages));
+
+  const handlePrevImg = () => {
+    if (allImages.length <= 1) return;
+    setActiveImgIndex((prev) => (prev === 0 ? allImages.length - 1 : prev - 1));
+  };
+
+  const handleNextImg = () => {
+    if (allImages.length <= 1) return;
+    setActiveImgIndex((prev) => (prev === allImages.length - 1 ? 0 : prev + 1));
+  };
+
+  const handleTouchStart = (e) => {
+    setTouchStartX(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchMove = (e) => {
+    setTouchEndX(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStartX || !touchEndX) return;
+    const distance = touchStartX - touchEndX;
+    const minSwipeDistance = 35;
+    if (distance > minSwipeDistance) {
+      handleNextImg(); // Swipe left
+    } else if (distance < -minSwipeDistance) {
+      handlePrevImg(); // Swipe right
+    }
+    setTouchStartX(null);
+    setTouchEndX(null);
   };
 
   if (loading) {
@@ -108,35 +179,76 @@ export default function ProductDetailPage() {
         </button>
         <span className="font-display font-extrabold text-slate-900 text-sm">Product Details</span>
         <button 
-          onClick={() => toast.success(`${product.name} bookmarked!`)}
+          onClick={toggleBookmark}
+          data-testid="product-detail-bookmark-btn"
           className="p-1.5 rounded-full bg-slate-50 text-slate-400 hover:text-blue-900 transition-colors"
         >
-          <Bookmark size={16} />
+          <Bookmark size={16} className={isBookmarked ? "fill-blue-900 text-blue-900" : ""} />
         </button>
       </div>
 
       <div className="lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start max-w-7xl mx-auto">
         {/* Left Column: Product Image Gallery */}
         <div className="lg:col-span-6 space-y-4">
-          <div className="relative aspect-square w-full rounded-3xl overflow-hidden bg-white border border-slate-200 shadow-md">
+          <div
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            className="relative aspect-square w-full rounded-3xl overflow-hidden bg-white border border-slate-200 shadow-md select-none group"
+            data-testid="product-image-carousel"
+          >
             <img
-              src={optimizedUrl(product.image_url, { w: 800 })}
+              src={optimizedUrl(allImages[activeImgIndex] || product.image_url, { w: 800 })}
               alt={product.name}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover transition-opacity duration-300"
             />
-            <span className="absolute top-4 left-4 px-3 py-1 rounded-full bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wider shadow-sm">
+            
+            {/* Stock Left Badge */}
+            <span className="absolute top-4 left-4 px-3 py-1 rounded-full bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wider shadow-sm z-10">
               {product.stock_left !== undefined && product.stock_left !== null ? `Qty Left: ${product.stock_left}` : "In Stock"}
             </span>
+
+            {/* Image Counter Badge */}
+            {allImages.length > 1 && (
+              <span className="absolute top-4 right-4 px-2.5 py-1 rounded-full bg-slate-900/70 text-white text-[10px] font-bold backdrop-blur-sm shadow-sm z-10">
+                {activeImgIndex + 1} / {allImages.length}
+              </span>
+            )}
+
+            {/* Left/Right Navigation Chevron Arrows */}
+            {allImages.length > 1 && (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handlePrevImg(); }}
+                  data-testid="product-img-prev"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/90 text-slate-800 hover:bg-white shadow-lg transition-all active:scale-90 z-20"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleNextImg(); }}
+                  data-testid="product-img-next"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/90 text-slate-800 hover:bg-white shadow-lg transition-all active:scale-90 z-20"
+                >
+                  <ChevronRight size={20} />
+                </button>
+              </>
+            )}
           </div>
 
-          {/* Sub Images strip if they exist */}
-          {product.images && product.images.length > 0 && (
+          {/* Sub Images strip */}
+          {allImages.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-              <div className="w-20 h-20 shrink-0 rounded-xl overflow-hidden border-2 border-blue-900 bg-white shadow-sm">
-                <img src={optimizedUrl(product.image_url, { w: 200 })} alt="" className="w-full h-full object-cover" />
-              </div>
-              {product.images.map((img, idx) => (
-                <div key={idx} className="w-20 h-20 shrink-0 rounded-xl overflow-hidden border border-slate-200 bg-white hover:border-blue-900 transition-colors shadow-sm">
+              {allImages.map((img, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => setActiveImgIndex(idx)}
+                  className={`w-20 h-20 shrink-0 rounded-xl overflow-hidden cursor-pointer transition-all bg-white shadow-sm ${
+                    activeImgIndex === idx
+                      ? "ring-2 ring-blue-900 border-2 border-transparent scale-105"
+                      : "border border-slate-200 hover:border-blue-500 opacity-70 hover:opacity-100"
+                  }`}
+                >
                   <img src={optimizedUrl(img, { w: 200 })} alt="" className="w-full h-full object-cover" />
                 </div>
               ))}
@@ -212,15 +324,10 @@ export default function ProductDetailPage() {
                 <span className="text-[8px] text-slate-400 leading-tight">Response in 2 hrs</span>
               </div>
             </div>
-            {/* Desktop Actions */}
-            <div className="hidden lg:flex flex-col gap-3 pt-4 border-t border-slate-100">
-              <div className="flex gap-3">
-                <button
-                  onClick={handleAddToCart}
-                  className="flex-grow py-3 border border-blue-900 text-blue-900 font-bold text-sm rounded-2xl hover:bg-blue-50 active:scale-[0.98] transition-all"
-                >
-                  Add to Cart
-                </button>
+
+            {/* Desktop 4 Action Buttons Grid */}
+            <div className="hidden lg:flex flex-col gap-2.5 pt-4 border-t border-slate-100">
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => {
                     if (isOwnProduct) {
@@ -229,21 +336,54 @@ export default function ProductDetailPage() {
                     }
                     setEnquiryOpen(true);
                   }}
-                  className={`flex-grow py-3 rounded-2xl font-bold text-sm transition-all shadow-sm ${
+                  data-testid="desktop-action-enquiry"
+                  className={`py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all shadow-sm ${
                     isOwnProduct
                       ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                       : "bg-orange-600 hover:bg-orange-700 text-white active:scale-[0.98]"
                   }`}
                 >
-                  Enquiry Now
+                  <MessageSquare size={16} /> Enquiry Now
+                </button>
+
+                <a
+                  href={isOwnProduct ? "#" : whatsappLink(product.whatsapp || "+919876543210", `Hi, I am interested in your product: "${product.name}" listed on IIP.`)}
+                  target={isOwnProduct ? "_self" : "_blank"}
+                  rel="noreferrer"
+                  onClick={(e) => {
+                    if (isOwnProduct) {
+                      e.preventDefault();
+                      toast.error("You cannot contact yourself.");
+                    }
+                  }}
+                  data-testid="desktop-action-whatsapp"
+                  className={`py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all shadow-sm ${
+                    isOwnProduct
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : "bg-[#25D366] hover:bg-[#20bd5a] text-white active:scale-[0.98]"
+                  }`}
+                >
+                  <MessageSquare size={16} /> WhatsApp
+                </a>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={handleAddToCart}
+                  data-testid="desktop-action-cart"
+                  className="py-3 px-4 border-2 border-orange-600 text-orange-700 hover:bg-orange-50 font-bold text-xs sm:text-sm rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+                >
+                  <ShoppingCart size={16} /> Add to Cart
+                </button>
+
+                <button
+                  onClick={handleBuyNow}
+                  data-testid="desktop-action-buy"
+                  className="py-3 px-4 bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs sm:text-sm rounded-2xl shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+                >
+                  <CreditCard size={16} /> Buy Now
                 </button>
               </div>
-              <button
-                onClick={handleBuyNow}
-                className="w-full py-3.5 bg-blue-900 hover:bg-blue-950 text-white font-bold text-sm rounded-2xl shadow-sm active:scale-[0.98] transition-all"
-              >
-                Buy Now
-              </button>
             </div>
           </div>
 
@@ -331,7 +471,7 @@ export default function ProductDetailPage() {
       </div>
 
       {/* Sticky Bottom Actions Bar (On Mobile) / Bottom Fixed Panel */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 px-4 py-3 z-30 flex items-center gap-2 max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto shadow-[0_-4px_12px_rgba(0,0,0,0.06)] rounded-t-3xl pb-6 lg:pb-3">
+      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 px-3 py-2.5 z-30 flex items-center gap-1.5 max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto shadow-[0_-4px_12px_rgba(0,0,0,0.06)] rounded-t-3xl pb-5 lg:pb-2.5">
         <a
           href={isOwnProduct ? "#" : whatsappLink(product.whatsapp || "+919876543210", `Hi, I am interested in your product: "${product.name}" listed on IIP.`)}
           target={isOwnProduct ? "_self" : "_blank"}
@@ -342,15 +482,18 @@ export default function ProductDetailPage() {
               toast.error("You cannot contact yourself.");
             }
           }}
-          className={`p-3 rounded-2xl flex items-center justify-center shadow-sm transition-all shrink-0 ${
+          data-testid="mobile-action-whatsapp"
+          className={`px-3 py-2.5 rounded-xl flex items-center justify-center gap-1 text-xs font-bold shadow-sm transition-all shrink-0 ${
             isOwnProduct
               ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-              : "bg-[#25D366] hover:bg-[#20bd5a] text-white active:scale-[0.98]"
+              : "bg-[#25D366] hover:bg-[#20bd5a] text-white active:scale-95"
           }`}
           title="WhatsApp Enquiry"
         >
-          <MessageSquare size={18} />
+          <MessageSquare size={15} />
+          <span className="hidden sm:inline">WhatsApp</span>
         </a>
+        
         <button
           onClick={() => {
             if (isOwnProduct) {
@@ -359,23 +502,28 @@ export default function ProductDetailPage() {
             }
             setEnquiryOpen(true);
           }}
-          className={`flex-1 py-3 rounded-2xl font-bold text-xs transition-all shadow-sm ${
+          data-testid="mobile-action-enquiry"
+          className={`flex-1 py-2.5 px-2 rounded-xl font-bold text-xs transition-all shadow-sm truncate ${
             isOwnProduct
               ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-              : "bg-orange-600 hover:bg-orange-700 text-white active:scale-[0.98]"
+              : "bg-orange-600 hover:bg-orange-700 text-white active:scale-95"
           }`}
         >
-          Enquiry Now
+          Enquiry
         </button>
+
         <button
           onClick={handleAddToCart}
-          className="flex-1 py-3 border border-blue-900 text-blue-900 font-bold text-xs rounded-2xl hover:bg-blue-50 active:scale-[0.98] transition-all"
+          data-testid="mobile-action-cart"
+          className="flex-1 py-2.5 px-2 border-2 border-orange-600 text-orange-700 hover:bg-orange-50 font-bold text-xs rounded-xl active:scale-95 transition-all truncate"
         >
           Add to Cart
         </button>
+
         <button
           onClick={handleBuyNow}
-          className="flex-1 py-3 bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs rounded-2xl shadow-sm active:scale-[0.98] transition-all"
+          data-testid="mobile-action-buy"
+          className="flex-1 py-2.5 px-2 bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-all truncate"
         >
           Buy Now
         </button>

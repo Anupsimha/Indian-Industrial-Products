@@ -14,6 +14,7 @@ import { ProductDialog } from "../components/ProductDialog";
 import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
 import { BackButton } from "../components/BackButton";
+import { ProfileAvatarFrame } from "../components/ProfileAvatarFrame";
 import { toast } from "sonner";
 
 export default function CompanyDetailPage() {
@@ -105,7 +106,13 @@ export default function CompanyDetailPage() {
       <div className="px-4 -mt-10 relative">
         {/* Header */}
         <div className="flex items-end gap-3">
-          <img src={optimizedUrl(c.logo_url, { w: 200 })} className="w-20 h-20 rounded-2xl object-cover ring-4 ring-white shadow-md bg-white" alt="" />
+          <ProfileAvatarFrame
+            src={c.logo_url}
+            alt={c.name}
+            planName={c.owner_plan_name}
+            size="lg"
+            className="shadow-md"
+          />
           <div className="flex-1 pb-1">
             <div className="flex items-center gap-1">
               <h1 className="font-display text-xl font-bold text-slate-900 truncate">{c.name}</h1>

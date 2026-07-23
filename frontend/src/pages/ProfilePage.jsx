@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { ProductDialog } from "../components/ProductDialog";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
+import { ProfileAvatarFrame } from "../components/ProfileAvatarFrame";
 
 export default function ProfilePage() {
   const { user, loading, logout } = useAuth();
@@ -66,20 +67,15 @@ export default function ProfilePage() {
       {/* 1. Profile Header Card */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0F294A] to-[#0A1D36] text-white shadow-xl p-5 border border-slate-800">
         <div className="flex items-start sm:items-center gap-4">
-          {/* Avatar Container with Camera Overlay */}
-          <div className="relative shrink-0">
-            <img
-              src={user.avatar_url || "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=200"}
-              alt={user.name}
-              className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-white/10 ring-4 ring-blue-900/30 bg-slate-800"
-            />
-            <button
-              onClick={() => toast.info("Profile photo upload coming soon!")}
-              className="absolute bottom-0 right-0 p-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-colors"
-            >
-              <Camera size={14} />
-            </button>
-          </div>
+          {/* Subscription Tier Profile Picture Frame */}
+          <ProfileAvatarFrame
+            src={user.avatar_url}
+            alt={user.name}
+            planName={user.plan_name}
+            size="xl"
+            editable={true}
+            onEdit={() => toast.info("Profile photo upload coming soon!")}
+          />
 
           {/* User & Company Details */}
           <div className="flex-1 min-w-0">
@@ -140,6 +136,47 @@ export default function ProfilePage() {
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Enquiries</span>
           </div>
         </div>
+      </div>
+
+      {/* 2.5 Membership Subscription Status Banner */}
+      <div className="mt-4 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
+            <Crown size={20} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                {user.plan_name || "Free"} Subscription
+              </span>
+              {user.next_plan_name && (
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800">
+                  Next: {user.next_plan_name}
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              {user.plan_expires_at ? (
+                <>
+                  Active from <span className="font-bold text-slate-800">{new Date(user.plan_started_at || user.created_at).toLocaleDateString()}</span> till <span className="font-bold text-slate-800">{new Date(user.plan_expires_at).toLocaleDateString()}</span>
+                </>
+              ) : (
+                "Free Tier with standard monthly limits"
+              )}
+              {user.next_plan_starts_at && (
+                <span className="block text-[11px] font-semibold text-cyan-700 mt-0.5">
+                  Queued {user.next_plan_name} starts on {new Date(user.next_plan_starts_at).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <Link
+          to="/settings"
+          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors shrink-0 self-end sm:self-auto"
+        >
+          Manage Plan
+        </Link>
       </div>
 
       {/* 3. Quick Actions Section */}

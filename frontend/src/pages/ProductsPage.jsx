@@ -65,11 +65,42 @@ export default function ProductsPage() {
     india: { label: "India Delivery (100+ KM)", cost: 199, desc: "Get it in 3-7 Days" }
   };
 
+  // Bookmark State
+  const [bookmarkedIds, setBookmarkedIds] = useState([]);
+
   useEffect(() => {
     api.get("/products")
       .then((r) => setProducts(r.data))
       .catch(() => {});
-  }, []);
+
+    if (user) {
+      api.get("/me/bookmarks").then((res) => {
+        if (res.data && res.data.products) {
+          setBookmarkedIds(res.data.products.map((p) => p.id));
+        }
+      }).catch(() => {});
+    }
+  }, [user]);
+
+  const toggleBookmark = async (p, e) => {
+    if (e) e.stopPropagation();
+    if (!user) {
+      toast.error("Please login to save products", { duration: 3000 });
+      return;
+    }
+    try {
+      const res = await api.post(`/products/${p.id}/save`);
+      if (res.data.saved) {
+        setBookmarkedIds((prev) => [...prev, p.id]);
+        toast.success(`${p.name} saved to bookmarks!`, { duration: 3000 });
+      } else {
+        setBookmarkedIds((prev) => prev.filter((id) => id !== p.id));
+        toast.info(`Removed ${p.name} from bookmarks`, { duration: 3000 });
+      }
+    } catch {
+      toast.error("Failed to update bookmark", { duration: 3000 });
+    }
+  };
 
   const cats = ["All", ...Array.from(new Set(products.map((p) => p.category)))];
 
@@ -122,7 +153,7 @@ export default function ProductsPage() {
   // Cart helper functions (use global CartContext)
   const addToCart = (product, triggerFlow = false) => {
     ctxAddToCart(product);
-    toast.success(`${product.name} added to cart!`);
+    toast.success(`${product.name} added to cart!`, { duration: 3000 });
     if (triggerFlow) {
       setBuyingStep("cart");
     }
@@ -321,10 +352,14 @@ export default function ProductsPage() {
             >
               {/* Save/Bookmark Button at Top Right */}
               <button 
-                onClick={() => toast.success(`${p.name} saved!`)}
-                className="absolute top-3 right-3 p-1 text-slate-400 hover:text-blue-900 transition-colors"
+                onClick={(e) => toggleBookmark(p, e)}
+                data-testid={`bookmark-prod-${p.id}`}
+                className="absolute top-3 right-3 p-1.5 rounded-full bg-white/80 backdrop-blur-sm text-slate-400 hover:text-blue-900 transition-all z-10"
               >
-                <Bookmark size={16} />
+                <Bookmark
+                  size={16}
+                  className={bookmarkedIds.includes(p.id) ? "fill-blue-900 text-blue-900" : ""}
+                />
               </button>
 
               {/* Left: Product Image */}
@@ -365,22 +400,40 @@ export default function ProductsPage() {
                   </div>
                 </div>
 
-                {/* Quick Actions Row */}
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={() => navigate(`/product/${p.id}`)}
-                    className="flex-1 py-1.5 border border-slate-200 text-slate-700 hover:bg-slate-50 text-[10px] font-bold rounded-lg text-center transition-colors"
-                  >
-                    Enquiry
-                  </button>
-                  <a
-                    href={whatsappLink(p.whatsapp || "+919876543210", `Hi, interested in ${p.name}`)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex-1 py-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white text-[10px] font-bold rounded-lg flex items-center justify-center gap-1 transition-colors"
-                  >
-                    <MessageSquare size={10} className="shrink-0" /> WhatsApp
-                  </a>
+                {/* Quick Actions Grid */}
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      onClick={() => addToCart(p)}
+                      data-testid={`add-to-cart-mobile-${p.id}`}
+                      className="py-1.5 px-2 bg-orange-600 hover:bg-orange-700 text-white font-bold text-[10px] rounded-lg flex items-center justify-center gap-1 transition-all shadow-sm active:scale-95"
+                    >
+                      <ShoppingCart size={11} /> Add to Cart
+                    </button>
+                    <button
+                      onClick={() => addToCart(p, true)}
+                      data-testid={`buy-now-mobile-${p.id}`}
+                      className="py-1.5 px-2 bg-blue-900 hover:bg-blue-950 text-white font-bold text-[10px] rounded-lg flex items-center justify-center gap-1 transition-all shadow-sm active:scale-95"
+                    >
+                      <CreditCard size={11} /> Buy Now
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      onClick={() => navigate(`/product/${p.id}`)}
+                      className="py-1.5 border border-slate-200 text-slate-700 hover:bg-slate-50 text-[10px] font-bold rounded-lg text-center transition-colors"
+                    >
+                      Enquiry
+                    </button>
+                    <a
+                      href={whatsappLink(p.whatsapp || "+919876543210", `Hi, interested in ${p.name}`)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="py-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white text-[10px] font-bold rounded-lg flex items-center justify-center gap-1 transition-colors"
+                    >
+                      <MessageSquare size={10} className="shrink-0" /> WhatsApp
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
@@ -408,6 +461,16 @@ export default function ProductsPage() {
               <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase tracking-wider">
                 {p.stock_left !== undefined && p.stock_left !== null ? `Qty: ${p.stock_left}` : "In Stock"}
               </span>
+              <button
+                onClick={(e) => toggleBookmark(p, e)}
+                data-testid={`bookmark-prod-desktop-${p.id}`}
+                className="absolute top-2 right-2 p-1.5 rounded-full bg-white/80 backdrop-blur-sm text-slate-400 hover:text-blue-900 transition-all z-10"
+              >
+                <Bookmark
+                  size={14}
+                  className={bookmarkedIds.includes(p.id) ? "fill-blue-900 text-blue-900" : ""}
+                />
+              </button>
             </div>
 
             <div className="p-3 flex-grow flex flex-col justify-between">
@@ -426,9 +489,9 @@ export default function ProductsPage() {
                 )}
               </div>
 
-              {/* Price and Add to Cart action */}
-              <div className="mt-2 pt-2 border-t border-slate-50 flex items-center justify-between">
-                <div>
+              {/* Price and Add to Cart / Buy Now actions */}
+              <div className="mt-2 pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
                   <div className="font-display font-extrabold text-blue-900 text-xs sm:text-sm">
                     {p.price || "On Request"}
                   </div>
@@ -437,12 +500,22 @@ export default function ProductsPage() {
                   )}
                 </div>
 
-                <button
-                  onClick={() => addToCart(p)}
-                  className="p-1.5 rounded-full bg-orange-50 text-orange-600 hover:bg-orange-600 hover:text-white transition-colors"
-                >
-                  <Plus size={14} />
-                </button>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => addToCart(p)}
+                    data-testid={`add-to-cart-desktop-${p.id}`}
+                    className="py-1.5 px-2 bg-orange-600 hover:bg-orange-700 text-white font-bold text-[10px] rounded-lg transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1"
+                  >
+                    <ShoppingCart size={11} /> Add to Cart
+                  </button>
+                  <button
+                    onClick={() => addToCart(p, true)}
+                    data-testid={`buy-now-desktop-${p.id}`}
+                    className="py-1.5 px-2 bg-blue-900 hover:bg-blue-950 text-white font-bold text-[10px] rounded-lg transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1"
+                  >
+                    <CreditCard size={11} /> Buy Now
+                  </button>
+                </div>
               </div>
             </div>
           </div>

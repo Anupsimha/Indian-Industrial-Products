@@ -247,6 +247,9 @@ export default function LeadsPage() {
     loadLeads();
   }, [loadLeads]);
 
+  // ── Bookmarking state ──
+  const [bookmarkedLeadIds, setBookmarkedLeadIds] = useState([]);
+
   // ── Fetch unlock stats ──
   const fetchStats = useCallback(async () => {
     if (!user) return;
@@ -258,7 +261,34 @@ export default function LeadsPage() {
         setUnlockStats(data);
       } catch (err) {}
     }
+
+    try {
+      const res = await api.get("/me/bookmarks");
+      if (res.data && res.data.requirements) {
+        setBookmarkedLeadIds(res.data.requirements.map((r) => r.id));
+      }
+    } catch (err) {}
   }, [user]);
+
+  const toggleLeadBookmark = async (lead, e) => {
+    if (e) e.stopPropagation();
+    if (!user) {
+      toast.error("Please login to save requirements", { duration: 3000 });
+      return;
+    }
+    try {
+      const res = await api.post(`/requirements/${lead.id}/save`);
+      if (res.data.saved) {
+        setBookmarkedLeadIds((prev) => [...prev, lead.id]);
+        toast.success("Requirement saved to bookmarks!", { duration: 3000 });
+      } else {
+        setBookmarkedLeadIds((prev) => prev.filter((id) => id !== lead.id));
+        toast.info("Removed from saved requirements", { duration: 3000 });
+      }
+    } catch {
+      toast.error("Failed to update bookmark", { duration: 3000 });
+    }
+  };
 
   useEffect(() => {
     fetchStats();
@@ -518,11 +548,24 @@ export default function LeadsPage() {
                         <Tag size={11} /> {lead.category}
                       </div>
                     </div>
-                    <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${
-                      isUnlocked ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
-                    }`}>
-                      {isUnlocked ? "Unlocked" : "Locked"}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={(e) => toggleLeadBookmark(lead, e)}
+                        data-testid={`bookmark-lead-${lead.id}`}
+                        className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-blue-900 transition-colors"
+                        title="Bookmark Requirement"
+                      >
+                        <Bookmark
+                          size={16}
+                          className={bookmarkedLeadIds.includes(lead.id) ? "fill-blue-900 text-blue-900" : ""}
+                        />
+                      </button>
+                      <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${
+                        isUnlocked ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                      }`}>
+                        {isUnlocked ? "Unlocked" : "Locked"}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="mt-3.5 space-y-2 border-b border-slate-100 pb-3.5 text-xs text-slate-600">

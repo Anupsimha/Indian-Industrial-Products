@@ -142,41 +142,97 @@ export default function PricingPage() {
         </div>
       </div>
 
-      <div className="mt-6 space-y-4">
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {plans.map((p) => {
           const c = COLOR_MAP[p.color] || COLOR_MAP.blue;
           const Icon = ICONS[p.color] || Zap;
           const price = billing === "yearly" ? p.yearly_price : p.monthly_price;
           const cad = billing === "yearly" ? "/year" : "/month";
+
+          const isCurrentPlan = user && user.plan_name && user.plan_name.toLowerCase() === p.name.toLowerCase();
+          const isQueuedPlan = user && user.next_plan_name && user.next_plan_name.toLowerCase() === p.name.toLowerCase();
+          const hasActivePlan = user && user.plan_name && user.plan_name.toLowerCase() !== "free" && user.plan_expires_at && new Date(user.plan_expires_at) > new Date();
+
+          let buttonText = "Choose Plan";
+          if (isCurrentPlan) {
+            buttonText = "Current Active Plan";
+          } else if (isQueuedPlan) {
+            buttonText = `Queued (Starts ${user.next_plan_starts_at ? new Date(user.next_plan_starts_at).toLocaleDateString() : ""})`;
+          } else if (hasActivePlan && price > 0) {
+            buttonText = "Queue Plan (Starts after current plan)";
+          } else if (p.monthly_price === 0 && p.name !== "Enterprise") {
+            buttonText = "Select Free Plan";
+          } else if (p.name === "Enterprise") {
+            buttonText = "Talk to Sales";
+          }
+
           return (
-            <div key={p.id} className={`relative bg-white rounded-2xl p-5 border ${c.ring} shadow-sm hover:shadow-md transition-all`} data-testid={`plan-${p.name.toLowerCase().replace(/\s+/g, "-")}`}>
-              {p.badge && (
-                <span className={`absolute -top-2 right-4 text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full ${c.badge}`}>
-                  {p.badge}
-                </span>
-              )}
-              <div className="flex items-center gap-2">
-                <Icon className={c.icon} />
-                <div className="font-display text-2xl font-bold text-slate-900">{p.name}</div>
+            <div
+              key={p.id}
+              className={`relative bg-white rounded-2xl p-5 border ${
+                isCurrentPlan ? "border-amber-400 ring-2 ring-amber-300 shadow-md" : isQueuedPlan ? "border-cyan-400 ring-2 ring-cyan-200" : c.ring
+              } shadow-sm hover:shadow-md transition-all flex flex-col justify-between`}
+              data-testid={`plan-${p.name.toLowerCase().replace(/\s+/g, "-")}`}
+            >
+              <div>
+                {isCurrentPlan ? (
+                  <span className="absolute -top-3 left-4 text-[10px] font-black tracking-wider uppercase px-3 py-1 rounded-full bg-amber-500 text-white shadow-sm border border-amber-300">
+                    Active Subscription
+                  </span>
+                ) : isQueuedPlan ? (
+                  <span className="absolute -top-3 left-4 text-[10px] font-black tracking-wider uppercase px-3 py-1 rounded-full bg-cyan-600 text-white shadow-sm border border-cyan-300">
+                    Next Plan Queued
+                  </span>
+                ) : p.badge ? (
+                  <span className={`absolute -top-2 right-4 text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full ${c.badge}`}>
+                    {p.badge}
+                  </span>
+                ) : null}
+
+                <div className="flex items-center gap-2 mt-1">
+                  <Icon className={c.icon} />
+                  <div className="font-display text-2xl font-bold text-slate-900">{p.name}</div>
+                </div>
+                {p.description && <p className="text-xs text-slate-500 mt-1">{p.description}</p>}
+                <div className="mt-2 flex items-baseline gap-1">
+                  <span className="font-display text-3xl font-bold text-slate-900">
+                    {price > 0 ? `₹${price.toLocaleString("en-IN")}` : (p.name === "Enterprise" ? "Custom" : "₹0")}
+                  </span>
+                  {price > 0 && <span className="text-xs text-slate-500">{cad}</span>}
+                </div>
+                <ul className="mt-3 space-y-1.5">
+                  {(p.features || []).map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-sm text-slate-700">
+                      <Check size={16} className="text-emerald-600 mt-0.5 shrink-0" /> {f}
+                    </li>
+                  ))}
+                </ul>
               </div>
-              {p.description && <p className="text-xs text-slate-500 mt-1">{p.description}</p>}
-              <div className="mt-2 flex items-baseline gap-1">
-                <span className="font-display text-3xl font-bold text-slate-900">
-                  {price > 0 ? `₹${price.toLocaleString("en-IN")}` : (p.name === "Enterprise" ? "Custom" : "₹0")}
-                </span>
-                {price > 0 && <span className="text-xs text-slate-500">{cad}</span>}
+
+              <div>
+                {isCurrentPlan && user.plan_expires_at && (
+                  <div className="mt-3 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-center">
+                    Active until {new Date(user.plan_expires_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                  </div>
+                )}
+                {isQueuedPlan && user.next_plan_starts_at && (
+                  <div className="mt-3 text-[11px] font-semibold text-cyan-800 bg-cyan-50 border border-cyan-200 rounded-lg p-2 text-center">
+                    Starts on {new Date(user.next_plan_starts_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                  </div>
+                )}
+                <button
+                  onClick={() => choose(p)}
+                  disabled={isCurrentPlan || isQueuedPlan}
+                  data-testid={`plan-cta-${p.name.toLowerCase().replace(/\s+/g, "-")}`}
+                  className={`mt-4 w-full py-3 rounded-full font-bold text-xs sm:text-sm transition-all ${
+                    isCurrentPlan || isQueuedPlan
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
+                      : c.btn
+                  }`}
+                >
+                  {buttonText}
+                </button>
               </div>
-              <ul className="mt-3 space-y-1.5">
-                {(p.features || []).map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-slate-700">
-                    <Check size={16} className="text-emerald-600 mt-0.5 shrink-0" /> {f}
-                  </li>
-                ))}
-              </ul>
-              <button onClick={() => choose(p)} data-testid={`plan-cta-${p.name.toLowerCase().replace(/\s+/g, "-")}`}
-                className={`mt-4 w-full py-3 rounded-full font-semibold transition-colors ${c.btn}`}>
-                {p.monthly_price === 0 && p.name !== "Enterprise" ? "Current Plan" : (p.name === "Enterprise" ? "Talk to sales" : "Choose plan")}
-              </button>
             </div>
           );
         })}
