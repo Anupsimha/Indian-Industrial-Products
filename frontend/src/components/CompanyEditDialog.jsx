@@ -49,8 +49,13 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
         year_established: form.year_established ? Number(form.year_established) : null,
         certifications: certs.split(",").map((s) => s.trim()).filter(Boolean),
       };
-      await api.patch(`/companies/${company.id}`, payload);
-      toast.success("Profile updated");
+      if (company && company.id) {
+        await api.patch(`/companies/${company.id}`, payload);
+        toast.success("Profile updated");
+      } else {
+        await api.post("/companies", payload);
+        toast.success("Company profile created!");
+      }
       onSaved?.();
       onClose?.();
     } catch (err) {

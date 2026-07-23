@@ -1080,6 +1080,28 @@ async def follow_company(company_id: str, user: dict = Depends(get_current_user)
     return {"following": True}
 
 
+@api.post("/companies", response_model=CompanyOut)
+async def create_company(payload: CompanyCreate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    cid = str(uuid.uuid4())
+    doc = Company(
+        id=cid, name=payload.name, description=payload.description or "",
+        location=payload.location or "", category=payload.category or "General",
+        logo_url=payload.logo_url, cover_url=payload.cover_url,
+        mobile=user.get("mobile", ""), whatsapp=user.get("mobile", ""),
+        email=user.get("email", ""), website=payload.website,
+        owner_id=user["id"], owner_name=user["name"],
+        created_at=now_iso(),
+    )
+    db.add(doc)
+    
+    # Update user's company_id
+    stmt_upd = update(User).where(User.id == user["id"]).values(company_id=cid)
+    await db.execute(stmt_upd)
+    
+    await db.commit()
+    return await hydrate_company(doc, user, db)
+
+
 @api.patch("/companies/{company_id}", response_model=CompanyOut)
 async def update_company(company_id: str, payload: CompanyUpdate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     stmt = select(Company).where(Company.id == company_id)

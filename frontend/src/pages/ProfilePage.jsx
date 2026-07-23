@@ -8,7 +8,7 @@ import {
   LogOut, Briefcase, Inbox, Bookmark, Bell, Star, ChevronRight,
   Building2, Verified, MapPin, Globe, Camera, FileText, Users,
   UserPlus, Package, BarChart3, Edit, Plus, Trash2, Calendar,
-  ShieldCheck, Phone, Mail, Target, Settings
+  ShieldCheck, Phone, Mail, Target, Settings, Crown
 } from "lucide-react";
 import { PostCard } from "../components/PostCard";
 import { toast } from "sonner";
@@ -86,7 +86,7 @@ export default function ProfilePage() {
 
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="text-sm font-semibold text-slate-200 truncate">
-                {company?.name || "Precision Parts India"}
+                {company?.name || `${user.name}'s Business`}
               </span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-500/90 text-white text-[9px] font-bold uppercase tracking-wider">
                 <Star size={8} className="fill-white" /> {user.plan_name || "Free"}
@@ -95,19 +95,21 @@ export default function ProfilePage() {
 
             <div className="flex items-center gap-1 text-xs text-slate-400 mt-1.5">
               <MapPin size={12} className="text-slate-400 shrink-0" />
-              <span className="truncate">{company?.location || "Bengaluru - Peenya Industrial Area"}</span>
+              <span className="truncate">{company?.location || "Location Not Set"}</span>
             </div>
 
             <p className="text-xs text-slate-300 mt-2 leading-relaxed max-w-xl">
-              {company?.description || "Manufacturer of precision machined components for industrial and engineering applications."}
+              {company?.description || "Industrial supplier & manufacturer profile on IIP platform."}
             </p>
 
-            <div className="flex items-center gap-1 text-xs text-blue-400 mt-2 hover:underline">
-              <Globe size={12} className="shrink-0" />
-              <a href={company?.website ? `http://${company.website}` : "https://www.precisionpartsindia.com"} target="_blank" rel="noreferrer" className="truncate">
-                {company?.website || "www.precisionpartsindia.com"}
-              </a>
-            </div>
+            {company?.website && (
+              <div className="flex items-center gap-1 text-xs text-blue-400 mt-2 hover:underline">
+                <Globe size={12} className="shrink-0" />
+                <a href={company.website.startsWith("http") ? company.website : `http://${company.website}`} target="_blank" rel="noreferrer" className="truncate">
+                  {company.website}
+                </a>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -117,23 +119,23 @@ export default function ProfilePage() {
         <div className="grid grid-cols-4 gap-2 text-center divide-x divide-slate-100">
           <div className="flex flex-col items-center justify-center">
             <FileText size={16} className="text-blue-600 mb-1" />
-            <span className="font-display font-extrabold text-slate-900 text-lg">{posts.length || 245}</span>
+            <span className="font-display font-extrabold text-slate-900 text-lg">{posts.length}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Posts</span>
           </div>
           <div className="flex flex-col items-center justify-center pl-1">
             <Users size={16} className="text-orange-500 mb-1" />
-            <span className="font-display font-extrabold text-slate-900 text-lg">{company?.followers_count || "12.5K"}</span>
+            <span className="font-display font-extrabold text-slate-900 text-lg">{company?.followers_count || 0}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Followers</span>
           </div>
           <div className="flex flex-col items-center justify-center pl-1">
-            <UserPlus size={16} className="text-green-500 mb-1" />
-            <span className="font-display font-extrabold text-slate-900 text-lg">1.2K</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Following</span>
+            <Package size={16} className="text-emerald-500 mb-1" />
+            <span className="font-display font-extrabold text-slate-900 text-lg">{products.length}</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Products</span>
           </div>
           <div className="flex flex-col items-center justify-center pl-1">
             <Inbox size={16} className="text-purple-600 mb-1" />
-            <span className="font-display font-extrabold text-slate-900 text-lg">85</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Enquiries</span>
+            <span className="font-display font-extrabold text-slate-900 text-lg">{reels.length}</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Reels</span>
           </div>
         </div>
       </div>
@@ -410,78 +412,92 @@ export default function ProfilePage() {
         )}
 
         {/* ABOUT TAB */}
-        {activeTab === "about" && company && (
-          <div className="space-y-4">
-            <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-              <h3 className="font-display font-extrabold text-sm text-slate-900 mb-3 flex items-center gap-2">
-                <Building2 size={16} className="text-blue-700" /> Company Details
-              </h3>
-              <div className="space-y-2.5 text-xs text-slate-600">
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Business Type</span>
-                  <span className="text-slate-800 font-bold">{company.business_type || "Manufacturer"}</span>
-                </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Industry Category</span>
-                  <span className="text-slate-800 font-bold">{company.category || "Steel & Metal"}</span>
-                </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Owner</span>
-                  <span className="text-slate-800 font-bold">{company.owner_name || user.name}</span>
-                </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Employees</span>
-                  <span className="text-slate-800 font-bold">{company.employees || "50-100"}</span>
-                </div>
-                <div className="flex justify-between py-1.5">
-                  <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Year Established</span>
-                  <span className="text-slate-800 font-bold">{company.year_established || "2015"}</span>
+        {activeTab === "about" && (
+          company ? (
+            <div className="space-y-4">
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+                <h3 className="font-display font-extrabold text-sm text-slate-900 mb-3 flex items-center gap-2">
+                  <Building2 size={16} className="text-blue-700" /> Company Details
+                </h3>
+                <div className="space-y-2.5 text-xs text-slate-600">
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Business Type</span>
+                    <span className="text-slate-800 font-bold">{company.business_type || "Manufacturer"}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Industry Category</span>
+                    <span className="text-slate-800 font-bold">{company.category || "Steel & Metal"}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Owner</span>
+                    <span className="text-slate-800 font-bold">{company.owner_name || user.name}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Employees</span>
+                    <span className="text-slate-800 font-bold">{company.employees || "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5">
+                    <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Year Established</span>
+                    <span className="text-slate-800 font-bold">{company.year_established || "N/A"}</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-              <h3 className="font-display font-extrabold text-sm text-slate-900 mb-3 flex items-center gap-2">
-                <ShieldCheck size={16} className="text-blue-700" /> Compliance
-              </h3>
-              <div className="space-y-2.5 text-xs text-slate-600">
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">GST Number</span>
-                  <span className="font-mono text-slate-800 font-bold">{company.gst || "29AAAAA1111A1Z1"}</span>
-                </div>
-                <div className="flex justify-between py-1.5">
-                  <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">PAN Number</span>
-                  <span className="font-mono text-slate-800 font-bold">{company.pan || "ABCDE1234F"}</span>
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+                <h3 className="font-display font-extrabold text-sm text-slate-900 mb-3 flex items-center gap-2">
+                  <ShieldCheck size={16} className="text-blue-700" /> Compliance
+                </h3>
+                <div className="space-y-2.5 text-xs text-slate-600">
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">GST Number</span>
+                    <span className="font-mono text-slate-800 font-bold">{company.gst || "Not Provided"}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5">
+                    <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">PAN Number</span>
+                    <span className="font-mono text-slate-800 font-bold">{company.pan || "Not Provided"}</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-              <h3 className="font-display font-extrabold text-sm text-slate-900 mb-3 flex items-center gap-2">
-                <Briefcase size={16} className="text-blue-700" /> Contact Info
-              </h3>
-              <div className="space-y-2.5 text-xs text-slate-600">
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Mobile</span>
-                  <a href={`tel:${company.mobile || "+919876543210"}`} className="text-blue-600 font-bold hover:underline">
-                    {company.mobile || "+91 98765 43210"}
-                  </a>
-                </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Email</span>
-                  <a href={`mailto:${company.email || "contact@precisionparts.com"}`} className="text-blue-600 font-bold hover:underline">
-                    {company.email || "info@precisionpartsindia.com"}
-                  </a>
-                </div>
-                <div className="flex justify-between py-1.5">
-                  <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Address</span>
-                  <span className="text-slate-800 font-bold text-right max-w-[60%] line-clamp-2">
-                    {company.address || "Peenya Industrial Area, Bengaluru, Karnataka, 560058"}
-                  </span>
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+                <h3 className="font-display font-extrabold text-sm text-slate-900 mb-3 flex items-center gap-2">
+                  <Briefcase size={16} className="text-blue-700" /> Contact Info
+                </h3>
+                <div className="space-y-2.5 text-xs text-slate-600">
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Mobile</span>
+                    <a href={`tel:${company.mobile || user.mobile}`} className="text-blue-600 font-bold hover:underline">
+                      {company.mobile || user.mobile}
+                    </a>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Email</span>
+                    <a href={`mailto:${company.email || user.email}`} className="text-blue-600 font-bold hover:underline">
+                      {company.email || user.email}
+                    </a>
+                  </div>
+                  <div className="flex justify-between py-1.5">
+                    <span className="font-semibold text-slate-400 uppercase tracking-wider text-[9px]">Address</span>
+                    <span className="text-slate-800 font-bold text-right max-w-[60%] line-clamp-2">
+                      {company.address || "Location Not Provided"}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-white border border-slate-100 rounded-3xl p-8 text-center text-slate-500 shadow-sm">
+              <Building2 size={40} className="mx-auto text-slate-300 mb-2" />
+              <h3 className="font-bold text-slate-800 text-base">No Company Profile Setup</h3>
+              <p className="text-xs text-slate-400 mt-1 mb-4">Create your business profile to display company details and compliance info.</p>
+              <button
+                onClick={() => setEditOpen(true)}
+                className="px-4 py-2 bg-blue-900 text-white text-xs font-bold rounded-full hover:bg-blue-950 transition-colors inline-flex items-center gap-1.5"
+              >
+                <Plus size={14} /> Create Company Profile
+              </button>
+            </div>
+          )
         )}
       </div>
 
@@ -489,9 +505,7 @@ export default function ProfilePage() {
       <PostDialog open={postOpen} onClose={() => setPostOpen(false)} onSaved={loadCompanyData} />
       <ReelDialog open={reelOpen} onClose={() => setReelOpen(false)} onSaved={loadCompanyData} />
       <ProductDialog open={productOpen} onClose={() => setProductOpen(false)} onSaved={loadCompanyData} />
-      {company && (
-        <CompanyEditDialog open={editOpen} onClose={() => setEditOpen(false)} company={company} onSaved={loadCompanyData} />
-      )}
+      <CompanyEditDialog open={editOpen} onClose={() => setEditOpen(false)} company={company} onSaved={loadCompanyData} />
     </div>
   );
 }
