@@ -90,11 +90,7 @@ export const ApplyJobDialog = ({ open, onClose, job, onApplied }) => {
       formData.append("qualification", qualification);
       formData.append("resume", resumeFile);
 
-      await api.post(`/jobs/${job.id}/apply`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
+      await api.post(`/jobs/${job.id}/apply`, formData);
 
       toast.success("Applied successfully! Your resume has been submitted.");
       onApplied?.();

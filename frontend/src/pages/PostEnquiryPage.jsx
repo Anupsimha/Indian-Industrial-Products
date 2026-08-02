@@ -87,9 +87,7 @@ export default function PostEnquiryPage() {
         if (file) fd.append("media", file);
       });
 
-      await api.post("/enquiries", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      await api.post("/enquiries", fd);
       toast.success("Requirement posted! Verified suppliers will contact you on your number.", {
         description: "An SMS confirmation has been sent.",
         icon: <CheckCircle2 className="text-emerald-500" size={16} />

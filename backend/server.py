@@ -1156,26 +1156,48 @@ async def create_reel(
         thumbnail_url = body.get("thumbnail_url", None)
         group_id = body.get("group_id", None)
     else:
-        form = await request.form()
+        try:
+            form = await request.form()
+        except Exception as fe:
+            raise HTTPException(status_code=400, detail=f"Failed to parse form data: {str(fe)}")
+
         content = form.get("content") or ""
         group_id = form.get("group_id") or None
         file = form.get("file")
         use_demo = form.get("use_demo")
 
         unique_filename = ""
-        if file and hasattr(file, "file"):
-            # Check size using the underlying sync file object
-            file.file.seek(0, 2)
-            size = file.file.tell()
-            file.file.seek(0)
-            if size > 100 * 1024 * 1024:
+        if file and (hasattr(file, "file") or isinstance(file, (bytes, bytearray))):
+            # Check size safely without failing on disk-rolled SpooledTemporaryFile
+            size = getattr(file, "size", None)
+            if size is None and hasattr(file, "file") and file.file:
+                try:
+                    file.file.seek(0, 2)
+                    size = file.file.tell()
+                    file.file.seek(0)
+                except Exception:
+                    size = 0
+
+            if size and size > 100 * 1024 * 1024:
                 raise HTTPException(status_code=400, detail="Video size must be less than 100 MB")
 
-            file_ext = Path(file.filename).suffix if file.filename else ".mp4"
+            filename = getattr(file, "filename", "") or ""
+            file_ext = Path(filename).suffix if filename else ".mp4"
+            if not file_ext:
+                file_ext = ".mp4"
+
             unique_filename = f"{user['id']}-{rid}{file_ext}"
             file_path = REEL_DIR / unique_filename
+
             with file_path.open("wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
+                if hasattr(file, "file") and file.file:
+                    try:
+                        file.file.seek(0)
+                    except Exception:
+                        pass
+                    shutil.copyfileobj(file.file, buffer, length=1024 * 1024)
+                elif isinstance(file, (bytes, bytearray)):
+                    buffer.write(file)
         elif use_demo:
             demo_path = Path(r"C:\Users\anups\Downloads\Video Project.mp4")
             if not demo_path.exists():

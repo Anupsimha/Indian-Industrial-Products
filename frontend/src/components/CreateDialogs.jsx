@@ -104,6 +104,8 @@ export const ReelDialog = ({ open, onClose, onSaved }) => {
   const [videoFile, setVideoFile] = useState(null);
   const [useDemo, setUseDemo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStats, setUploadStats] = useState({ loaded: 0, total: 0 });
   const fileInputRef = React.useRef(null);
 
   useEffect(() => {
@@ -111,6 +113,8 @@ export const ReelDialog = ({ open, onClose, onSaved }) => {
       setContent("");
       setVideoFile(null);
       setUseDemo(false);
+      setUploadProgress(0);
+      setUploadStats({ loaded: 0, total: 0 });
     }
   }, [open]);
 
@@ -129,6 +133,9 @@ export const ReelDialog = ({ open, onClose, onSaved }) => {
     }
 
     setSubmitting(true);
+    setUploadProgress(0);
+    setUploadStats({ loaded: 0, total: videoFile ? videoFile.size : 0 });
+
     try {
       const formData = new FormData();
       formData.append("content", content);
@@ -139,34 +146,72 @@ export const ReelDialog = ({ open, onClose, onSaved }) => {
         formData.append("use_demo", "true");
       }
 
+      // Note: Do NOT manually set Content-Type header so Axios generates the multipart boundary automatically
       await api.post("/reels", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setUploadProgress(percent);
+            setUploadStats({
+              loaded: progressEvent.loaded,
+              total: progressEvent.total,
+            });
+          }
         },
       });
+
       toast.success("Reel uploaded successfully!");
       onSaved?.();
       onClose?.();
     } catch (err) {
-      toast.error(formatApiError(err.response?.data?.detail) || "Failed to upload reel");
+      const msg = formatApiError(err.response?.data?.detail) || err.message || "Failed to upload reel";
+      toast.error(msg);
     } finally {
       setSubmitting(false);
     }
   };
 
+  const loadedMB = (uploadStats.loaded / (1024 * 1024)).toFixed(1);
+  const totalMB = (uploadStats.total / (1024 * 1024)).toFixed(1);
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4" data-testid="reel-dialog" onClick={onClose}>
-      <div className="bg-white w-full max-w-md rounded-t-2xl md:rounded-2xl shadow-xl animate-fade-up max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
+      data-testid="reel-dialog"
+      onClick={() => {
+        if (!submitting) onClose?.();
+      }}
+    >
+      <div
+        className="bg-white w-full max-w-md rounded-t-2xl md:rounded-2xl shadow-xl animate-fade-up max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 sticky top-0 bg-white z-10">
           <h3 className="font-display font-bold text-lg text-slate-900">New Reel</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700" data-testid="reel-dialog-close"><X size={20} /></button>
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+            data-testid="reel-dialog-close"
+          >
+            <X size={20} />
+          </button>
         </div>
         <form onSubmit={submit} className="p-5 space-y-4">
-          <textarea required rows={3} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Caption" data-testid="reel-content-input" className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
-          
+          <textarea
+            required
+            rows={3}
+            disabled={submitting}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Caption"
+            data-testid="reel-content-input"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-slate-50"
+          />
+
           <div>
             <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-2">Video File</label>
-            
+
             {useDemo ? (
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -178,13 +223,15 @@ export const ReelDialog = ({ open, onClose, onSaved }) => {
                     <div className="text-[10px] text-blue-600 font-semibold">Loaded from Downloads</div>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setUseDemo(false)}
-                  className="p-1 text-slate-400 hover:text-rose-500 rounded-full hover:bg-slate-100"
-                >
-                  <X size={16} />
-                </button>
+                {!submitting && (
+                  <button
+                    type="button"
+                    onClick={() => setUseDemo(false)}
+                    className="p-1 text-slate-400 hover:text-rose-500 rounded-full hover:bg-slate-100"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
               </div>
             ) : videoFile ? (
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
@@ -197,26 +244,29 @@ export const ReelDialog = ({ open, onClose, onSaved }) => {
                     <div className="text-[10px] text-slate-400 font-semibold">{(videoFile.size / (1024 * 1024)).toFixed(2)} MB</div>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setVideoFile(null)}
-                  className="p-1 text-slate-400 hover:text-rose-500 rounded-full hover:bg-slate-100"
-                >
-                  <X size={16} />
-                </button>
+                {!submitting && (
+                  <button
+                    type="button"
+                    onClick={() => setVideoFile(null)}
+                    className="p-1 text-slate-400 hover:text-rose-500 rounded-full hover:bg-slate-100"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
               </div>
             ) : (
               <div className="space-y-2">
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full py-8 border-2 border-dashed border-slate-200 hover:border-orange-500 hover:bg-orange-50/20 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all text-slate-500 group"
+                  className="w-full py-8 border-2 border-dashed border-slate-200 hover:border-orange-500 hover:bg-orange-50/20 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all text-slate-500 group disabled:opacity-50"
                 >
                   <Upload size={24} className="text-slate-400 group-hover:text-orange-500" />
                   <span className="text-xs font-bold text-slate-700">Choose Video File</span>
-                  <span className="text-[10px] text-slate-400">Max size: 10 MB (MP4, WebM)</span>
+                  <span className="text-[10px] text-slate-400">Max size: 100 MB (MP4, WebM)</span>
                 </button>
-                
+
                 <div className="relative flex py-1.5 items-center">
                   <div className="flex-grow border-t border-slate-200"></div>
                   <span className="flex-shrink mx-4 text-[10px] text-slate-400 font-bold uppercase tracking-wider">or</span>
@@ -225,14 +275,15 @@ export const ReelDialog = ({ open, onClose, onSaved }) => {
 
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() => setUseDemo(true)}
-                  className="w-full py-3 bg-blue-50 border border-blue-100 text-blue-900 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 hover:bg-blue-100 transition-all active:scale-98"
+                  className="w-full py-3 bg-blue-50 border border-blue-100 text-blue-900 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 hover:bg-blue-100 transition-all active:scale-98 disabled:opacity-50"
                 >
                   ✨ Use Local Demo Video
                 </button>
               </div>
             )}
-            
+
             <input
               ref={fileInputRef}
               type="file"
@@ -251,11 +302,44 @@ export const ReelDialog = ({ open, onClose, onSaved }) => {
             />
           </div>
 
-          <button type="submit" disabled={submitting} data-testid="reel-save-btn" className="w-full py-3.5 rounded-full bg-orange-600 hover:bg-orange-700 text-white font-extrabold flex items-center justify-center gap-2 disabled:opacity-60 transition-all active:scale-95 shadow-md">
+          {/* Progress Bar UI */}
+          {submitting && (
+            <div className="p-4 bg-orange-50/70 border border-orange-200 rounded-xl space-y-2 animate-fade-in" data-testid="reel-upload-progress">
+              <div className="flex justify-between items-center text-xs font-bold text-slate-800">
+                <span className="flex items-center gap-1.5 text-orange-700">
+                  <Loader2 size={14} className="animate-spin" />
+                  {uploadProgress === 100 ? "Processing reel on server..." : `Uploading: ${uploadProgress}%`}
+                </span>
+                {uploadStats.total > 0 && (
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    {loadedMB} / {totalMB} MB
+                  </span>
+                )}
+              </div>
+              <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-orange-600 to-amber-500 h-full transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-slate-500 text-center font-medium">
+                {uploadProgress === 100
+                  ? "Finalizing upload... Almost done!"
+                  : "Please keep this window open until upload completes"}
+              </p>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            data-testid="reel-save-btn"
+            className="w-full py-3.5 rounded-full bg-orange-600 hover:bg-orange-700 text-white font-extrabold flex items-center justify-center gap-2 disabled:opacity-60 transition-all active:scale-95 shadow-md"
+          >
             {submitting ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                Publishing Reel...
+                {uploadProgress < 100 ? `Uploading (${uploadProgress}%)...` : "Publishing Reel..."}
               </>
             ) : (
               "Publish Reel"
