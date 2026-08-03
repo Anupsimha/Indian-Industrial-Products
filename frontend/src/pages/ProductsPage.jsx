@@ -366,20 +366,31 @@ export default function ProductsPage() {
                 </div>
 
                 {/* Quick Actions Row */}
-                <div className="flex gap-2 mt-2">
+                <div className="flex gap-1.5 mt-2">
                   <button
                     onClick={() => navigate(`/product/${p.id}`)}
-                    className="flex-1 py-1.5 border border-slate-200 text-slate-700 hover:bg-slate-50 text-[10px] font-bold rounded-lg text-center transition-colors"
+                    className="flex-1 py-1 border border-slate-200 text-slate-700 hover:bg-slate-50 text-[10px] font-bold rounded-lg text-center transition-colors"
                   >
                     Enquiry
+                  </button>
+                  <button
+                    onClick={() => {
+                      addToCart(p);
+                      navigate("/cart");
+                    }}
+                    className="flex-1 py-1 bg-blue-900 hover:bg-blue-950 text-white text-[10px] font-extrabold rounded-lg text-center transition-colors shadow-sm"
+                    data-testid={`product-mobile-buynow-${p.id}`}
+                  >
+                    Buy Now
                   </button>
                   <a
                     href={whatsappLink(p.whatsapp || "+919876543210", `Hi, interested in ${p.name}`)}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex-1 py-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white text-[10px] font-bold rounded-lg flex items-center justify-center gap-1 transition-colors"
+                    className="py-1 px-2 bg-[#25D366] hover:bg-[#20bd5a] text-white text-[10px] font-bold rounded-lg flex items-center justify-center gap-0.5 transition-colors shrink-0"
+                    title="WhatsApp"
                   >
-                    <MessageSquare size={10} className="shrink-0" /> WhatsApp
+                    <MessageSquare size={10} className="shrink-0" />
                   </a>
                 </div>
               </div>
@@ -426,8 +437,8 @@ export default function ProductsPage() {
                 )}
               </div>
 
-              {/* Price and Add to Cart action */}
-              <div className="mt-2 pt-2 border-t border-slate-50 flex items-center justify-between">
+              {/* Price and Buy Now action */}
+              <div className="mt-2 pt-2 border-t border-slate-50 flex items-center justify-between gap-1">
                 <div>
                   <div className="font-display font-extrabold text-blue-900 text-xs sm:text-sm">
                     {p.price || "On Request"}
@@ -437,12 +448,25 @@ export default function ProductsPage() {
                   )}
                 </div>
 
-                <button
-                  onClick={() => addToCart(p)}
-                  className="p-1.5 rounded-full bg-orange-50 text-orange-600 hover:bg-orange-600 hover:text-white transition-colors"
-                >
-                  <Plus size={14} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => {
+                      addToCart(p);
+                      navigate("/cart");
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-blue-900 hover:bg-blue-950 text-white text-[10px] font-extrabold transition-colors shadow-sm"
+                    data-testid={`product-buynow-${p.id}`}
+                  >
+                    Buy Now
+                  </button>
+                  <button
+                    onClick={() => addToCart(p)}
+                    className="p-1.5 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-600 hover:text-white transition-colors"
+                    title="Add to Cart"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>

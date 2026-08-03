@@ -958,9 +958,34 @@ async def logout(response: Response):
     return {"ok": True}
 
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    mobile: Optional[str] = None
+
+
 @api.get("/auth/me", response_model=UserPublic)
 async def me(user: dict = Depends(get_current_user)):
     return UserPublic(**user)
+
+
+@api.patch("/auth/me", response_model=UserPublic)
+async def update_me(
+    payload: UserUpdate,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if upd:
+        if "avatar_url" in upd:
+            upd["avatar_url"] = clean_media_url(upd["avatar_url"])
+        stmt_u = update(User).where(User.id == user["id"]).values(**upd)
+        await db.execute(stmt_u)
+        await db.commit()
+
+    stmt = select(User).where(User.id == user["id"])
+    updated = (await db.execute(stmt)).scalar_one()
+    return UserPublic(**user_to_dict(updated))
 
 
 # -------------------- Companies --------------------

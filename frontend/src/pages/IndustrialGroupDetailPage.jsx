@@ -3,7 +3,8 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import api, { whatsappLink } from "../lib/api";
 import { BackButton } from "../components/BackButton";
 import { PostCard } from "../components/PostCard";
-import { PostDialog } from "../components/CreateDialogs";
+import { PostDialog, ReelDialog } from "../components/CreateDialogs";
+import { ProductDialog } from "../components/ProductDialog";
 import {
   MapPin, Users, Building2, Newspaper, Package, Briefcase, Film, Calendar,
   Info, CheckCircle2, ShieldCheck, Plus, Lock, Phone, Tag, Clock, Boxes,
@@ -22,6 +23,8 @@ export default function IndustrialGroupDetailPage() {
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [openPostDialog, setOpenPostDialog] = useState(false);
+  const [openReelDialog, setOpenReelDialog] = useState(false);
+  const [openProductDialog, setOpenProductDialog] = useState(false);
 
   // Tab Data states
   const [feedPosts, setFeedPosts] = useState([]);
@@ -137,6 +140,8 @@ export default function IndustrialGroupDetailPage() {
   }
 
   const isBuyer = user?.role === "buyer";
+  const isMember = group?.is_joined && !!user;
+  const isMemberBusiness = group?.is_joined && (user?.role === "manufacturer" || user?.role === "supplier" || !!user?.company_id);
 
   const tabs = [
     { name: "Feed", icon: Newspaper },
@@ -382,27 +387,59 @@ export default function IndustrialGroupDetailPage() {
 
             {/* 3. PRODUCTS TAB */}
             {activeTab === "Products" && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {products.map((p) => (
-                  <div
-                    key={p.id}
-                    onClick={() => navigate(`/product/${p.id}`)}
-                    className="bg-white border border-slate-200 rounded-2xl p-3 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer space-y-2"
-                  >
-                    <img src={p.image_url} alt="" className="w-full h-32 rounded-xl object-cover" />
+              <div className="space-y-3">
+                {isMemberBusiness && (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
                     <div>
-                      <div className="font-semibold text-xs text-slate-900 line-clamp-1">{p.name}</div>
-                      <div className="text-[11px] text-slate-500 truncate">{p.company_name}</div>
-                      {p.price && <div className="text-xs font-bold text-emerald-700 mt-1">{p.price}</div>}
+                      <div className="font-bold text-xs text-slate-900">List Products in {group.name}</div>
+                      <p className="text-[11px] text-slate-500">Showcase products directly to group members</p>
                     </div>
+                    <button
+                      onClick={() => setOpenProductDialog(true)}
+                      className="px-3.5 py-1.5 rounded-xl bg-blue-800 text-white text-xs font-bold hover:bg-blue-900 transition-all shadow-sm flex items-center gap-1 shrink-0"
+                      data-testid="group-add-product-btn"
+                    >
+                      <Plus size={14} /> Add Product
+                    </button>
                   </div>
-                ))}
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {products.map((p) => (
+                    <div
+                      key={p.id}
+                      onClick={() => navigate(`/product/${p.id}`)}
+                      className="bg-white border border-slate-200 rounded-2xl p-3 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer space-y-2"
+                    >
+                      <img src={p.image_url} alt="" className="w-full h-32 rounded-xl object-cover" />
+                      <div>
+                        <div className="font-semibold text-xs text-slate-900 line-clamp-1">{p.name}</div>
+                        <div className="text-[11px] text-slate-500 truncate">{p.company_name}</div>
+                        {p.price && <div className="text-xs font-bold text-emerald-700 mt-1">{p.price}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
             {/* 4. LEADS TAB */}
             {activeTab === "Leads" && (
               <div className="space-y-3">
+                {isMember && (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+                    <div>
+                      <div className="font-bold text-xs text-slate-900">Post Requirement for {group.name}</div>
+                      <p className="text-[11px] text-slate-500">Broadcast buying needs to verified local suppliers</p>
+                    </div>
+                    <button
+                      onClick={() => navigate("/post-enquiry")}
+                      className="px-3.5 py-1.5 rounded-xl bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition-all shadow-sm flex items-center gap-1 shrink-0"
+                      data-testid="group-add-lead-btn"
+                    >
+                      <Plus size={14} /> Post Requirement
+                    </button>
+                  </div>
+                )}
                 {leads.map((it) => (
                   <article key={it.id} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2">
                     <div className="flex justify-between gap-2">
@@ -422,6 +459,21 @@ export default function IndustrialGroupDetailPage() {
             {/* 5. JOBS TAB */}
             {activeTab === "Jobs" && (
               <div className="space-y-3">
+                {isMemberBusiness && (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+                    <div>
+                      <div className="font-bold text-xs text-slate-900">Post Factory Vacancy in {group.name}</div>
+                      <p className="text-[11px] text-slate-500 font-medium">Recruit local skilled workers and engineers</p>
+                    </div>
+                    <button
+                      onClick={() => navigate("/manage-vacancies")}
+                      className="px-3.5 py-1.5 rounded-xl bg-blue-800 text-white text-xs font-bold hover:bg-blue-900 transition-all shadow-sm flex items-center gap-1 shrink-0"
+                      data-testid="group-add-job-btn"
+                    >
+                      <Plus size={14} /> Post Vacancy
+                    </button>
+                  </div>
+                )}
                 {jobs.map((j) => (
                   <div key={j.id} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2">
                     <div className="flex justify-between items-start">
@@ -439,22 +491,39 @@ export default function IndustrialGroupDetailPage() {
 
             {/* 6. REELS TAB */}
             {activeTab === "Reels" && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {reels.map((r) => (
-                  <div
-                    key={r.id}
-                    onClick={() => navigate("/reels")}
-                    className="relative rounded-2xl overflow-hidden bg-slate-900 h-64 cursor-pointer group"
-                  >
-                    <video src={r.video_url} className="w-full h-full object-cover opacity-90" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent p-3 flex flex-col justify-between">
-                      <span className="text-[10px] font-bold text-white bg-black/40 px-2 py-0.5 rounded-full w-fit">
-                        {r.company_name}
-                      </span>
-                      <p className="text-xs text-white line-clamp-2 font-medium">{r.content}</p>
+              <div className="space-y-3">
+                {isMemberBusiness && (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+                    <div>
+                      <div className="font-bold text-xs text-slate-900">Upload Video Reel to {group.name}</div>
+                      <p className="text-[11px] text-slate-500 font-medium">Share machine demo videos with local buyers</p>
                     </div>
+                    <button
+                      onClick={() => setOpenReelDialog(true)}
+                      className="px-3.5 py-1.5 rounded-xl bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition-all shadow-sm flex items-center gap-1 shrink-0"
+                      data-testid="group-add-reel-btn"
+                    >
+                      <Plus size={14} /> Upload Reel
+                    </button>
                   </div>
-                ))}
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {reels.map((r) => (
+                    <div
+                      key={r.id}
+                      onClick={() => navigate("/reels")}
+                      className="relative rounded-2xl overflow-hidden bg-slate-900 h-64 cursor-pointer group"
+                    >
+                      <video src={r.video_url} className="w-full h-full object-cover opacity-90" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent p-3 flex flex-col justify-between">
+                        <span className="text-[10px] font-bold text-white bg-black/40 px-2 py-0.5 rounded-full w-fit">
+                          {r.company_name}
+                        </span>
+                        <p className="text-xs text-white line-clamp-2 font-medium">{r.content}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -512,9 +581,15 @@ export default function IndustrialGroupDetailPage() {
         )}
       </div>
 
-      {/* Post Dialog with group preselected */}
+      {/* Dialogs with group preselected */}
       {openPostDialog && (
         <PostDialog open={openPostDialog} onClose={() => setOpenPostDialog(false)} onSaved={fetchTabData} />
+      )}
+      {openReelDialog && (
+        <ReelDialog open={openReelDialog} onClose={() => setOpenReelDialog(false)} onSaved={fetchTabData} />
+      )}
+      {openProductDialog && (
+        <ProductDialog open={openProductDialog} onClose={() => setOpenProductDialog(false)} onSaved={fetchTabData} />
       )}
     </div>
   );

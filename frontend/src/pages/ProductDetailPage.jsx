@@ -4,7 +4,8 @@ import api, { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
 import {
   ArrowLeft, ShoppingCart, MessageSquare, MapPin, Star, CheckCircle,
-  Clock, ShieldCheck, Truck, Bookmark, Award, Sparkles, Loader2, Package
+  Clock, ShieldCheck, Truck, Bookmark, Award, Sparkles, Loader2, Package,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
@@ -21,6 +22,7 @@ export default function ProductDetailPage() {
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [enquiryOpen, setEnquiryOpen] = useState(false);
+  const [activeImgIdx, setActiveImgIdx] = useState(0);
 
   useEffect(() => {
     const fetchProductDetails = async () => {
@@ -118,30 +120,67 @@ export default function ProductDetailPage() {
       <div className="lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start max-w-7xl mx-auto">
         {/* Left Column: Product Image Gallery */}
         <div className="lg:col-span-6 space-y-4">
-          <div className="relative aspect-square w-full rounded-3xl overflow-hidden bg-white border border-slate-200 shadow-md">
-            <img
-              src={optimizedUrl(product.image_url, { w: 800 })}
-              alt={product.name}
-              className="w-full h-full object-cover"
-            />
-            <span className="absolute top-4 left-4 px-3 py-1 rounded-full bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wider shadow-sm">
-              {product.stock_left !== undefined && product.stock_left !== null ? `Qty Left: ${product.stock_left}` : "In Stock"}
-            </span>
-          </div>
+          {(() => {
+            const allImages = [product.image_url, ...(product.images || [])].filter(Boolean);
+            const currentImg = allImages[activeImgIdx] || product.image_url;
+            return (
+              <>
+                <div className="relative aspect-square w-full rounded-3xl overflow-hidden bg-white border border-slate-200 shadow-md group">
+                  <img
+                    src={optimizedUrl(currentImg, { w: 800 })}
+                    alt={product.name}
+                    className="w-full h-full object-cover transition-all duration-200"
+                  />
+                  <span className="absolute top-4 left-4 px-3 py-1 rounded-full bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wider shadow-sm">
+                    {product.stock_left !== undefined && product.stock_left !== null ? `Qty Left: ${product.stock_left}` : "In Stock"}
+                  </span>
 
-          {/* Sub Images strip if they exist */}
-          {product.images && product.images.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-              <div className="w-20 h-20 shrink-0 rounded-xl overflow-hidden border-2 border-blue-900 bg-white shadow-sm">
-                <img src={optimizedUrl(product.image_url, { w: 200 })} alt="" className="w-full h-full object-cover" />
-              </div>
-              {product.images.map((img, idx) => (
-                <div key={idx} className="w-20 h-20 shrink-0 rounded-xl overflow-hidden border border-slate-200 bg-white hover:border-blue-900 transition-colors shadow-sm">
-                  <img src={optimizedUrl(img, { w: 200 })} alt="" className="w-full h-full object-cover" />
+                  {allImages.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => setActiveImgIdx((prev) => (prev > 0 ? prev - 1 : allImages.length - 1))}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/60 hover:bg-slate-900/90 text-white backdrop-blur-md transition-all shadow-lg active:scale-95"
+                        data-testid="product-image-prev"
+                        title="Previous Image"
+                      >
+                        <ChevronLeft size={20} />
+                      </button>
+                      <button
+                        onClick={() => setActiveImgIdx((prev) => (prev < allImages.length - 1 ? prev + 1 : 0))}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/60 hover:bg-slate-900/90 text-white backdrop-blur-md transition-all shadow-lg active:scale-95"
+                        data-testid="product-image-next"
+                        title="Next Image"
+                      >
+                        <ChevronRight size={20} />
+                      </button>
+                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/70 text-white text-[10px] font-bold backdrop-blur-md shadow-sm">
+                        {activeImgIdx + 1} / {allImages.length}
+                      </div>
+                    </>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
+
+                {allImages.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                    {allImages.map((img, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setActiveImgIdx(idx)}
+                        data-testid={`product-thumb-${idx}`}
+                        className={`w-20 h-20 shrink-0 rounded-xl overflow-hidden transition-all shadow-sm ${
+                          activeImgIdx === idx
+                            ? "border-2 border-blue-900 ring-2 ring-blue-300 scale-95"
+                            : "border border-slate-200 opacity-70 hover:opacity-100 hover:border-slate-400"
+                        }`}
+                      >
+                        <img src={optimizedUrl(img, { w: 200 })} alt="" className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         {/* Right Column: Title, Metadata, Pricing, Description, Actions */}
@@ -212,8 +251,8 @@ export default function ProductDetailPage() {
                 <span className="text-[8px] text-slate-400 leading-tight">Response in 2 hrs</span>
               </div>
             </div>
-            {/* Desktop Actions */}
-            <div className="hidden lg:flex flex-col gap-3 pt-4 border-t border-slate-100">
+            {/* Product Actions (All Devices) */}
+            <div className="flex flex-col gap-3 pt-4 border-t border-slate-100">
               <div className="flex gap-3">
                 <button
                   onClick={handleAddToCart}
@@ -331,7 +370,7 @@ export default function ProductDetailPage() {
       </div>
 
       {/* Sticky Bottom Actions Bar (On Mobile) / Bottom Fixed Panel */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 px-4 py-3 z-30 flex items-center gap-2 max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto shadow-[0_-4px_12px_rgba(0,0,0,0.06)] rounded-t-3xl pb-6 lg:pb-3">
+      <div className="fixed bottom-16 lg:bottom-0 inset-x-0 bg-white border-t border-slate-200 px-4 py-3 z-30 flex items-center gap-2 max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto shadow-[0_-4px_12px_rgba(0,0,0,0.1)] rounded-t-3xl pb-3">
         <a
           href={isOwnProduct ? "#" : whatsappLink(product.whatsapp || "+919876543210", `Hi, I am interested in your product: "${product.name}" listed on IIP.`)}
           target={isOwnProduct ? "_self" : "_blank"}

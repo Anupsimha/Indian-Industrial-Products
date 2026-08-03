@@ -4,7 +4,7 @@ import api from "./api";
 export const MAX_IMAGE_SIZE_MB = 20;
 export const MAX_VIDEO_SIZE_MB = 100;
 
-export async function uploadToCloudinary(file, folder = "iip/uploads") {
+export async function uploadToCloudinary(file, folder = "iip/uploads", onProgress) {
   const isVideo = file.type ? file.type.startsWith("video/") : false;
   const maxMb = isVideo ? MAX_VIDEO_SIZE_MB : MAX_IMAGE_SIZE_MB;
   const maxBytes = maxMb * 1024 * 1024;
@@ -21,7 +21,14 @@ export async function uploadToCloudinary(file, folder = "iip/uploads") {
   form.append("folder", folder);
   form.append("resource_type", resourceType);
 
-  const res = await api.post("/upload", form);
+  const res = await api.post("/upload", form, {
+    onUploadProgress: (progressEvent) => {
+      if (progressEvent.total) {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress?.(percent);
+      }
+    },
+  });
   const data = res.data;
 
   return {
@@ -36,8 +43,8 @@ export async function uploadToCloudinary(file, folder = "iip/uploads") {
   };
 }
 
-export function uploadMedia(file, folder = "iip/uploads") {
-  return uploadToCloudinary(file, folder);
+export function uploadMedia(file, folder = "iip/uploads", onProgress) {
+  return uploadToCloudinary(file, folder, onProgress);
 }
 
 // Pass-through helper for image/video URLs

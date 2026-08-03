@@ -15,16 +15,18 @@ export const MediaUploader = ({
 }) => {
   const inputRef = useRef();
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const handleFiles = async (files) => {
     if (!files || files.length === 0) return;
     setUploading(true);
+    setProgress(0);
     try {
       const arr = Array.from(files).slice(0, maxItems - value.length);
       const uploaded = [];
       for (const f of arr) {
         try {
-          const result = await uploadToCloudinary(f, folder);
+          const result = await uploadToCloudinary(f, folder, (pct) => setProgress(pct));
           uploaded.push(result);
         } catch (e) {
           toast.error(e.message || `Failed: ${f.name}`);
@@ -34,6 +36,7 @@ export const MediaUploader = ({
       if (uploaded.length) toast.success(`${uploaded.length} file(s) uploaded`);
     } finally {
       setUploading(false);
+      setProgress(0);
       if (inputRef.current) inputRef.current.value = "";
     }
   };
@@ -73,11 +76,37 @@ export const MediaUploader = ({
             data-testid={`${testid}-add-btn`}
             className="aspect-square rounded-lg border-2 border-dashed border-slate-300 hover:border-blue-400 grid place-items-center text-slate-500 hover:text-blue-700 transition-colors disabled:opacity-50"
           >
-            {uploading ? <Loader2 size={20} className="animate-spin" /> : <ImagePlus size={20} />}
-            <span className="text-[10px] font-semibold mt-1">{label}</span>
+            {uploading ? (
+              <div className="flex flex-col items-center gap-1 p-2">
+                <Loader2 size={20} className="animate-spin text-orange-600" />
+                <span className="text-[10px] font-bold text-orange-600">{progress}%</span>
+              </div>
+            ) : (
+              <>
+                <ImagePlus size={20} />
+                <span className="text-[10px] font-semibold mt-1">{label}</span>
+              </>
+            )}
           </button>
         )}
       </div>
+
+      {/* Upload Progress Bar */}
+      {uploading && (
+        <div className="mt-2.5 space-y-1">
+          <div className="flex justify-between items-center text-[10px] font-bold text-slate-600">
+            <span>Uploading media...</span>
+            <span className="text-orange-600">{progress}%</span>
+          </div>
+          <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-orange-500 to-amber-500 transition-all duration-150 rounded-full"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       <input
         ref={inputRef} type="file" accept={accept} multiple={multiple}
         onChange={(e) => handleFiles(e.target.files)}
@@ -91,18 +120,21 @@ export const MediaUploader = ({
 export const SingleImageUploader = ({ url, onChange, label = "Upload", folder = "iip/uploads", testid = "single-uploader", className = "" }) => {
   const inputRef = useRef();
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const handle = async (file) => {
     if (!file) return;
     setUploading(true);
+    setProgress(0);
     try {
-      const r = await uploadToCloudinary(file, folder);
+      const r = await uploadToCloudinary(file, folder, (pct) => setProgress(pct));
       onChange?.(r.url);
       toast.success("Uploaded successfully");
     } catch (e) {
       toast.error(e.message || "Upload failed");
     } finally {
       setUploading(false);
+      setProgress(0);
       if (inputRef.current) inputRef.current.value = "";
     }
   };
@@ -117,7 +149,14 @@ export const SingleImageUploader = ({ url, onChange, label = "Upload", folder = 
     >
       {url ? <img src={url} alt="" className="w-full h-full object-cover" /> : null}
       <span className={`absolute inset-0 grid place-items-center bg-black/40 text-white transition-opacity ${url ? "opacity-0 hover:opacity-100" : "opacity-100"}`}>
-        {uploading ? <Loader2 className="animate-spin" size={18} /> : <><Upload size={14} className="mr-1 inline" /> {label}</>}
+        {uploading ? (
+          <div className="flex items-center gap-1.5 font-bold text-xs">
+            <Loader2 className="animate-spin" size={16} />
+            <span>{progress}%</span>
+          </div>
+        ) : (
+          <><Upload size={14} className="mr-1 inline" /> {label}</>
+        )}
       </span>
       <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handle(e.target.files?.[0])} />
     </button>

@@ -15,9 +15,10 @@ import { toast } from "sonner";
 import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { ProductDialog } from "../components/ProductDialog";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
+import { SingleImageUploader } from "../components/MediaUploader";
 
 export default function ProfilePage() {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, updateUser } = useAuth();
   const [company, setCompany] = useState(null);
   const [posts, setPosts] = useState([]);
   const [products, setProducts] = useState([]);
@@ -66,19 +67,24 @@ export default function ProfilePage() {
       {/* 1. Profile Header Card */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0F294A] to-[#0A1D36] text-white shadow-xl p-5 border border-slate-800">
         <div className="flex items-start sm:items-center gap-4">
-          {/* Avatar Container with Camera Overlay */}
+          {/* Avatar Container with Photo Uploader */}
           <div className="relative shrink-0">
-            <img
-              src={user.avatar_url || "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=200"}
-              alt={user.name}
-              className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-white/10 ring-4 ring-blue-900/30 bg-slate-800"
+            <SingleImageUploader
+              url={user.avatar_url}
+              onChange={async (newUrl) => {
+                try {
+                  const res = await api.patch("/auth/me", { avatar_url: newUrl });
+                  updateUser(res.data);
+                  toast.success("Profile photo updated!");
+                } catch {
+                  toast.error("Failed to update profile photo");
+                }
+              }}
+              label="Edit"
+              folder="iip/avatars"
+              testid="profile-avatar-uploader"
+              className="w-20 h-20 sm:w-24 sm:h-24 rounded-full border-4 border-white/10 ring-4 ring-blue-900/30 bg-slate-800"
             />
-            <button
-              onClick={() => toast.info("Profile photo upload coming soon!")}
-              className="absolute bottom-0 right-0 p-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-colors"
-            >
-              <Camera size={14} />
-            </button>
           </div>
 
           {/* User & Company Details */}
