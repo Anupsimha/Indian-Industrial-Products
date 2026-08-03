@@ -418,7 +418,7 @@ export default function LeadsPage() {
   });
 
   return (
-    <div className="pb-36 px-4 pt-4" data-testid="leads-page">
+    <div className="pb-36 px-4 pt-4 max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto" data-testid="leads-page">
       <BackButton className="mb-2" />
 
       {/* Header Section */}
@@ -567,7 +567,7 @@ export default function LeadsPage() {
           </div>
 
           {/* Leads Card list */}
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredLeads.length === 0 && (
               <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500 shadow-sm">
                 No active buyer requirements matching your filters.

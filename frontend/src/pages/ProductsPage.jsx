@@ -180,7 +180,7 @@ export default function ProductsPage() {
   }, [buyingStep]);
 
   return (
-    <div className="pb-28 px-4 pt-4" data-testid="products-page">
+    <div className="pb-28 px-4 pt-4 max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto" data-testid="products-page">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -389,7 +389,7 @@ export default function ProductsPage() {
       </div>
 
       {/* Desktop Products Grid (hidden sm:grid) */}
-      <div className="hidden sm:grid mt-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+      <div className="hidden sm:grid mt-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 lg:gap-6">
         {filtered.length === 0 && (
           <div className="col-span-full text-center text-sm text-slate-500 py-8 bg-white border border-slate-100 rounded-2xl">
             No products found.

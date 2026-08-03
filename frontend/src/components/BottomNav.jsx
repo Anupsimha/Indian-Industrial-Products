@@ -50,8 +50,8 @@ export const BottomNav = () => {
         className="fixed bottom-0 inset-x-0 z-40 backdrop-blur-md bg-white/95 border-t border-slate-200"
         data-testid="bottom-nav"
       >
-        <div className="max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto">
-          <ul className="grid grid-cols-5 lg:flex lg:justify-evenly lg:items-center lg:h-20">
+        <div className="max-w-md md:max-w-2xl mx-auto">
+          <ul className="grid grid-cols-5">
             {navItems.map(({ to, label, icon: Icon, testid, isCenter }) => {
               const requiresAuth = (to === "/leads" || to === "/requirements") && !user;
               

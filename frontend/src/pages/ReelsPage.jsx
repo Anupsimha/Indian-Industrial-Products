@@ -125,48 +125,48 @@ const ReelItem = ({ reel, active, muted, onMuteToggle }) => {
       </div>
 
       {/* Bottom gradient + content */}
-      <div className="absolute inset-x-0 bottom-0 pb-28 pt-20 px-4 bg-gradient-to-t from-black/85 via-black/40 to-transparent text-white pointer-events-none">
-        <Link to={`/company/${reel.company_id}`} className="flex items-center gap-3 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
-          <img src={reel.company_logo} className="w-10 h-10 rounded-full ring-2 ring-white/40 object-cover" alt="" />
-          <div className="min-w-0">
-            <div className="font-display font-semibold text-[15px]">{reel.company_name}</div>
-            <div className="text-xs text-white/70 flex items-center gap-1">
-              <MapPin size={12} /> {reel.location}
+      <div className="absolute inset-x-0 bottom-0 pb-20 sm:pb-24 pt-16 px-3 sm:px-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent text-white pointer-events-none">
+        <Link to={`/company/${reel.company_id}`} className="flex items-center gap-2.5 sm:gap-3 pointer-events-auto max-w-[70%] sm:max-w-[78%]" onClick={(e) => e.stopPropagation()}>
+          <img src={reel.company_logo} className="w-8 h-8 sm:w-10 sm:h-10 rounded-full ring-2 ring-white/40 object-cover shrink-0" alt="" />
+          <div className="min-w-0 flex-1">
+            <div className="font-display font-semibold text-xs sm:text-[15px] truncate">{reel.company_name}</div>
+            <div className="text-[10px] sm:text-xs text-white/70 flex items-center gap-1 truncate">
+              <MapPin size={11} className="shrink-0" /> <span className="truncate">{reel.location}</span>
             </div>
           </div>
           <button
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFollow(); }}
-            className={`ml-2 text-xs font-semibold rounded-full px-3 py-1 inline-flex items-center gap-1 ${
-              following ? "bg-white/15 text-white" : "bg-orange-600 text-white"
+            className={`ml-1 text-[11px] sm:text-xs font-bold rounded-full px-2.5 py-0.5 sm:px-3 sm:py-1 inline-flex items-center gap-1 shrink-0 ${
+              following ? "bg-white/20 text-white" : "bg-orange-600 text-white"
             }`}
             data-testid={`reel-follow-${reel.id}`}
           >
-            {following ? <UserCheck size={14} /> : <UserPlus size={14} />}
+            {following ? <UserCheck size={12} /> : <UserPlus size={12} />}
             {following ? "Following" : "Follow"}
           </button>
         </Link>
-        <p className="text-sm mt-3 leading-snug max-w-[80%]">{reel.content}</p>
+        <p className="text-xs sm:text-sm mt-2 leading-snug max-w-[70%] sm:max-w-[78%] line-clamp-2 sm:line-clamp-3 text-white/90">{reel.content}</p>
       </div>
 
       {/* Right action rail */}
-      <div className="absolute right-3 bottom-32 flex flex-col items-center gap-5 text-white z-20">
+      <div className="absolute right-2 sm:right-3 bottom-20 sm:bottom-24 flex flex-col items-center gap-3 sm:gap-4 text-white z-20">
         <button onClick={(e) => { e.stopPropagation(); onMuteToggle(); }} data-testid={`reel-mute-${reel.id}`} className="flex flex-col items-center active:scale-95">
-          <span className={`grid place-items-center w-11 h-11 rounded-full ${muted ? "bg-white/15" : "bg-orange-600"} backdrop-blur-sm`}>
-            {muted ? <VolumeX size={22} /> : <Volume2 size={22} className="animate-pulse" />}
+          <span className={`grid place-items-center w-9 h-9 sm:w-10 sm:h-10 rounded-full ${muted ? "bg-white/20" : "bg-orange-600"} backdrop-blur-sm`}>
+            {muted ? <VolumeX size={18} /> : <Volume2 size={18} className="animate-pulse" />}
           </span>
-          <span className="text-xs mt-1">{muted ? "Tap for sound" : "Sound on"}</span>
+          <span className="text-[10px] mt-0.5 font-medium">{muted ? "Muted" : "Sound"}</span>
         </button>
         <button onClick={(e) => { e.stopPropagation(); toggleLike(); }} data-testid={`reel-like-${reel.id}`} className="flex flex-col items-center active:scale-95">
-          <Heart size={28} className={liked ? "fill-rose-500 text-rose-500" : ""} />
-          <span className="text-xs mt-1">{likes}</span>
+          <Heart size={24} className={liked ? "fill-rose-500 text-rose-500" : ""} />
+          <span className="text-[10px] mt-0.5 font-medium">{likes}</span>
         </button>
         <button data-testid={`reel-comment-${reel.id}`} className="flex flex-col items-center active:scale-95" onClick={(e) => { e.stopPropagation(); setShowEnq(true); }}>
-          <MessageCircle size={28} />
-          <span className="text-xs mt-1">{reel.comments_count}</span>
+          <MessageCircle size={24} />
+          <span className="text-[10px] mt-0.5 font-medium">{reel.comments_count}</span>
         </button>
         <button onClick={(e) => { e.stopPropagation(); share(); }} data-testid={`reel-share-${reel.id}`} className="flex flex-col items-center active:scale-95">
-          <Share2 size={28} />
-          <span className="text-xs mt-1">Share</span>
+          <Share2 size={24} />
+          <span className="text-[10px] mt-0.5 font-medium">Share</span>
         </button>
         <a
           href={whatsappLink(reel.whatsapp, `Hi! I saw your reel: "${reel.content.slice(0, 80)}"`)}
@@ -174,18 +174,18 @@ const ReelItem = ({ reel, active, muted, onMuteToggle }) => {
           data-testid={`reel-whatsapp-${reel.id}`}
           className="flex flex-col items-center text-[#25D366]"
         >
-          <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M19.05 4.91A9.82 9.82 0 0 0 12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 0 0 4.74 1.21h.01c5.46 0 9.91-4.45 9.91-9.91a9.84 9.84 0 0 0-2.91-7z"/></svg>
-          <span className="text-xs mt-1 text-white">Chat</span>
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.05 4.91A9.82 9.82 0 0 0 12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 0 0 4.74 1.21h.01c5.46 0 9.91-4.45 9.91-9.91a9.84 9.84 0 0 0-2.91-7z"/></svg>
+          <span className="text-[10px] mt-0.5 font-medium text-white">Chat</span>
         </a>
         <button
           onClick={(e) => { e.stopPropagation(); setShowEnq(true); }}
           data-testid={`reel-enquiry-${reel.id}`}
           className="flex flex-col items-center active:scale-95"
         >
-          <span className="grid place-items-center w-12 h-12 rounded-full bg-orange-600 text-white font-bold text-xs shadow-lg shadow-black/40">
+          <span className="grid place-items-center w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-orange-600 text-white font-black text-[10px] shadow-lg shadow-black/50">
             ENQ
           </span>
-          <span className="text-xs mt-1">Enquiry</span>
+          <span className="text-[10px] mt-0.5 font-medium">Enquire</span>
         </button>
       </div>
 
@@ -212,22 +212,18 @@ export default function ReelsPage() {
   useEffect(() => {
     if (!containerRef.current) return;
     const onScroll = () => {
-      const idx = Math.round(containerRef.current.scrollTop / window.innerHeight);
+      const idx = Math.round(containerRef.current.scrollTop / containerRef.current.clientHeight);
       setActive(idx);
     };
     const el = containerRef.current;
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [reels.length]);
+  }, []);
 
   return (
-    <div className="fixed inset-0 bg-black z-20" data-testid="reels-page">
-      <Link
-        to="/"
-        className="absolute top-3 left-3 z-30 grid place-items-center w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm text-white"
-        data-testid="reels-back-btn"
-      >
-        <ArrowLeft size={20} />
+    <div className="w-full h-[100dvh] bg-slate-950 flex items-center justify-center">
+      <Link to="/" className="absolute top-4 left-4 z-50 p-2 bg-black/50 text-white rounded-full backdrop-blur-sm">
+        <ArrowLeft size={24} />
       </Link>
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 text-white font-display font-bold">
         Reels

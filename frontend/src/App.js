@@ -34,6 +34,7 @@ import ChatWindowPage from "@/pages/ChatWindowPage";
 import CartPage from "@/pages/CartPage";
 import OrdersPage from "@/pages/OrdersPage";
 import SettingsPage from "@/pages/SettingsPage";
+import MembershipPage from "@/pages/MembershipPage";
 import IndustrialGroupsPage from "@/pages/IndustrialGroupsPage";
 import IndustrialGroupDetailPage from "@/pages/IndustrialGroupDetailPage";
 
@@ -79,6 +80,7 @@ function App() {
               <Route path="/industrial-groups" element={<IndustrialGroupsPage />} />
               <Route path="/industrial-groups/:id" element={<IndustrialGroupDetailPage />} />
               <Route path="/pricing" element={<PricingPage />} />
+              <Route path="/membership" element={<MembershipPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/bookmarks" element={<BookmarksPage />} />
               <Route path="/search" element={<SearchPage />} />

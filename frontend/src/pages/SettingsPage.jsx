@@ -215,147 +215,26 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* SECTION 2: Manage Your Membership */}
-        <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden" data-testid="section-manage-membership">
+        {/* SECTION 2: Manage Your Membership Hub Banner */}
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4" data-testid="section-manage-membership">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-md shrink-0">
+              <Crown size={24} />
+            </div>
+            <div>
+              <h2 className="font-display text-lg font-bold text-slate-900">Manage Your Membership</h2>
+              <p className="text-xs text-slate-600 mt-0.5">
+                View active plan status, contact unlock quota, benefits, and billing options.
+              </p>
+            </div>
+          </div>
           <button
-            onClick={() => setMembershipOpen(!membershipOpen)}
-            className="w-full px-6 py-5 flex items-center justify-between bg-white hover:bg-slate-50/80 transition-colors text-left border-b border-slate-100"
+            onClick={() => navigate("/membership")}
+            className="px-5 py-2.5 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 shrink-0"
+            data-testid="goto-membership-hub-btn"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center">
-                <Crown size={20} />
-              </div>
-              <div>
-                <h2 className="font-display text-lg font-bold text-slate-900">Manage Your Membership</h2>
-                <p className="text-xs text-slate-500">Plan status, upgrade options &amp; membership cancellation</p>
-              </div>
-            </div>
-            {membershipOpen ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
+            <span>Open Membership Hub</span> <ArrowRight size={14} />
           </button>
-
-          {membershipOpen && (
-            <div className="p-6 space-y-4 bg-slate-50/50">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-                {/* Option 1: Status of your Membership */}
-                <div
-                  className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between"
-                  data-testid="option-membership-status"
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center">
-                        <Zap size={18} />
-                      </div>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <CheckCircle2 size={10} /> Active
-                      </span>
-                    </div>
-                    <h3 className="font-bold text-slate-900 text-sm">Status of your Membership</h3>
-                    <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                      <div className="text-xs text-slate-500">Current Plan</div>
-                      <div className="text-lg font-black text-blue-900 capitalize flex items-center gap-1.5 mt-0.5">
-                        <Crown size={16} className="text-orange-500" />
-                        {currentPlan} Plan
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-1">
-                        {user.plan_expires_at ? `Valid till ${new Date(user.plan_expires_at).toLocaleDateString()}` : "Free tier with standard limits"}
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setMembershipAction(membershipAction === "status" ? null : "status")}
-                    className="mt-4 w-full py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-xs transition-colors"
-                    data-testid="btn-membership-status-details"
-                  >
-                    {membershipAction === "status" ? "Hide Details" : "View Plan Details"}
-                  </button>
-                </div>
-
-                {/* Option 2: Upgrade your membership */}
-                <div
-                  className="bg-white border border-orange-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between bg-gradient-to-b from-orange-50/40 to-white"
-                  data-testid="option-upgrade-membership"
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="w-9 h-9 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center">
-                        <Crown size={18} />
-                      </div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-orange-600 text-white">
-                        Recommended
-                      </span>
-                    </div>
-                    <h3 className="font-bold text-slate-900 text-sm">Upgrade your Membership</h3>
-                    <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                      Unlock unlimited buyer leads, priority verified badges, direct WhatsApp connections &amp; premium analytics.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => navigate("/pricing")}
-                    className="mt-4 w-full py-2.5 rounded-xl bg-orange-600 text-white hover:bg-orange-700 font-semibold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5"
-                    data-testid="btn-upgrade-membership"
-                  >
-                    <span>Explore Tiers</span> <ArrowRight size={14} />
-                  </button>
-                </div>
-
-                {/* Option 3: Cancel your Membership */}
-                <div
-                  className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between"
-                  data-testid="option-cancel-membership"
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center">
-                        <ShieldAlert size={18} />
-                      </div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                        Renewal
-                      </span>
-                    </div>
-                    <h3 className="font-bold text-slate-900 text-sm">Cancel your Membership</h3>
-                    <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                      Turn off auto-renewal for your subscription. Your benefits remain active until the end of your billing cycle.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setShowCancelMembershipModal(true)}
-                    className="mt-4 w-full py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-semibold text-xs transition-colors"
-                    data-testid="btn-cancel-membership"
-                  >
-                    Cancel Membership
-                  </button>
-                </div>
-
-              </div>
-
-              {/* Status detail dropdown section if opened */}
-              {membershipAction === "status" && (
-                <div className="mt-4 bg-white border border-slate-200 rounded-2xl p-5 animate-fade-in">
-                  <h4 className="font-bold text-slate-900 text-sm mb-3">Membership Capabilities &amp; Quota</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 text-slate-700">
-                      <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
-                      <span>Verified Business Badge Access</span>
-                    </div>
-                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 text-slate-700">
-                      <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
-                      <span>Post Product Catalog &amp; Reels</span>
-                    </div>
-                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 text-slate-700">
-                      <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
-                      <span>Buyer Lead Contacts Access</span>
-                    </div>
-                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 text-slate-700">
-                      <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
-                      <span>Priority Support &amp; Analytics</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings } from "lucide-react";
+import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown } from "lucide-react";
 import { Logo } from "./Logo";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
@@ -28,7 +28,7 @@ export const TopHeader = () => {
       className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200"
       data-testid="top-header"
     >
-      <div className="max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto px-4 lg:px-8 h-14 lg:h-16 flex items-center justify-between">
+      <div className="max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto px-4 h-14 lg:h-16 flex items-center justify-between">
         <Link to="/" data-testid="header-logo-link" className="flex-shrink-0">
           <div className="lg:scale-110 origin-left">
             <Logo />
@@ -107,7 +107,7 @@ export const TopHeader = () => {
             {/* Dropdown Menu */}
             {user && dropdownOpen && (
               <div
-                className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-150"
+                className="absolute right-0 mt-2 w-52 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-150 overflow-hidden"
                 data-testid="profile-dropdown"
               >
                 <Link
@@ -116,6 +116,18 @@ export const TopHeader = () => {
                   className="block px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
                 >
                   Profile
+                </Link>
+
+                <Link
+                  to="/membership"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-2 text-xs font-bold text-amber-800 bg-amber-50/80 hover:bg-amber-100/80 transition-colors"
+                  data-testid="dropdown-membership-link"
+                >
+                  <div className="flex items-center gap-2">
+                    <Crown size={15} className="text-amber-600 shrink-0" />
+                    <span>Manage Membership</span>
+                  </div>
                 </Link>
 
                 <Link
