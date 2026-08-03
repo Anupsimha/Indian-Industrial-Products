@@ -740,27 +740,33 @@ def set_auth_cookie(response: Response, token: str):
     )
 
 
-def clean_product_url(url: Optional[str]) -> Optional[str]:
+def clean_media_url(url: Optional[str]) -> Optional[str]:
     if not url:
         return url
-    if "/products-images/" in url:
+    if "http://backend:8000" in url:
+        url = url.replace("http://backend:8000", "")
+    elif "http://localhost:8000" in url:
+        url = url.replace("http://localhost:8000", "")
+
+    if "/products-images/" in url and not url.startswith("/api/"):
         filename = url.split("/products-images/")[-1]
         return f"/api/products-images/{filename}"
-    elif "/uploads/" in url:
-        filename = url.split("/uploads/")[-1]
-        return f"/api/uploads/{filename}"
-    return url
-
-def clean_reel_url(url: Optional[str]) -> Optional[str]:
-    if not url:
-        return url
-    if "/reels-uploaded/" in url:
+    elif "/reels-uploaded/" in url and not url.startswith("/api/"):
         filename = url.split("/reels-uploaded/")[-1]
         return f"/api/reels-uploaded/{filename}"
-    elif "/uploads/" in url:
+    elif "/uploads/" in url and not url.startswith("/api/"):
         filename = url.split("/uploads/")[-1]
         return f"/api/uploads/{filename}"
+    elif "/enquiry-media/" in url and not url.startswith("/api/"):
+        filename = url.split("/enquiry-media/")[-1]
+        return f"/api/enquiry-media/{filename}"
     return url
+
+def clean_product_url(url: Optional[str]) -> Optional[str]:
+    return clean_media_url(url)
+
+def clean_reel_url(url: Optional[str]) -> Optional[str]:
+    return clean_media_url(url)
 
 def make_product_out(doc: Product, company: Optional[Company]) -> ProductOut:
     return ProductOut(
@@ -787,8 +793,8 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
         is_owner = company.owner_id == current_user["id"] or current_user.get("role") == "admin"
     return CompanyOut(
         id=company.id, name=company.name, description=company.description,
-        location=company.location, logo_url=company.logo_url,
-        cover_url=company.cover_url, category=company.category,
+        location=company.location, logo_url=clean_media_url(company.logo_url),
+        cover_url=clean_media_url(company.cover_url), category=company.category,
         mobile=company.mobile, whatsapp=company.whatsapp, email=company.email,
         website=company.website, owner_id=company.owner_id,
         owner_name=company.owner_name,
@@ -834,8 +840,8 @@ async def hydrate_post(post: Post, current_user: Optional[dict], db: AsyncSessio
         
     return PostOut(
         id=post.id, company_id=company.id, company_name=company.name,
-        company_logo=company.logo_url, location=company.location,
-        content=post.content, media_url=post.media_url,
+        company_logo=clean_media_url(company.logo_url), location=company.location,
+        content=post.content, media_url=clean_media_url(post.media_url),
         media_type=post.media_type, category=post.category,
         group_id=getattr(post, "group_id", None), group_name=group_name,
         likes_count=likes_count, enquiries_count=enquiries_count,
@@ -870,9 +876,9 @@ async def hydrate_reel(reel: Reel, current_user: Optional[dict], db: AsyncSessio
         
     return ReelOut(
         id=reel.id, company_id=company.id, company_name=company.name,
-        company_logo=company.logo_url, location=company.location,
-        content=reel.content, video_url=clean_reel_url(reel.video_url),
-        thumbnail_url=reel.thumbnail_url,
+        company_logo=clean_media_url(company.logo_url), location=company.location,
+        content=reel.content, video_url=clean_media_url(reel.video_url),
+        thumbnail_url=clean_media_url(reel.thumbnail_url),
         group_id=getattr(reel, "group_id", None), group_name=group_name,
         likes_count=likes_count,
         comments_count=comments_count, is_liked=is_liked, is_following=is_following,
@@ -2070,6 +2076,8 @@ class SlideUpdate(BaseModel):
 async def list_slides(db: AsyncSession = Depends(get_db)):
     stmt = select(Slide).order_by(Slide.sort_order.asc())
     docs = (await db.execute(stmt)).scalars().all()
+    for d in docs:
+        d.image = clean_media_url(d.image)
     return docs
 
 @api.post("/admin/slides", response_model=SlideOut)
@@ -2908,7 +2916,7 @@ async def list_industrial_groups(
     for g in docs:
         out.append(IndustrialGroupOut(
             id=g.id, name=g.name, slug=g.slug, location=g.location,
-            description=g.description, image_url=g.image_url, cover_url=g.cover_url,
+            description=g.description, image_url=clean_media_url(g.image_url), cover_url=clean_media_url(g.cover_url),
             members_count=g.members_count, companies_count=g.companies_count,
             posts_count=g.posts_count, leads_count=g.leads_count,
             jobs_count=g.jobs_count, reels_count=g.reels_count,
@@ -2938,7 +2946,7 @@ async def get_industrial_group(
 
     return IndustrialGroupOut(
         id=g.id, name=g.name, slug=g.slug, location=g.location,
-        description=g.description, image_url=g.image_url, cover_url=g.cover_url,
+        description=g.description, image_url=clean_media_url(g.image_url), cover_url=clean_media_url(g.cover_url),
         members_count=g.members_count, companies_count=g.companies_count,
         posts_count=g.posts_count, leads_count=g.leads_count,
         jobs_count=g.jobs_count, reels_count=g.reels_count,
@@ -2959,8 +2967,8 @@ async def create_industrial_group(
     gid = str(uuid.uuid4())
     doc = IndustrialGroup(
         id=gid, name=payload.name, slug=slug, location=payload.location,
-        description=payload.description, image_url=payload.image_url,
-        cover_url=payload.cover_url, members_count=payload.members_count or 1,
+        description=payload.description, image_url=clean_media_url(payload.image_url),
+        cover_url=clean_media_url(payload.cover_url), members_count=payload.members_count or 1,
         companies_count=payload.companies_count or 1, posts_count=0,
         leads_count=0, jobs_count=0, reels_count=0, created_at=now_iso()
     )
@@ -2977,7 +2985,7 @@ async def create_industrial_group(
 
     return IndustrialGroupOut(
         id=doc.id, name=doc.name, slug=doc.slug, location=doc.location,
-        description=doc.description, image_url=doc.image_url, cover_url=doc.cover_url,
+        description=doc.description, image_url=clean_media_url(doc.image_url), cover_url=clean_media_url(doc.cover_url),
         members_count=doc.members_count, companies_count=doc.companies_count,
         posts_count=doc.posts_count, leads_count=doc.leads_count,
         jobs_count=doc.jobs_count, reels_count=doc.reels_count,
@@ -3012,7 +3020,7 @@ async def update_industrial_group(
 
     return IndustrialGroupOut(
         id=g.id, name=g.name, slug=g.slug, location=g.location,
-        description=g.description, image_url=g.image_url, cover_url=g.cover_url,
+        description=g.description, image_url=clean_media_url(g.image_url), cover_url=clean_media_url(g.cover_url),
         members_count=g.members_count, companies_count=g.companies_count,
         posts_count=g.posts_count, leads_count=g.leads_count,
         jobs_count=g.jobs_count, reels_count=g.reels_count,
@@ -3665,6 +3673,23 @@ async def cloudinary_signature(
     }
 
 
+# -------------------- Configurable Max Media Limits --------------------
+MAX_IMAGE_SIZE_MB = int(os.environ.get("MAX_IMAGE_SIZE_MB", "20"))
+MAX_VIDEO_SIZE_MB = int(os.environ.get("MAX_VIDEO_SIZE_MB", "100"))
+MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
+MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024
+
+
+@api.get("/config/upload-limits")
+async def get_upload_limits():
+    return {
+        "max_image_size_mb": MAX_IMAGE_SIZE_MB,
+        "max_video_size_mb": MAX_VIDEO_SIZE_MB,
+        "max_image_size_bytes": MAX_IMAGE_SIZE_BYTES,
+        "max_video_size_bytes": MAX_VIDEO_SIZE_BYTES,
+    }
+
+
 # -------------------- Local Upload Endpoint --------------------
 @api.post("/upload")
 async def upload_file(
@@ -3673,26 +3698,40 @@ async def upload_file(
     folder: str = "iip/uploads",
     resource_type: str = "image",
 ):
-    # Save the file to local directory `uploads`
-    file_ext = Path(file.filename).suffix if file.filename else ".jpg"
+    is_video = resource_type == "video" or (file.content_type and file.content_type.startswith("video/"))
+    max_bytes = MAX_VIDEO_SIZE_BYTES if is_video else MAX_IMAGE_SIZE_BYTES
+    max_mb = MAX_VIDEO_SIZE_MB if is_video else MAX_IMAGE_SIZE_MB
+
+    # Check file size limit
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+
+    if file_size > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{'Video' if is_video else 'Image'} file size ({file_size / (1024*1024):.1f} MB) exceeds maximum allowed limit of {max_mb} MB.",
+        )
+
+    file_ext = Path(file.filename).suffix if file.filename else (".mp4" if is_video else ".jpg")
     unique_filename = f"{uuid.uuid4().hex}{file_ext}"
     file_path = UPLOADS_DIR / unique_filename
-    
+
     with file_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-        
-    url_path = f"/uploads/{unique_filename}"
-    abs_url = str(request.base_url).rstrip("/") + url_path
-    
+
+    url_path = f"/api/uploads/{unique_filename}"
+
     return {
-        "secure_url": abs_url,
+        "url": url_path,
+        "secure_url": url_path,
         "public_id": unique_filename,
-        "resource_type": resource_type,
+        "resource_type": "video" if is_video else "image",
         "width": 800,
         "height": 600,
         "duration": 0,
         "format": file_ext.replace(".", ""),
-        "thumbnail_url": abs_url,
+        "thumbnail_url": url_path,
     }
 
 

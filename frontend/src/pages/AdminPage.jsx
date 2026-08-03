@@ -5,6 +5,7 @@ import { Navigate, Link } from "react-router-dom";
 import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image } from "lucide-react";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
+import { SingleImageUploader } from "../components/MediaUploader";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -502,10 +503,17 @@ const SlidesTab = () => {
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
           </div>
           <div>
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Image URL</label>
-            <input required value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })}
-              placeholder="e.g. https://images.unsplash.com/..." data-testid="admin-slide-image"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Slide Image Photo</label>
+            <div className="mt-1">
+              <SingleImageUploader
+                url={form.image}
+                onChange={(newUrl) => setForm({ ...form, image: newUrl })}
+                label="Upload Slide Image"
+                folder="iip/slides"
+                testid="admin-slide-image-upload"
+                className="w-full h-32 rounded-lg border border-slate-300 bg-slate-50"
+              />
+            </div>
           </div>
           <div>
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">CTA Button Text</label>
@@ -648,14 +656,30 @@ const IndustrialGroupsTab = () => {
               placeholder="Description of the industrial area..." data-testid="admin-group-desc" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="text-[10px] font-bold text-slate-500 uppercase">Image URL</label>
-            <input required value={form.image_url} onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-              placeholder="https://images.unsplash.com/..." data-testid="admin-group-image" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Group Photo</label>
+            <div className="mt-1">
+              <SingleImageUploader
+                url={form.image_url}
+                onChange={(newUrl) => setForm({ ...form, image_url: newUrl })}
+                label="Upload Group Photo"
+                folder="iip/groups"
+                testid="admin-group-image-upload"
+                className="w-full h-32 rounded-lg border border-slate-300 bg-slate-50"
+              />
+            </div>
           </div>
           <div>
-            <label className="text-[10px] font-bold text-slate-500 uppercase">Cover Banner URL</label>
-            <input value={form.cover_url} onChange={(e) => setForm({ ...form, cover_url: e.target.value })}
-              placeholder="https://images.unsplash.com/..." data-testid="admin-group-cover" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Cover Banner Photo</label>
+            <div className="mt-1">
+              <SingleImageUploader
+                url={form.cover_url}
+                onChange={(newUrl) => setForm({ ...form, cover_url: newUrl })}
+                label="Upload Banner Photo"
+                folder="iip/groups"
+                testid="admin-group-cover-upload"
+                className="w-full h-32 rounded-lg border border-slate-300 bg-slate-50"
+              />
+            </div>
           </div>
         </div>
         <div className="flex justify-end gap-2">

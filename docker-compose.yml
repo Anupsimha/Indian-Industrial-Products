@@ -34,6 +34,10 @@ services:
       - ./backend/.env
     volumes:
       - ./backend:/app
+      - ./uploads:/app/uploads
+      - ./reels-uploaded:/app/reels-uploaded
+      - ./products-images:/app/products-images
+      - ./enquiry-media:/app/enquiry-media
 
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/iip

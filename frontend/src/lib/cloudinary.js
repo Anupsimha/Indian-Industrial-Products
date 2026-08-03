@@ -1,49 +1,46 @@
 import api from "./api";
 
-export async function uploadToCloudinary(file, folder = "iip/uploads") {
-  const isVideo = file.type.startsWith("video/");
-  const resourceType = isVideo ? "video" : "image";
-  const { data: sig } = await api.get(
-    `/cloudinary/signature?resource_type=${resourceType}&folder=${encodeURIComponent(folder)}`
-  );
+// Configurable max limits on client side (defaults 20MB image, 100MB video)
+export const MAX_IMAGE_SIZE_MB = 20;
+export const MAX_VIDEO_SIZE_MB = 100;
 
+export async function uploadToCloudinary(file, folder = "iip/uploads") {
+  const isVideo = file.type ? file.type.startsWith("video/") : false;
+  const maxMb = isVideo ? MAX_VIDEO_SIZE_MB : MAX_IMAGE_SIZE_MB;
+  const maxBytes = maxMb * 1024 * 1024;
+
+  if (file.size && file.size > maxBytes) {
+    throw new Error(
+      `${isVideo ? "Video" : "Image"} file size exceeds maximum allowed limit of ${maxMb} MB.`
+    );
+  }
+
+  const resourceType = isVideo ? "video" : "image";
   const form = new FormData();
   form.append("file", file);
-  form.append("api_key", sig.api_key);
-  form.append("timestamp", sig.timestamp);
-  form.append("signature", sig.signature);
-  form.append("folder", sig.folder);
+  form.append("folder", folder);
+  form.append("resource_type", resourceType);
 
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${sig.cloud_name}/${resourceType}/upload`,
-    { method: "POST", body: form }
-  );
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Cloudinary upload failed: ${err}`);
-  }
-  const data = await res.json();
+  const res = await api.post("/upload", form);
+  const data = res.data;
+
   return {
-    url: data.secure_url,
+    url: data.secure_url || data.url,
     public_id: data.public_id,
-    resource_type: data.resource_type, // image | video
-    width: data.width,
-    height: data.height,
-    duration: data.duration,
-    format: data.format,
-    thumbnail_url: isVideo
-      ? data.secure_url.replace(/\.(mp4|webm|mov)$/i, ".jpg")
-      : data.secure_url,
+    resource_type: data.resource_type || resourceType,
+    width: data.width || 800,
+    height: data.height || 600,
+    duration: data.duration || 0,
+    format: data.format || "",
+    thumbnail_url: data.thumbnail_url || data.secure_url || data.url,
   };
 }
 
-// Build optimized delivery URL from a Cloudinary URL
-export function optimizedUrl(url, { w, h, video } = {}) {
-  if (!url || !url.includes("res.cloudinary.com")) return url;
-  const transforms = ["q_auto", "f_auto"];
-  if (w) transforms.push(`w_${w}`);
-  if (h) transforms.push(`h_${h}`);
-  const t = transforms.join(",");
-  const segment = video ? "/video/upload/" : "/image/upload/";
-  return url.replace(segment, `${segment}${t}/`);
+export function uploadMedia(file, folder = "iip/uploads") {
+  return uploadToCloudinary(file, folder);
+}
+
+// Pass-through helper for image/video URLs
+export function optimizedUrl(url) {
+  return url;
 }

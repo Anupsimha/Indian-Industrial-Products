@@ -27,7 +27,7 @@ export const MediaUploader = ({
           const result = await uploadToCloudinary(f, folder);
           uploaded.push(result);
         } catch (e) {
-          toast.error(`Failed: ${f.name}`);
+          toast.error(e.message || `Failed: ${f.name}`);
         }
       }
       onChange?.([...value, ...uploaded]);
@@ -98,11 +98,12 @@ export const SingleImageUploader = ({ url, onChange, label = "Upload", folder = 
     try {
       const r = await uploadToCloudinary(file, folder);
       onChange?.(r.url);
-      toast.success("Uploaded");
-    } catch {
-      toast.error("Upload failed");
+      toast.success("Uploaded successfully");
+    } catch (e) {
+      toast.error(e.message || "Upload failed");
     } finally {
       setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
     }
   };
 
@@ -112,11 +113,11 @@ export const SingleImageUploader = ({ url, onChange, label = "Upload", folder = 
       data-testid={testid}
       onClick={() => inputRef.current?.click()}
       disabled={uploading}
-      className={`relative inline-flex items-center justify-center text-xs font-semibold ${className}`}
+      className={`relative inline-flex items-center justify-center text-xs font-semibold overflow-hidden border border-slate-200 rounded-lg ${className}`}
     >
       {url ? <img src={url} alt="" className="w-full h-full object-cover" /> : null}
-      <span className="absolute inset-0 grid place-items-center bg-black/40 text-white opacity-0 hover:opacity-100 transition-opacity rounded">
-        {uploading ? <Loader2 className="animate-spin" size={18} /> : <><Upload size={14} className="mr-1" /> {label}</>}
+      <span className={`absolute inset-0 grid place-items-center bg-black/40 text-white transition-opacity ${url ? "opacity-0 hover:opacity-100" : "opacity-100"}`}>
+        {uploading ? <Loader2 className="animate-spin" size={18} /> : <><Upload size={14} className="mr-1 inline" /> {label}</>}
       </span>
       <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handle(e.target.files?.[0])} />
     </button>
