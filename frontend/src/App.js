@@ -38,11 +38,23 @@ import MembershipPage from "@/pages/MembershipPage";
 import IndustrialGroupsPage from "@/pages/IndustrialGroupsPage";
 import IndustrialGroupDetailPage from "@/pages/IndustrialGroupDetailPage";
 
+import { useAuth } from "@/context/AuthContext";
+import VerifyOtpPage from "@/pages/VerifyOtpPage";
+import CompleteProfilePage from "@/pages/CompleteProfilePage";
+
 const Layout = ({ children }) => {
+  const { user } = useAuth();
   const location = useLocation();
   const fullscreen = location.pathname.startsWith("/reels")
     || location.pathname.startsWith("/login")
-    || location.pathname.startsWith("/register");
+    || location.pathname.startsWith("/register")
+    || location.pathname.startsWith("/verify-otp")
+    || location.pathname.startsWith("/complete-profile");
+
+  if (user && user.is_verified === false && !location.pathname.startsWith("/verify-otp") && !location.pathname.startsWith("/login") && !location.pathname.startsWith("/register")) {
+    window.location.href = "/verify-otp";
+    return null;
+  }
 
   if (fullscreen) {
     return <div className="App">{children}{location.pathname.startsWith("/reels") && <BottomNav />}</div>;
@@ -72,6 +84,8 @@ function App() {
               <Route path="/reels" element={<ReelsPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/verify-otp" element={<VerifyOtpPage />} />
+              <Route path="/complete-profile" element={<CompleteProfilePage />} />
               <Route path="/post-enquiry" element={<PostEnquiryPage />} />
               <Route path="/leads" element={<LeadsPage />} />
               <Route path="/profile" element={<ProfilePage />} />

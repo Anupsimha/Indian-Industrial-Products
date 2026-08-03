@@ -25,10 +25,28 @@ export default function RegisterPage() {
     setErr(""); setLoading(true);
     try {
       await register(form);
-      toast.success("Account created!");
-      navigate("/");
+      toast.success("Account created! Please verify the OTP sent to your email.");
+      navigate("/verify-otp", { state: { email: form.email } });
     } catch (e2) {
-      setErr(formatApiError(e2.response?.data?.detail) || "Registration failed");
+      const respData = e2.response?.data;
+      const status = e2.response?.status;
+      let msg = "Registration failed. Please try again.";
+
+      if (respData?.detail) {
+        msg = formatApiError(respData.detail);
+      } else if (respData?.message) {
+        msg = respData.message;
+      } else if (status === 500) {
+        msg = "Server error — please try again in a moment.";
+      } else if (status === 400) {
+        msg = respData ? JSON.stringify(respData) : "Invalid registration details.";
+      } else if (e2.message) {
+        msg = e2.message;
+      }
+
+      console.error("[RegisterPage] Registration error:", { status, data: respData, err: e2 });
+      setErr(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

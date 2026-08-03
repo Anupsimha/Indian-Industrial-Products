@@ -62,6 +62,7 @@ def _send_email_sync(
     Call via `send_email()` (async wrapper) from async code.
     """
     cfg = _get_smtp_config()
+    recipients = [to] if isinstance(to, str) else list(to)
 
     if not cfg["user"] or not cfg["password"]:
         logger.warning(
@@ -69,13 +70,11 @@ def _send_email_sync(
             "[MOCK EMAIL - SMTP NOT CONFIGED]\n"
             f"TO: {recipients}\n"
             f"SUBJECT: {subject}\n"
-            f"BODY SUMMARY (STRIPIED TAGS):\n"
+            f"BODY SUMMARY (STRIPPED TAGS):\n"
             f"{_html_to_plain(html_body)}\n"
             + "="*80 + "\n"
         )
         return
-
-    recipients = [to] if isinstance(to, str) else to
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject

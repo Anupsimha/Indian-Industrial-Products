@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { ProductDialog } from "../components/ProductDialog";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
+import { UserEditDialog } from "../components/UserEditDialog";
 import { SingleImageUploader } from "../components/MediaUploader";
 import { FollowersDialog } from "../components/FollowersDialog";
 import { PlanBadge } from "../components/PlanBadge";
@@ -30,6 +31,7 @@ export default function ProfilePage() {
   const [reelOpen, setReelOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [userEditOpen, setUserEditOpen] = useState(false);
   const [stats, setStats] = useState({ posts_count: 0, followers_count: 0, following_count: 0, enquiries_count: 0 });
   const [followersModalOpen, setFollowersModalOpen] = useState(false);
   const [followersInitialTab, setFollowersInitialTab] = useState("followers");
@@ -121,6 +123,26 @@ export default function ProfilePage() {
               <a href={company?.website ? `http://${company.website}` : "https://www.precisionpartsindia.com"} target="_blank" rel="noreferrer" className="truncate">
                 {company?.website || "www.precisionpartsindia.com"}
               </a>
+            </div>
+
+            {/* Quick Action Edit Buttons */}
+            <div className="mt-3.5 flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setUserEditOpen(true)}
+                className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 border border-white/15"
+                data-testid="profile-edit-user-btn"
+              >
+                <Edit size={13} /> Edit Profile
+              </button>
+              {isBusiness && (
+                <button
+                  onClick={() => setEditOpen(true)}
+                  className="px-3 py-1.5 rounded-full bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 border border-blue-400/30"
+                  data-testid="profile-edit-company-btn"
+                >
+                  <Building2 size={13} /> Edit Company
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -479,6 +501,7 @@ export default function ProfilePage() {
       {company && (
         <CompanyEditDialog open={editOpen} onClose={() => setEditOpen(false)} company={company} onSaved={loadCompanyData} />
       )}
+      <UserEditDialog open={userEditOpen} onClose={() => setUserEditOpen(false)} user={user} onSaved={updateUser} />
       <FollowersDialog
         open={followersModalOpen}
         onClose={() => setFollowersModalOpen(false)}

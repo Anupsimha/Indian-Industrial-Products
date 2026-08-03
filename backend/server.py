@@ -78,6 +78,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iip")
 
 
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    tb = traceback.format_exc()
+    logger.error(f"[UNHANDLED ERROR] {request.method} {request.url.path}\n{tb}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {type(exc).__name__}: {str(exc)}"}
+    )
+
+
 # -------------------- SQLAlchemy Models --------------------
 class User(Base):
     __tablename__ = "users"
@@ -95,6 +108,9 @@ class User(Base):
     unlocked_enquiries = Column(JSON, default=list, nullable=True)
     # Per-month unlock tracking: {"2026-07": ["enq_id1", "enq_id2", ...]}
     monthly_unlocks = Column(JSON, default=dict, nullable=True)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    verification_code = Column(String(10), nullable=True)
+    verification_expires_at = Column(String(255), nullable=True)
     created_at = Column(String(255), nullable=False)
 
 class Company(Base):
@@ -351,6 +367,7 @@ class UserPublic(BaseModel):
     avatar_url: Optional[str] = None
     plan_name: Optional[str] = None
     plan_expires_at: Optional[str] = None
+    is_verified: bool = False
 
 
 class RegisterIn(BaseModel):
@@ -705,6 +722,7 @@ def user_to_dict(user: User) -> dict:
         "avatar_url": user.avatar_url,
         "plan_name": user.plan_name,
         "plan_expires_at": user.plan_expires_at,
+        "is_verified": bool(getattr(user, "is_verified", False)),
         "unlocked_enquiries": user.unlocked_enquiries or [],
         "created_at": user.created_at,
     }
@@ -938,6 +956,13 @@ async def register(payload: RegisterIn, response: Response, db: AsyncSession = D
 
     user_id = str(uuid.uuid4())
     company_id = None
+
+    # Generate OTP for email verification
+    import random
+    otp = f"{random.randint(100000, 999999)}"
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    logger.info(f"Generated OTP for {email}: {otp}")
+
     if payload.role in ("manufacturer", "supplier") and payload.company_name:
         company_id = str(uuid.uuid4())
         company_doc = Company(
@@ -957,19 +982,93 @@ async def register(payload: RegisterIn, response: Response, db: AsyncSession = D
         mobile=payload.mobile, password_hash=hash_password(payload.password),
         role=payload.role, company_id=company_id,
         avatar_url="https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=200",
+        is_verified=False,
+        verification_code=otp,
+        verification_expires_at=expires,
         created_at=now_iso(),
     )
     db.add(user_doc)
     await db.commit()
+
+    try:
+        html_body = build_otp_email(otp, payload.name, "verify your IIP account registration")
+        await send_email(email, "Your IIP Verification Code", html_body)
+    except Exception as e:
+        logger.error(f"Failed sending registration OTP email to {email}: {e}")
     
     token = create_token(user_id)
     set_auth_cookie(response, token)
-    logger.info(f"User registered: {email} as {payload.role} (company_id={company_id})")
+    logger.info(f"User registered: {email} as {payload.role} (company_id={company_id}), OTP dispatched")
     
     return {
         "user": UserPublic(**user_to_dict(user_doc)).model_dump(),
         "token": token,
+        "requires_verification": True
     }
+
+
+class VerifyOtpIn(BaseModel):
+    email: Optional[str] = None
+    otp: str
+
+
+class ResendOtpIn(BaseModel):
+    email: Optional[str] = None
+
+
+@api.post("/auth/verify-otp")
+async def verify_otp(payload: VerifyOtpIn, request: Request, db: AsyncSession = Depends(get_db)):
+    cu = await get_optional_user(request)
+    email = payload.email.strip().lower() if payload.email else (cu.get("email") if cu else None)
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    
+    stmt = select(User).where(User.email == email)
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.is_verified:
+        return {"ok": True, "message": "Account already verified", "user": user_to_dict(user)}
+    
+    if not user.verification_code or user.verification_code.strip() != payload.otp.strip():
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+    
+    user.is_verified = True
+    user.verification_code = None
+    user.verification_expires_at = None
+    await db.commit()
+    
+    return {"ok": True, "message": "Account verified successfully!", "user": user_to_dict(user)}
+
+
+@api.post("/auth/resend-otp")
+async def resend_otp(payload: ResendOtpIn, request: Request, db: AsyncSession = Depends(get_db)):
+    cu = await get_optional_user(request)
+    email = payload.email.strip().lower() if (payload and payload.email) else (cu.get("email") if cu else None)
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    
+    stmt = select(User).where(User.email == email)
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    import random
+    otp = f"{random.randint(100000, 999999)}"
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    
+    user.verification_code = otp
+    user.verification_expires_at = expires
+    await db.commit()
+    
+    try:
+        html_body = build_otp_email(otp, user.name, "verify your IIP account registration")
+        await send_email(user.email, "Your New IIP Verification Code", html_body)
+    except Exception as e:
+        logger.error(f"Failed sending resend OTP email to {email}: {e}")
+        
+    return {"ok": True, "message": "Verification code resent successfully"}
 
 
 @api.post("/auth/login")
@@ -999,6 +1098,7 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     avatar_url: Optional[str] = None
     mobile: Optional[str] = None
+    role: Optional[RoleType] = None
 
 
 @api.get("/auth/me", response_model=UserPublic)
