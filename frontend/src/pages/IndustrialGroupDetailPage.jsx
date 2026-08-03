@@ -5,6 +5,7 @@ import { BackButton } from "../components/BackButton";
 import { PostCard } from "../components/PostCard";
 import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { ProductDialog } from "../components/ProductDialog";
+import { PlanBadge } from "../components/PlanBadge";
 import {
   MapPin, Users, Building2, Newspaper, Package, Briefcase, Film, Calendar,
   Info, CheckCircle2, ShieldCheck, Plus, Lock, Phone, Tag, Clock, Boxes,
@@ -448,7 +449,10 @@ export default function IndustrialGroupDetailPage() {
                     </div>
                     <p className="text-xs text-slate-600 leading-relaxed">{it.requirement}</p>
                     <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-                      <span className="text-slate-500 font-medium">{it.name} • {it.location}</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-slate-500 font-medium">{it.name} • {it.location}</span>
+                        <PlanBadge plan={it.plan_name} size="xs" />
+                      </div>
                       <span className="text-slate-400 text-[10px]">{new Date(it.created_at).toLocaleDateString()}</span>
                     </div>
                   </article>
@@ -479,7 +483,10 @@ export default function IndustrialGroupDetailPage() {
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="font-display font-bold text-sm text-slate-900">{j.title}</h4>
-                        <p className="text-xs text-slate-500">{j.company_name} • {j.location}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-xs text-slate-500">{j.company_name} • {j.location}</p>
+                          <PlanBadge plan={j.plan_name} size="xs" />
+                        </div>
                       </div>
                       {j.salary && <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">{j.salary}</span>}
                     </div>

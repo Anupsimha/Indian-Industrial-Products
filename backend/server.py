@@ -390,8 +390,12 @@ class CompanyOut(BaseModel):
     certifications: Optional[List[str]] = None
     is_featured: bool = False
     followers_count: int = 0
+    following_count: int = 0
+    enquiries_count: int = 0
+    posts_count: int = 0
     is_following: bool = False
     is_owner: bool = False
+    plan_name: Optional[str] = "Free"
     created_at: str
 
 
@@ -493,6 +497,7 @@ class PostOut(BaseModel):
     is_saved: bool = False
     is_following: bool = False
     whatsapp: str
+    plan_name: Optional[str] = "Free"
     created_at: str
 
 
@@ -623,6 +628,7 @@ class CommentOut(BaseModel):
     user_name: str
     user_avatar: Optional[str]
     text: str
+    plan_name: Optional[str] = "Free"
     created_at: str
 
 
@@ -799,6 +805,9 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
     stmt_posts = select(func.count(Post.id)).where(Post.company_id == company.id)
     posts_count = (await db.execute(stmt_posts)).scalar_one()
 
+    stmt_u = select(User.plan_name).where(User.id == company.owner_id)
+    plan_name = (await db.execute(stmt_u)).scalar_one_or_none() or "Free"
+
     is_following = False
     is_owner = False
     if current_user:
@@ -823,6 +832,7 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
         enquiries_count=enquiries_count,
         posts_count=posts_count,
         is_following=is_following, is_owner=is_owner,
+        plan_name=plan_name,
         created_at=company.created_at,
     )
 
@@ -840,6 +850,9 @@ async def hydrate_post(post: Post, current_user: Optional[dict], db: AsyncSessio
 
     stmt_enq = select(func.count(Enquiry.id)).where(Enquiry.post_id == post.id)
     enquiries_count = (await db.execute(stmt_enq)).scalar_one()
+
+    stmt_u = select(User.plan_name).where(User.id == company.owner_id)
+    plan_name = (await db.execute(stmt_u)).scalar_one_or_none() or "Free"
     
     is_liked = False
     is_saved = False
@@ -870,7 +883,7 @@ async def hydrate_post(post: Post, current_user: Optional[dict], db: AsyncSessio
         comments_count=comments_count,
         enquiries_count=enquiries_count,
         is_liked=is_liked, is_saved=is_saved, is_following=is_following,
-        whatsapp=company.whatsapp, created_at=post.created_at,
+        whatsapp=company.whatsapp, plan_name=plan_name, created_at=post.created_at,
     )
 
 
@@ -1956,7 +1969,12 @@ async def delete_reel(reel_id: str, user: dict = Depends(get_current_user), db: 
 async def list_post_comments(post_id: str, db: AsyncSession = Depends(get_db)):
     stmt = select(Comment).where(Comment.post_id == post_id).order_by(desc(Comment.created_at))
     docs = (await db.execute(stmt)).scalars().all()
-    return [CommentOut(id=d.id, user_name=d.user_name, user_avatar=d.user_avatar, text=d.text, created_at=d.created_at) for d in docs]
+    out = []
+    for d in docs:
+        stmt_u = select(User.plan_name).where(User.id == d.user_id)
+        pn = (await db.execute(stmt_u)).scalar_one_or_none() or "Free"
+        out.append(CommentOut(id=d.id, user_name=d.user_name, user_avatar=d.user_avatar, text=d.text, plan_name=pn, created_at=d.created_at))
+    return out
 
 
 @api.post("/posts/{post_id}/comments", response_model=CommentOut)
@@ -1968,7 +1986,8 @@ async def add_post_comment(post_id: str, payload: CommentCreate, user: dict = De
     )
     db.add(doc)
     await db.commit()
-    return CommentOut(id=doc.id, user_name=doc.user_name, user_avatar=doc.user_avatar, text=doc.text, created_at=doc.created_at)
+    user_plan = user.get("plan_name") or "Free"
+    return CommentOut(id=doc.id, user_name=doc.user_name, user_avatar=doc.user_avatar, text=doc.text, plan_name=user_plan, created_at=doc.created_at)
 
 
 # -------------------- Admin --------------------

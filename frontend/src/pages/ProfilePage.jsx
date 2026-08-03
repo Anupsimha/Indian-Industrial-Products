@@ -17,6 +17,7 @@ import { ProductDialog } from "../components/ProductDialog";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
 import { SingleImageUploader } from "../components/MediaUploader";
 import { FollowersDialog } from "../components/FollowersDialog";
+import { PlanBadge } from "../components/PlanBadge";
 
 export default function ProfilePage() {
   const { user, loading, logout, updateUser } = useAuth();
@@ -94,17 +95,15 @@ export default function ProfilePage() {
 
           {/* User & Company Details */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="font-display text-xl sm:text-2xl font-black tracking-tight truncate">{user.name}</h2>
               <Verified size={18} className="text-blue-400 fill-blue-400 shrink-0" />
+              <PlanBadge plan={user.plan_name} size="sm" />
             </div>
 
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="text-sm font-semibold text-slate-200 truncate">
                 {company?.name || "Precision Parts India"}
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-500/90 text-white text-[9px] font-bold uppercase tracking-wider">
-                <Star size={8} className="fill-white" /> {user.plan_name || "Free"}
               </span>
             </div>
 

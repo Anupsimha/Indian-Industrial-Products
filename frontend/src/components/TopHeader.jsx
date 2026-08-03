@@ -4,6 +4,7 @@ import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Cr
 import { Logo } from "./Logo";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
+import { PlanBadge } from "./PlanBadge";
 import { toast } from "sonner";
 
 export const TopHeader = () => {
@@ -110,6 +111,12 @@ export const TopHeader = () => {
                 className="absolute right-0 mt-2 w-52 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-150 overflow-hidden"
                 data-testid="profile-dropdown"
               >
+                <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/50 mb-1">
+                  <div className="font-bold text-xs text-slate-900 truncate">{user.name}</div>
+                  <div className="mt-1 flex items-center gap-1">
+                    <PlanBadge plan={user.plan_name} size="xs" />
+                  </div>
+                </div>
                 <Link
                   to="/profile"
                   onClick={() => setDropdownOpen(false)}

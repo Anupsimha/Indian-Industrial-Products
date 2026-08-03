@@ -6,6 +6,7 @@ import { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
 import { useAuth } from "../context/AuthContext";
 import { EnquiryDialog } from "./EnquiryDialog";
+import { PlanBadge } from "./PlanBadge";
 
 export const PostCard = ({ post, onUpdate }) => {
   const { user } = useAuth();
@@ -97,13 +98,16 @@ export const PostCard = ({ post, onUpdate }) => {
           />
         </Link>
         <div className="min-w-0 flex-1">
-          <Link
-            to={`/company/${post.company_id}`}
-            className="font-display font-semibold text-[15px] lg:text-base text-slate-900 hover:text-blue-800 truncate block"
-            data-testid={`post-company-${post.id}`}
-          >
-            {post.company_name}
-          </Link>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Link
+              to={`/company/${post.company_id}`}
+              className="font-display font-semibold text-[15px] lg:text-base text-slate-900 hover:text-blue-800 truncate"
+              data-testid={`post-company-${post.id}`}
+            >
+              {post.company_name}
+            </Link>
+            <PlanBadge plan={post.plan_name} size="xs" />
+          </div>
           <div className="flex items-center gap-1 text-xs lg:text-sm text-slate-500">
             <MapPin size={12} className="lg:scale-110" />
             <span className="truncate">{post.location}</span>
@@ -305,7 +309,10 @@ export const PostCard = ({ post, onUpdate }) => {
               <li key={cm.id} className="flex items-start gap-2">
                 <img src={cm.user_avatar || "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80"} alt="" className="w-6 h-6 rounded-full object-cover" />
                 <div className="bg-white border border-slate-200 rounded-2xl px-3 py-1.5 lg:px-4 lg:py-2 text-xs lg:text-sm">
-                  <div className="font-semibold text-slate-900">{cm.user_name}</div>
+                  <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                    <span className="font-semibold text-slate-900">{cm.user_name}</span>
+                    <PlanBadge plan={cm.plan_name} size="xs" />
+                  </div>
                   <div className="text-slate-700">{cm.text}</div>
                 </div>
               </li>

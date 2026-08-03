@@ -15,6 +15,7 @@ import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
 import { BackButton } from "../components/BackButton";
 import { FollowersDialog } from "../components/FollowersDialog";
+import { PlanBadge } from "../components/PlanBadge";
 import { toast } from "sonner";
 
 export default function CompanyDetailPage() {
@@ -109,9 +110,10 @@ export default function CompanyDetailPage() {
         <div className="flex items-end gap-3">
           <img src={optimizedUrl(c.logo_url, { w: 200 })} className="w-20 h-20 rounded-2xl object-cover ring-4 ring-white shadow-md bg-white" alt="" />
           <div className="flex-1 pb-1">
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <h1 className="font-display text-xl font-bold text-slate-900 truncate">{c.name}</h1>
               <Verified size={16} className="text-blue-700" />
+              <PlanBadge plan={c.plan_name} size="sm" />
             </div>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-600 mt-0.5">
               <span className="inline-flex items-center gap-1"><MapPin size={12} /> {c.location}</span>
