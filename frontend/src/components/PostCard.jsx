@@ -12,6 +12,7 @@ export const PostCard = ({ post, onUpdate }) => {
   const isOwnPost = user && user.company_id === post.company_id;
   const [liked, setLiked] = useState(post.is_liked);
   const [likes, setLikes] = useState(post.likes_count);
+  const [views, setViews] = useState(post.views_count || 0);
   const [saved, setSaved] = useState(post.is_saved);
   const [following, setFollowing] = useState(post.is_following);
   const [popping, setPopping] = useState(false);
@@ -30,6 +31,24 @@ export const PostCard = ({ post, onUpdate }) => {
       api.get(`/posts/${post.id}/comments`).then((r) => setComments(r.data)).catch(() => {});
     }
   }, [showComments, post.id]);
+
+  useEffect(() => {
+    if (post?.id) {
+      const sessionKey = `viewed_post_${post.id}`;
+      const alreadyViewedInSession = sessionStorage.getItem(sessionKey);
+      if (alreadyViewedInSession) return;
+
+      sessionStorage.setItem(sessionKey, "1");
+      api
+        .post(`/posts/${post.id}/view`)
+        .then((res) => {
+          if (res.data && res.data.views_count !== undefined) {
+            setViews(res.data.views_count);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [post?.id]);
 
   const toggleLike = async () => {
     if (!requireAuth()) return;
@@ -166,16 +185,13 @@ export const PostCard = ({ post, onUpdate }) => {
         <div className="flex items-center justify-between px-4 py-2 border-b border-slate-50 text-[11px] sm:text-xs text-slate-500">
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1">
-              <span>👁️</span> {post.views_count || 245}
+              <span>👁️</span> {views}
             </span>
             <span className="flex items-center gap-1">
-              <span>❤️</span> {likes}
+              <span>❤️</span> {likes || 0}
             </span>
             <span className="flex items-center gap-1">
-              <span>💬</span> {comments.length || post.enquiries_count || 4}
-            </span>
-            <span className="flex items-center gap-1">
-              <span>🔁</span> {post.shares_count || 2}
+              <span>💬</span> {comments.length || post.comments_count || 0}
             </span>
           </div>
           <button

@@ -255,7 +255,7 @@ export default function IndustrialGroupDetailPage() {
             </div>
             <div>
               <div className="font-display font-bold text-base sm:text-lg text-slate-900">
-                {formatCount(group.posts_count || 6200)}
+                {formatCount(group.posts_count || 0)}
               </div>
               <div className="text-[10px] sm:text-xs text-slate-500 font-semibold">Posts & Updates</div>
             </div>

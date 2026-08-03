@@ -14,6 +14,7 @@ import { ProductDialog } from "../components/ProductDialog";
 import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
 import { BackButton } from "../components/BackButton";
+import { FollowersDialog } from "../components/FollowersDialog";
 import { toast } from "sonner";
 
 export default function CompanyDetailPage() {
@@ -23,6 +24,7 @@ export default function CompanyDetailPage() {
   const [posts, setPosts] = useState([]);
   const [products, setProducts] = useState([]);
   const [reels, setReels] = useState([]);
+  const [followersOpen, setFollowersOpen] = useState(false);
   const [tab, setTab] = useState("posts");
   const [enq, setEnq] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -115,9 +117,15 @@ export default function CompanyDetailPage() {
               <span className="inline-flex items-center gap-1"><MapPin size={12} /> {c.location}</span>
               <span className="inline-flex items-center gap-1"><Tag size={12} /> {c.category}</span>
             </div>
-            <div className="text-xs text-slate-500 mt-0.5">
-              <span className="font-semibold text-slate-700">{c.followers_count}</span> followers
-              {c.business_type && <span className="ml-2">• {c.business_type}</span>}
+            <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+              <button
+                onClick={() => setFollowersOpen(true)}
+                className="font-bold text-slate-900 hover:text-blue-800 hover:underline cursor-pointer"
+                data-testid="company-followers-count"
+              >
+                {c.followers_count || 0} followers
+              </button>
+              {c.business_type && <span className="ml-1">• {c.business_type}</span>}
             </div>
           </div>
         </div>
@@ -349,6 +357,7 @@ export default function CompanyDetailPage() {
       <ProductDialog open={productOpen} onClose={() => setProductOpen(false)} initial={editingProduct} onSaved={load} />
       <PostDialog open={postOpen} onClose={() => setPostOpen(false)} onSaved={load} />
       <ReelDialog open={reelOpen} onClose={() => setReelOpen(false)} onSaved={load} />
+      <FollowersDialog open={followersOpen} onClose={() => setFollowersOpen(false)} companyId={c.id} initialTab="followers" />
     </div>
   );
 }

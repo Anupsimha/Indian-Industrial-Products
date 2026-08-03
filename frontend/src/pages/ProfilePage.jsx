@@ -16,6 +16,7 @@ import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { ProductDialog } from "../components/ProductDialog";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
 import { SingleImageUploader } from "../components/MediaUploader";
+import { FollowersDialog } from "../components/FollowersDialog";
 
 export default function ProfilePage() {
   const { user, loading, logout, updateUser } = useAuth();
@@ -28,12 +29,16 @@ export default function ProfilePage() {
   const [reelOpen, setReelOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [stats, setStats] = useState({ posts_count: 0, followers_count: 0, following_count: 0, enquiries_count: 0 });
+  const [followersModalOpen, setFollowersModalOpen] = useState(false);
+  const [followersInitialTab, setFollowersInitialTab] = useState("followers");
   const navigate = useNavigate();
   const isBusiness = user?.role === "manufacturer" || user?.role === "supplier";
 
   const loadCompanyData = async () => {
-    if (user?.company_id) {
-      try {
+    try {
+      api.get("/users/me/stats").then((r) => setStats(r.data)).catch(() => {});
+      if (user?.company_id) {
         const [compRes, postsRes, prodsRes, reelsRes] = await Promise.all([
           api.get(`/companies/${user.company_id}`),
           api.get(`/companies/${user.company_id}/posts`),
@@ -44,9 +49,9 @@ export default function ProfilePage() {
         setPosts(postsRes.data);
         setProducts(prodsRes.data);
         setReels(reelsRes.data);
-      } catch (err) {
-        console.error("Error loading company data", err);
       }
+    } catch (err) {
+      console.error("Error loading company data", err);
     }
   };
 
@@ -127,22 +132,36 @@ export default function ProfilePage() {
         <div className="grid grid-cols-4 gap-2 text-center divide-x divide-slate-100">
           <div className="flex flex-col items-center justify-center">
             <FileText size={16} className="text-blue-600 mb-1" />
-            <span className="font-display font-extrabold text-slate-900 text-lg">{posts.length || 245}</span>
+            <span className="font-display font-extrabold text-slate-900 text-lg">{stats.posts_count || posts.length || 0}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Posts</span>
           </div>
-          <div className="flex flex-col items-center justify-center pl-1">
+          <div
+            onClick={() => {
+              setFollowersInitialTab("followers");
+              setFollowersModalOpen(true);
+            }}
+            className="flex flex-col items-center justify-center pl-1 cursor-pointer hover:bg-slate-50 rounded-xl transition-colors py-1"
+            data-testid="profile-followers-btn"
+          >
             <Users size={16} className="text-orange-500 mb-1" />
-            <span className="font-display font-extrabold text-slate-900 text-lg">{company?.followers_count || "12.5K"}</span>
+            <span className="font-display font-extrabold text-slate-900 text-lg">{stats.followers_count || company?.followers_count || 0}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Followers</span>
           </div>
-          <div className="flex flex-col items-center justify-center pl-1">
+          <div
+            onClick={() => {
+              setFollowersInitialTab("following");
+              setFollowersModalOpen(true);
+            }}
+            className="flex flex-col items-center justify-center pl-1 cursor-pointer hover:bg-slate-50 rounded-xl transition-colors py-1"
+            data-testid="profile-following-btn"
+          >
             <UserPlus size={16} className="text-green-500 mb-1" />
-            <span className="font-display font-extrabold text-slate-900 text-lg">1.2K</span>
+            <span className="font-display font-extrabold text-slate-900 text-lg">{stats.following_count || company?.following_count || 0}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Following</span>
           </div>
           <div className="flex flex-col items-center justify-center pl-1">
             <Inbox size={16} className="text-purple-600 mb-1" />
-            <span className="font-display font-extrabold text-slate-900 text-lg">85</span>
+            <span className="font-display font-extrabold text-slate-900 text-lg">{stats.enquiries_count || company?.enquiries_count || 0}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Enquiries</span>
           </div>
         </div>
@@ -461,6 +480,12 @@ export default function ProfilePage() {
       {company && (
         <CompanyEditDialog open={editOpen} onClose={() => setEditOpen(false)} company={company} onSaved={loadCompanyData} />
       )}
+      <FollowersDialog
+        open={followersModalOpen}
+        onClose={() => setFollowersModalOpen(false)}
+        companyId={company?.id}
+        initialTab={followersInitialTab}
+      />
     </div>
   );
 }

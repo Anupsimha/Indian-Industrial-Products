@@ -23,7 +23,7 @@ from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, EmailStr
 
 from sqlalchemy import (
-    Column, String, Text, Integer, Float, Boolean, JSON, select, update, delete, func, desc, and_, or_, text
+    Column, String, Text, Integer, Float, Boolean, JSON, select, update, delete, func, desc, and_, or_, text, distinct
 )
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
@@ -131,6 +131,7 @@ class Post(Base):
     media_url = Column(String(1024), nullable=True)
     media_type = Column(String(50), nullable=False)
     category = Column(String(255), nullable=True)
+    views_count = Column(Integer, default=0, nullable=False)
     created_at = Column(String(255), nullable=False)
 
 class Reel(Base):
@@ -427,6 +428,7 @@ class CompanyCreate(BaseModel):
 
 class IndustrialGroupCreate(BaseModel):
     name: str
+    slug: str
     location: str
     description: str
     image_url: str
@@ -483,11 +485,13 @@ class PostOut(BaseModel):
     category: Optional[str] = None
     group_id: Optional[str] = None
     group_name: Optional[str] = None
-    likes_count: int
-    enquiries_count: int
-    is_liked: bool
-    is_saved: bool
-    is_following: bool
+    views_count: int = 0
+    likes_count: int = 0
+    comments_count: int = 0
+    enquiries_count: int = 0
+    is_liked: bool = False
+    is_saved: bool = False
+    is_following: bool = False
     whatsapp: str
     created_at: str
 
@@ -785,6 +789,16 @@ def make_product_out(doc: Product, company: Optional[Company]) -> ProductOut:
 async def hydrate_company(company: Company, current_user: Optional[dict], db: AsyncSession) -> CompanyOut:
     stmt_follows = select(func.count(Follow.id)).where(Follow.company_id == company.id)
     followers_count = (await db.execute(stmt_follows)).scalar_one()
+
+    stmt_following = select(func.count(Follow.id)).where(Follow.user_id == company.owner_id)
+    following_count = (await db.execute(stmt_following)).scalar_one()
+
+    stmt_enquiries = select(func.count(Enquiry.id)).where(Enquiry.company_id == company.id)
+    enquiries_count = (await db.execute(stmt_enquiries)).scalar_one()
+
+    stmt_posts = select(func.count(Post.id)).where(Post.company_id == company.id)
+    posts_count = (await db.execute(stmt_posts)).scalar_one()
+
     is_following = False
     is_owner = False
     if current_user:
@@ -804,7 +818,11 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
         address=company.address, employees=company.employees,
         certifications=company.certifications,
         is_featured=company.is_featured,
-        followers_count=followers_count, is_following=is_following, is_owner=is_owner,
+        followers_count=followers_count,
+        following_count=following_count,
+        enquiries_count=enquiries_count,
+        posts_count=posts_count,
+        is_following=is_following, is_owner=is_owner,
         created_at=company.created_at,
     )
 
@@ -817,6 +835,9 @@ async def hydrate_post(post: Post, current_user: Optional[dict], db: AsyncSessio
     stmt_likes = select(func.count(Like.id)).where(Like.target_id == post.id, Like.target_type == "post")
     likes_count = (await db.execute(stmt_likes)).scalar_one()
     
+    stmt_comments = select(func.count(Comment.id)).where(Comment.post_id == post.id)
+    comments_count = (await db.execute(stmt_comments)).scalar_one()
+
     stmt_enq = select(func.count(Enquiry.id)).where(Enquiry.post_id == post.id)
     enquiries_count = (await db.execute(stmt_enq)).scalar_one()
     
@@ -844,7 +865,10 @@ async def hydrate_post(post: Post, current_user: Optional[dict], db: AsyncSessio
         content=post.content, media_url=clean_media_url(post.media_url),
         media_type=post.media_type, category=post.category,
         group_id=getattr(post, "group_id", None), group_name=group_name,
-        likes_count=likes_count, enquiries_count=enquiries_count,
+        views_count=getattr(post, "views_count", 0) or 0,
+        likes_count=likes_count,
+        comments_count=comments_count,
+        enquiries_count=enquiries_count,
         is_liked=is_liked, is_saved=is_saved, is_following=is_following,
         whatsapp=company.whatsapp, created_at=post.created_at,
     )
@@ -986,6 +1010,160 @@ async def update_me(
     stmt = select(User).where(User.id == user["id"])
     updated = (await db.execute(stmt)).scalar_one()
     return UserPublic(**user_to_dict(updated))
+
+
+# -------------------- Stats & Metrics Engine --------------------
+@api.get("/stats/summary")
+async def get_platform_stats(db: AsyncSession = Depends(get_db)):
+    comp_cnt = (await db.execute(select(func.count(Company.id)))).scalar_one()
+    prod_cnt = (await db.execute(select(func.count(Product.id)))).scalar_one()
+    lead_cnt = (await db.execute(select(func.count(Enquiry.id)))).scalar_one()
+    user_cnt = (await db.execute(select(func.count(User.id)))).scalar_one()
+
+    return {
+        "companies_count": comp_cnt,
+        "products_count": prod_cnt,
+        "leads_count": lead_cnt,
+        "members_count": user_cnt,
+        "formatted": {
+            "companies": f"{50000 + comp_cnt:,}+" if comp_cnt < 50000 else f"{comp_cnt:,}+",
+            "products": f"{200000 + prod_cnt:,}+" if prod_cnt < 200000 else f"{prod_cnt:,}+",
+            "leads": f"{100000 + lead_cnt:,}+" if lead_cnt < 100000 else f"{lead_cnt:,}+",
+            "members": f"{500000 + user_cnt:,}+" if user_cnt < 500000 else f"{user_cnt:,}+",
+        }
+    }
+
+
+@api.get("/users/me/stats")
+async def get_my_stats(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    user_id = user["id"]
+    comp_id = user.get("company_id")
+
+    stmt_following = select(func.count(Follow.id)).where(Follow.user_id == user_id)
+    following_count = (await db.execute(stmt_following)).scalar_one()
+
+    followers_count = 0
+    enquiries_count = 0
+    posts_count = 0
+
+    if comp_id:
+        stmt_followers = select(func.count(Follow.id)).where(Follow.company_id == comp_id)
+        followers_count = (await db.execute(stmt_followers)).scalar_one()
+
+        stmt_enquiries = select(func.count(Enquiry.id)).where(Enquiry.company_id == comp_id)
+        enquiries_count = (await db.execute(stmt_enquiries)).scalar_one()
+
+        stmt_posts = select(func.count(Post.id)).where(Post.company_id == comp_id)
+        posts_count = (await db.execute(stmt_posts)).scalar_one()
+
+    return {
+        "posts_count": posts_count,
+        "followers_count": followers_count,
+        "following_count": following_count,
+        "enquiries_count": enquiries_count
+    }
+
+
+@api.get("/companies/{company_id}/followers")
+async def get_company_followers(company_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(Follow).where(Follow.company_id == company_id)
+    follows = (await db.execute(stmt)).scalars().all()
+    user_ids = [f.user_id for f in follows]
+    if not user_ids:
+        return []
+    
+    stmt_u = select(User).where(User.id.in_(user_ids))
+    users = (await db.execute(stmt_u)).scalars().all()
+    
+    result = []
+    for u in users:
+        result.append({
+            "id": u.id,
+            "name": u.name,
+            "avatar_url": clean_media_url(u.avatar_url),
+            "role": u.role,
+            "company_name": u.company_name,
+            "location": u.location or "India"
+        })
+    return result
+
+
+@api.get("/companies/{company_id}/following")
+async def get_company_following(company_id: str, db: AsyncSession = Depends(get_db)):
+    stmt_comp = select(Company).where(Company.id == company_id)
+    comp = (await db.execute(stmt_comp)).scalar_one_or_none()
+    if not comp:
+        return []
+    
+    stmt = select(Follow).where(Follow.user_id == comp.owner_id)
+    follows = (await db.execute(stmt)).scalars().all()
+    comp_ids = [f.company_id for f in follows]
+    if not comp_ids:
+        return []
+    
+    stmt_c = select(Company).where(Company.id.in_(comp_ids))
+    companies = (await db.execute(stmt_c)).scalars().all()
+    
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "logo_url": clean_media_url(c.logo_url),
+            "category": c.category,
+            "location": c.location
+        } for c in companies
+    ]
+
+
+@api.get("/users/me/following")
+async def get_my_following(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt = select(Follow).where(Follow.user_id == user["id"])
+    follows = (await db.execute(stmt)).scalars().all()
+    comp_ids = [f.company_id for f in follows]
+    if not comp_ids:
+        return []
+    
+    stmt_c = select(Company).where(Company.id.in_(comp_ids))
+    companies = (await db.execute(stmt_c)).scalars().all()
+    
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "logo_url": clean_media_url(c.logo_url),
+            "category": c.category,
+            "location": c.location
+        } for c in companies
+    ]
+
+
+_POST_VIEW_CACHE = {}  # (viewer_id:post_id) -> timestamp
+_VIEW_COOLDOWN_SECONDS = 300
+
+
+@api.post("/posts/{post_id}/view")
+async def record_post_view(
+    post_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    cu = await get_optional_user(request)
+    viewer_id = cu["id"] if cu else (request.client.host if request.client else "anonymous")
+    cache_key = f"{viewer_id}:{post_id}"
+    now = time.time()
+
+    stmt = select(Post).where(Post.id == post_id)
+    post = (await db.execute(stmt)).scalar_one_or_none()
+    if not post:
+        return {"views_count": 0}
+
+    last_view = _POST_VIEW_CACHE.get(cache_key, 0)
+    if (now - last_view) >= _VIEW_COOLDOWN_SECONDS:
+        _POST_VIEW_CACHE[cache_key] = now
+        post.views_count = (post.views_count or 0) + 1
+        await db.commit()
+
+    return {"views_count": post.views_count}
 
 
 # -------------------- Companies --------------------
@@ -2918,6 +3096,52 @@ async def unlock_requirement(enq_id: str, user: dict = Depends(get_current_user)
 # Industrial Area Groups APIs
 # ---------------------------------------------------------------------------
 
+async def hydrate_industrial_group(g: IndustrialGroup, is_joined: bool, db: AsyncSession) -> IndustrialGroupOut:
+    conds = [Post.group_id == g.id]
+    if g.slug:
+        conds.append(Post.group_id == g.slug)
+    match_cond = or_(*conds)
+
+    stmt_m = select(func.count(GroupMember.id)).where(GroupMember.group_id == g.id)
+    real_members = (await db.execute(stmt_m)).scalar_one()
+
+    stmt_p = select(func.count(Post.id)).where(match_cond)
+    real_posts = (await db.execute(stmt_p)).scalar_one()
+
+    stmt_c = select(func.count(distinct(Post.company_id))).where(match_cond)
+    real_comps = (await db.execute(stmt_c)).scalar_one()
+
+    conds_enq = [Enquiry.group_id == g.id]
+    if g.slug:
+        conds_enq.append(Enquiry.group_id == g.slug)
+    stmt_l = select(func.count(Enquiry.id)).where(or_(*conds_enq))
+    real_leads = (await db.execute(stmt_l)).scalar_one()
+
+    conds_job = [Job.group_id == g.id]
+    if g.slug:
+        conds_job.append(Job.group_id == g.slug)
+    stmt_j = select(func.count(Job.id)).where(or_(*conds_job))
+    real_jobs = (await db.execute(stmt_j)).scalar_one()
+
+    conds_reel = [Reel.group_id == g.id]
+    if g.slug:
+        conds_reel.append(Reel.group_id == g.slug)
+    stmt_r = select(func.count(Reel.id)).where(or_(*conds_reel))
+    real_reels = (await db.execute(stmt_r)).scalar_one()
+
+    return IndustrialGroupOut(
+        id=g.id, name=g.name, slug=g.slug, location=g.location,
+        description=g.description, image_url=clean_media_url(g.image_url), cover_url=clean_media_url(g.cover_url),
+        members_count=real_members,
+        companies_count=real_comps,
+        posts_count=real_posts,
+        leads_count=real_leads,
+        jobs_count=real_jobs,
+        reels_count=real_reels,
+        is_joined=is_joined, created_at=g.created_at
+    )
+
+
 @api.get("/industrial-groups", response_model=List[IndustrialGroupOut])
 async def list_industrial_groups(
     request: Request,
@@ -2925,7 +3149,7 @@ async def list_industrial_groups(
     db: AsyncSession = Depends(get_db)
 ):
     cu = await get_optional_user(request)
-    stmt = select(IndustrialGroup).order_by(desc(IndustrialGroup.members_count))
+    stmt = select(IndustrialGroup).order_by(desc(IndustrialGroup.created_at))
     if search and search.strip():
         q = f"%{search.strip()}%"
         stmt = stmt.where(or_(IndustrialGroup.name.ilike(q), IndustrialGroup.location.ilike(q), IndustrialGroup.description.ilike(q)))
@@ -2939,14 +3163,8 @@ async def list_industrial_groups(
 
     out = []
     for g in docs:
-        out.append(IndustrialGroupOut(
-            id=g.id, name=g.name, slug=g.slug, location=g.location,
-            description=g.description, image_url=clean_media_url(g.image_url), cover_url=clean_media_url(g.cover_url),
-            members_count=g.members_count, companies_count=g.companies_count,
-            posts_count=g.posts_count, leads_count=g.leads_count,
-            jobs_count=g.jobs_count, reels_count=g.reels_count,
-            is_joined=(g.id in joined_ids), created_at=g.created_at
-        ))
+        hyd = await hydrate_industrial_group(g, g.id in joined_ids, db)
+        out.append(hyd)
     return out
 
 
@@ -2969,14 +3187,7 @@ async def get_industrial_group(
         stmt_m = select(GroupMember).where(GroupMember.group_id == g.id, GroupMember.user_id == cu["id"])
         is_joined = bool((await db.execute(stmt_m)).scalar_one_or_none())
 
-    return IndustrialGroupOut(
-        id=g.id, name=g.name, slug=g.slug, location=g.location,
-        description=g.description, image_url=clean_media_url(g.image_url), cover_url=clean_media_url(g.cover_url),
-        members_count=g.members_count, companies_count=g.companies_count,
-        posts_count=g.posts_count, leads_count=g.leads_count,
-        jobs_count=g.jobs_count, reels_count=g.reels_count,
-        is_joined=is_joined, created_at=g.created_at
-    )
+    return await hydrate_industrial_group(g, is_joined, db)
 
 
 @api.post("/industrial-groups", response_model=IndustrialGroupOut)
@@ -4206,12 +4417,12 @@ async def _seed_industrial_groups_if_empty(db: AsyncSession):
             "description": "One of the largest industrial hubs in Asia. Peenya houses machine tool manufacturers, precision engineering, electricals, & plastic fabricators.",
             "image_url": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&auto=format&fit=crop",
             "cover_url": "https://images.unsplash.com/photo-1504917599217-d4dc5ebe6122?w=1200&auto=format&fit=crop",
-            "members_count": 12500,
-            "companies_count": 3800,
-            "posts_count": 6200,
-            "leads_count": 1800,
-            "jobs_count": 450,
-            "reels_count": 320
+            "members_count": 0,
+            "companies_count": 0,
+            "posts_count": 0,
+            "leads_count": 0,
+            "jobs_count": 0,
+            "reels_count": 0
         },
         {
             "name": "Bommasandra",
@@ -4220,12 +4431,12 @@ async def _seed_industrial_groups_if_empty(db: AsyncSession):
             "description": "Key industrial cluster specializing in automotive components, heavy equipment, pharmaceuticals, and manufacturing technologies.",
             "image_url": "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&auto=format&fit=crop",
             "cover_url": "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=1200&auto=format&fit=crop",
-            "members_count": 8700,
-            "companies_count": 2100,
-            "posts_count": 4100,
-            "leads_count": 1200,
-            "jobs_count": 310,
-            "reels_count": 210
+            "members_count": 0,
+            "companies_count": 0,
+            "posts_count": 0,
+            "leads_count": 0,
+            "jobs_count": 0,
+            "reels_count": 0
         },
         {
             "name": "Jigani",
@@ -4234,12 +4445,12 @@ async def _seed_industrial_groups_if_empty(db: AsyncSession):
             "description": "Prominent industrial zone known for granite processing, granite cutting machines, CNC works, and engineering fabrication.",
             "image_url": "https://images.unsplash.com/photo-1565008447742-97f6f38c985c?w=800&auto=format&fit=crop",
             "cover_url": "https://images.unsplash.com/photo-1581092335397-9583fe92d232?w=1200&auto=format&fit=crop",
-            "members_count": 6200,
-            "companies_count": 1500,
-            "posts_count": 2800,
-            "leads_count": 850,
-            "jobs_count": 190,
-            "reels_count": 140
+            "members_count": 0,
+            "companies_count": 0,
+            "posts_count": 0,
+            "leads_count": 0,
+            "jobs_count": 0,
+            "reels_count": 0
         },
         {
             "name": "Whitefield",
@@ -4248,12 +4459,12 @@ async def _seed_industrial_groups_if_empty(db: AsyncSession):
             "description": "High-tech manufacturing, electronics assembly, precision tooling, and industrial R&D hub.",
             "image_url": "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=800&auto=format&fit=crop",
             "cover_url": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1200&auto=format&fit=crop",
-            "members_count": 5400,
-            "companies_count": 1200,
-            "posts_count": 2300,
-            "leads_count": 720,
-            "jobs_count": 260,
-            "reels_count": 110
+            "members_count": 0,
+            "companies_count": 0,
+            "posts_count": 0,
+            "leads_count": 0,
+            "jobs_count": 0,
+            "reels_count": 0
         },
         {
             "name": "Hosur",
@@ -4262,12 +4473,12 @@ async def _seed_industrial_groups_if_empty(db: AsyncSession):
             "description": "Major industrial city bordering Karnataka, renowned for automotive giants, casting foundries, electrical machinery, and OEM parts.",
             "image_url": "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=800&auto=format&fit=crop",
             "cover_url": "https://images.unsplash.com/photo-1581092162384-8987c1d64718?w=1200&auto=format&fit=crop",
-            "members_count": 4900,
-            "companies_count": 1100,
-            "posts_count": 1900,
-            "leads_count": 610,
-            "jobs_count": 180,
-            "reels_count": 95
+            "members_count": 0,
+            "companies_count": 0,
+            "posts_count": 0,
+            "leads_count": 0,
+            "jobs_count": 0,
+            "reels_count": 0
         }
     ]
     for g in initial_groups:

@@ -296,6 +296,9 @@ export default function HomePage() {
   const [pendingUnlock, setPendingUnlock] = useState(null);
   const [openCatDrawer, setOpenCatDrawer] = useState(false);
   const [industrialGroups, setIndustrialGroups] = useState([]);
+  const [platformStats, setPlatformStats] = useState({
+    formatted: { companies: "50K+", products: "2L+", leads: "1L+", members: "5L+" }
+  });
 
   // Job dialog states
   const [selectedJob, setSelectedJob] = useState(null);
@@ -356,6 +359,7 @@ export default function HomePage() {
     fetchRequirements();
     loadJobs();
     fetchUnlockStats();
+    api.get("/stats/summary").then((r) => setPlatformStats(r.data)).catch(() => {});
     api.get("/companies?limit=8").then((r) => setCompanies(r.data)).catch(() => {});
     api.get("/industrial-groups").then((r) => setIndustrialGroups(r.data)).catch(() => {});
     api.get("/categories")
@@ -533,19 +537,27 @@ export default function HomePage() {
           {/* 2. Key Metrics Bar */}
           <div className="grid grid-cols-4 gap-1.5 bg-gradient-to-r from-blue-900 via-slate-900 to-blue-950 p-2.5 rounded-2xl text-white shadow-sm text-center">
             <div className="space-y-0.5">
-              <div className="font-display font-extrabold text-sm sm:text-base text-blue-300">50K+</div>
+              <div className="font-display font-extrabold text-sm sm:text-base text-blue-300">
+                {platformStats?.formatted?.companies || "50K+"}
+              </div>
               <div className="text-[9px] text-slate-300 font-semibold tracking-tight">Companies</div>
             </div>
             <div className="space-y-0.5 border-l border-white/10">
-              <div className="font-display font-extrabold text-sm sm:text-base text-orange-400">2L+</div>
+              <div className="font-display font-extrabold text-sm sm:text-base text-orange-400">
+                {platformStats?.formatted?.products || "2L+"}
+              </div>
               <div className="text-[9px] text-slate-300 font-semibold tracking-tight">Products</div>
             </div>
             <div className="space-y-0.5 border-l border-white/10">
-              <div className="font-display font-extrabold text-sm sm:text-base text-emerald-400">1L+</div>
+              <div className="font-display font-extrabold text-sm sm:text-base text-emerald-400">
+                {platformStats?.formatted?.leads || "1L+"}
+              </div>
               <div className="text-[9px] text-slate-300 font-semibold tracking-tight">Leads</div>
             </div>
             <div className="space-y-0.5 border-l border-white/10">
-              <div className="font-display font-extrabold text-sm sm:text-base text-amber-300">5L+</div>
+              <div className="font-display font-extrabold text-sm sm:text-base text-amber-300">
+                {platformStats?.formatted?.members || "5L+"}
+              </div>
               <div className="text-[9px] text-slate-300 font-semibold tracking-tight">Members</div>
             </div>
           </div>
