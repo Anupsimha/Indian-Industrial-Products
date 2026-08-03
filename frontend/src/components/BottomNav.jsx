@@ -50,11 +50,11 @@ export const BottomNav = () => {
         className="fixed bottom-0 inset-x-0 z-40 backdrop-blur-md bg-white/95 border-t border-slate-200"
         data-testid="bottom-nav"
       >
-        <div className="max-w-md md:max-w-2xl mx-auto">
-          <ul className="grid grid-cols-5">
+        <div className="max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto">
+          <ul className="grid grid-cols-5 lg:flex lg:justify-evenly lg:items-center lg:h-20">
             {navItems.map(({ to, label, icon: Icon, testid, isCenter }) => {
               const requiresAuth = (to === "/leads" || to === "/requirements") && !user;
-              
+
               if (isCenter) {
                 return (
                   <li key={to} className="flex-1">
@@ -64,7 +64,7 @@ export const BottomNav = () => {
                       className="w-full flex flex-col items-center justify-center py-2.5 lg:py-3 gap-1 transition-all text-slate-500 hover:text-blue-800"
                     >
                       <span className="grid place-items-center w-11 h-11 lg:w-14 lg:h-14 lg:-mt-7 -mt-5 rounded-full bg-orange-600 text-white shadow-lg transition-transform hover:scale-105 active:scale-95">
-                        <Icon size={26}/>
+                        <Icon size={26} />
                       </span>
                       <span className="text-[10px] lg:text-xs font-semibold">{label}</span>
                     </button>
@@ -78,13 +78,12 @@ export const BottomNav = () => {
                     to={requiresAuth ? "/login" : to}
                     end={to === "/"}
                     data-testid={testid}
-                    className={({isActive}) =>
-                      `flex flex-col items-center justify-center py-2.5 lg:py-3 gap-1 transition-all ${
-                        isActive && !requiresAuth ? "text-blue-800" : "text-slate-500 hover:text-blue-800"
+                    className={({ isActive }) =>
+                      `flex flex-col items-center justify-center py-2.5 lg:py-3 gap-1 transition-all ${isActive && !requiresAuth ? "text-blue-800" : "text-slate-500 hover:text-blue-800"
                       }`
                     }
                   >
-                    <Icon size={22}/>
+                    <Icon size={22} />
                     <span className="text-[10px] lg:text-xs font-semibold">{label}</span>
                   </NavLink>
                 </li>
@@ -96,12 +95,12 @@ export const BottomNav = () => {
 
       {/* Post Type Prompt Modal */}
       {promptOpen && (
-        <div 
-          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" 
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => setPromptOpen(false)}
         >
-          <div 
-            className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-200" 
+          <div
+            className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
             data-testid="post-prompt-modal"
           >
@@ -111,7 +110,7 @@ export const BottomNav = () => {
                 <X size={18} />
               </button>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-3">
               {user?.role === "buyer" ? (
                 <button
