@@ -98,10 +98,12 @@ export const UserEditDialog = ({ open, onClose, user, onSaved }) => {
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Account Role</label>
             <select
               value={role}
+              disabled={user?.role === "admin"}
               onChange={(e) => setRole(e.target.value)}
               data-testid="edit-user-role-select"
-              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
+              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white disabled:bg-slate-100 disabled:text-slate-500"
             >
+              {user?.role === "admin" && <option value="admin">Administrator</option>}
               <option value="manufacturer">Manufacturer</option>
               <option value="supplier">Supplier</option>
               <option value="buyer">Buyer</option>

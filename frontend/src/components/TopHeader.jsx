@@ -125,17 +125,19 @@ export const TopHeader = () => {
                   Profile
                 </Link>
 
-                <Link
-                  to="/membership"
-                  onClick={() => setDropdownOpen(false)}
-                  className="block px-4 py-2 text-xs font-bold text-amber-800 bg-amber-50/80 hover:bg-amber-100/80 transition-colors"
-                  data-testid="dropdown-membership-link"
-                >
-                  <div className="flex items-center gap-2">
-                    <Crown size={15} className="text-amber-600 shrink-0" />
-                    <span>Manage Membership</span>
-                  </div>
-                </Link>
+                {user.role !== "admin" && (
+                  <Link
+                    to="/membership"
+                    onClick={() => setDropdownOpen(false)}
+                    className="block px-4 py-2 text-xs font-bold text-amber-800 bg-amber-50/80 hover:bg-amber-100/80 transition-colors"
+                    data-testid="dropdown-membership-link"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Crown size={15} className="text-amber-600 shrink-0" />
+                      <span>Manage Membership</span>
+                    </div>
+                  </Link>
+                )}
 
                 <Link
                   to="/settings"

@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Mail, CheckCircle2, RefreshCw, ShieldCheck, ArrowRight, Lock } from "lucide-react";
+import { Mail, CheckCircle2, RefreshCw, ShieldCheck, ArrowRight, Lock, ArrowLeft, AlertTriangle, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import api from "../lib/api";
 import { toast } from "sonner";
-import { BackButton } from "../components/BackButton";
 
 export default function VerifyOtpPage() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -17,6 +16,7 @@ export default function VerifyOtpPage() {
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [timer, setTimer] = useState(30);
+  const [showExitModal, setShowExitModal] = useState(false);
 
   const inputRefs = useRef([]);
 
@@ -93,10 +93,28 @@ export default function VerifyOtpPage() {
     }
   };
 
+  const handleConfirmExit = async () => {
+    try {
+      await logout();
+      toast.message("Signed out of unverified session.");
+    } catch (e) {}
+    navigate("/", { replace: true });
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8" data-testid="verify-otp-page">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <BackButton className="mb-4" />
+        
+        {/* Custom Back Button triggers Exit Confirmation Dialog */}
+        <button
+          type="button"
+          onClick={() => setShowExitModal(true)}
+          data-testid="verify-otp-back-btn"
+          className="mb-4 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-100 shadow-2xs transition-all"
+        >
+          <ArrowLeft size={14} /> Back to Home
+        </button>
+
         <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-xl space-y-6 text-center">
           
           <div className="w-16 h-16 bg-blue-50 text-blue-800 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
@@ -164,6 +182,44 @@ export default function VerifyOtpPage() {
 
         </div>
       </div>
+
+      {/* Confirmation Exit Modal */}
+      {showExitModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4" data-testid="exit-otp-modal">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 text-center">
+            
+            <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+              <AlertTriangle size={24} />
+            </div>
+
+            <div>
+              <h3 className="font-display font-bold text-slate-900 text-lg">Cancel Verification?</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                If you leave without verifying your email, you will be signed out of your unverified account.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleConfirmExit}
+                data-testid="confirm-exit-btn"
+                className="w-full py-2.5 rounded-xl bg-red-600 text-white font-bold text-xs hover:bg-red-700 transition-colors"
+              >
+                Yes, Sign Out &amp; Return Home
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowExitModal(false)}
+                className="w-full py-2.5 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-100 transition-colors"
+              >
+                Continue Verification
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }

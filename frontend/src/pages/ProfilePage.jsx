@@ -16,6 +16,7 @@ import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { ProductDialog } from "../components/ProductDialog";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
 import { UserEditDialog } from "../components/UserEditDialog";
+import { AdminSetupModal } from "../components/AdminSetupModal";
 import { SingleImageUploader } from "../components/MediaUploader";
 import { FollowersDialog } from "../components/FollowersDialog";
 import { PlanBadge } from "../components/PlanBadge";
@@ -32,6 +33,7 @@ export default function ProfilePage() {
   const [productOpen, setProductOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [userEditOpen, setUserEditOpen] = useState(false);
+  const [adminSetupOpen, setAdminSetupOpen] = useState(false);
   const [stats, setStats] = useState({ posts_count: 0, followers_count: 0, following_count: 0, enquiries_count: 0 });
   const [followersModalOpen, setFollowersModalOpen] = useState(false);
   const [followersInitialTab, setFollowersInitialTab] = useState("followers");
@@ -95,55 +97,107 @@ export default function ProfilePage() {
             />
           </div>
 
-          {/* User & Company Details */}
+          {/* User & Company / Admin Details */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="font-display text-xl sm:text-2xl font-black tracking-tight truncate">{user.name}</h2>
-              <Verified size={18} className="text-blue-400 fill-blue-400 shrink-0" />
-              <PlanBadge plan={user.plan_name} size="sm" />
-            </div>
+            {user.role === "admin" ? (
+              <>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="font-display text-xl sm:text-2xl font-black tracking-tight truncate">{user.name}</h2>
+                  <Verified size={18} className="text-blue-400 fill-blue-400 shrink-0" />
+                  <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-400/40 text-[10px] font-black uppercase tracking-wider">
+                    ADMIN
+                  </span>
+                </div>
 
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="text-sm font-semibold text-slate-200 truncate">
-                {company?.name || "Precision Parts India"}
-              </span>
-            </div>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <span className="text-sm font-bold text-amber-300 truncate">
+                    Platform Administrator &amp; Security Operations
+                  </span>
+                </div>
 
-            <div className="flex items-center gap-1 text-xs text-slate-400 mt-1.5">
-              <MapPin size={12} className="text-slate-400 shrink-0" />
-              <span className="truncate">{company?.location || "Bengaluru - Peenya Industrial Area"}</span>
-            </div>
+                <div className="flex items-center gap-1 text-xs text-slate-300 mt-1.5">
+                  <MapPin size={12} className="text-slate-400 shrink-0" />
+                  <span className="truncate">IIP Central Operations Hub, India</span>
+                </div>
 
-            <p className="text-xs text-slate-300 mt-2 leading-relaxed max-w-xl">
-              {company?.description || "Manufacturer of precision machined components for industrial and engineering applications."}
-            </p>
+                <p className="text-xs text-slate-300 mt-2 leading-relaxed max-w-xl">
+                  Administrator account with platform configuration, industrial group moderation, and ecosystem security privileges.
+                </p>
 
-            <div className="flex items-center gap-1 text-xs text-blue-400 mt-2 hover:underline">
-              <Globe size={12} className="shrink-0" />
-              <a href={company?.website ? `http://${company.website}` : "https://www.precisionpartsindia.com"} target="_blank" rel="noreferrer" className="truncate">
-                {company?.website || "www.precisionpartsindia.com"}
-              </a>
-            </div>
+                <div className="flex items-center gap-1 text-xs text-blue-400 mt-2 hover:underline">
+                  <Globe size={12} className="shrink-0" />
+                  <span className="truncate">www.indianindustrialproducts.com</span>
+                </div>
 
-            {/* Quick Action Edit Buttons */}
-            <div className="mt-3.5 flex items-center gap-2 flex-wrap">
-              <button
-                onClick={() => setUserEditOpen(true)}
-                className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 border border-white/15"
-                data-testid="profile-edit-user-btn"
-              >
-                <Edit size={13} /> Edit Profile
-              </button>
-              {isBusiness && (
-                <button
-                  onClick={() => setEditOpen(true)}
-                  className="px-3 py-1.5 rounded-full bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 border border-blue-400/30"
-                  data-testid="profile-edit-company-btn"
-                >
-                  <Building2 size={13} /> Edit Company
-                </button>
-              )}
-            </div>
+                {/* Quick Action Edit Buttons */}
+                <div className="mt-3.5 flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setUserEditOpen(true)}
+                    className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 border border-white/15"
+                    data-testid="profile-edit-user-btn"
+                  >
+                    <Edit size={13} /> Edit Profile
+                  </button>
+                  <button
+                    onClick={() => navigate("/account-security")}
+                    className="px-3 py-1.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 border border-purple-400/40 shadow-sm"
+                    data-testid="profile-admin-security-btn"
+                  >
+                    <ShieldCheck size={13} /> Security Settings
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="font-display text-xl sm:text-2xl font-black tracking-tight truncate">{user.name}</h2>
+                  <Verified size={18} className="text-blue-400 fill-blue-400 shrink-0" />
+                  <PlanBadge plan={user.plan_name} size="sm" />
+                </div>
+
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <span className="text-sm font-semibold text-slate-200 truncate">
+                    {company?.name || "Precision Parts India"}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1 text-xs text-slate-400 mt-1.5">
+                  <MapPin size={12} className="text-slate-400 shrink-0" />
+                  <span className="truncate">{company?.location || "Bengaluru - Peenya Industrial Area"}</span>
+                </div>
+
+                <p className="text-xs text-slate-300 mt-2 leading-relaxed max-w-xl">
+                  {company?.description || "Manufacturer of precision machined components for industrial and engineering applications."}
+                </p>
+
+                <div className="flex items-center gap-1 text-xs text-blue-400 mt-2 hover:underline">
+                  <Globe size={12} className="shrink-0" />
+                  <a href={company?.website ? `http://${company.website}` : "https://www.precisionpartsindia.com"} target="_blank" rel="noreferrer" className="truncate">
+                    {company?.website || "www.precisionpartsindia.com"}
+                  </a>
+                </div>
+
+                {/* Quick Action Edit Buttons */}
+                <div className="mt-3.5 flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setUserEditOpen(true)}
+                    className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 border border-white/15"
+                    data-testid="profile-edit-user-btn"
+                  >
+                    <Edit size={13} /> Edit Profile
+                  </button>
+                  {isBusiness && (
+                    <button
+                      onClick={() => setEditOpen(true)}
+                      className="px-3 py-1.5 rounded-full bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 border border-blue-400/30"
+                      data-testid="profile-edit-company-btn"
+                    >
+                      <Building2 size={13} /> Edit Company
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -502,6 +556,7 @@ export default function ProfilePage() {
         <CompanyEditDialog open={editOpen} onClose={() => setEditOpen(false)} company={company} onSaved={loadCompanyData} />
       )}
       <UserEditDialog open={userEditOpen} onClose={() => setUserEditOpen(false)} user={user} onSaved={updateUser} />
+      <AdminSetupModal open={adminSetupOpen} onClose={() => setAdminSetupOpen(false)} />
       <FollowersDialog
         open={followersModalOpen}
         onClose={() => setFollowersModalOpen(false)}

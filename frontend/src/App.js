@@ -1,9 +1,9 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import "@/App.css";
 
-import { AuthProvider } from "@/context/AuthContext";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
 import { InstallAppBanner } from "@/components/InstallAppBanner";
 import { TopHeader } from "@/components/TopHeader";
@@ -13,6 +13,11 @@ import HomePage from "@/pages/HomePage";
 import ReelsPage from "@/pages/ReelsPage";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
+import VerifyOtpPage from "@/pages/VerifyOtpPage";
+import CompleteProfilePage from "@/pages/CompleteProfilePage";
+import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
+import AccountSecurityPage from "@/pages/AccountSecurityPage";
+import { AdminSetupModal } from "@/components/AdminSetupModal";
 import PostEnquiryPage from "@/pages/PostEnquiryPage";
 import LeadsPage from "@/pages/LeadsPage";
 import ProfilePage from "@/pages/ProfilePage";
@@ -38,35 +43,35 @@ import MembershipPage from "@/pages/MembershipPage";
 import IndustrialGroupsPage from "@/pages/IndustrialGroupsPage";
 import IndustrialGroupDetailPage from "@/pages/IndustrialGroupDetailPage";
 
-import { useAuth } from "@/context/AuthContext";
-import VerifyOtpPage from "@/pages/VerifyOtpPage";
-import CompleteProfilePage from "@/pages/CompleteProfilePage";
-
 const Layout = ({ children }) => {
   const { user } = useAuth();
   const location = useLocation();
+  const [adminSetupClosed, setAdminSetupClosed] = React.useState(false);
+
+  const isAdmin = user?.role === "admin";
   const fullscreen = location.pathname.startsWith("/reels")
     || location.pathname.startsWith("/login")
     || location.pathname.startsWith("/register")
     || location.pathname.startsWith("/verify-otp")
-    || location.pathname.startsWith("/complete-profile");
+    || location.pathname.startsWith("/complete-profile")
+    || location.pathname.startsWith("/forgot-password");
 
-  if (user && user.is_verified === false && !location.pathname.startsWith("/verify-otp") && !location.pathname.startsWith("/login") && !location.pathname.startsWith("/register")) {
-    window.location.href = "/verify-otp";
-    return null;
-  }
-
-  if (fullscreen) {
-    return <div className="App">{children}{location.pathname.startsWith("/reels") && <BottomNav />}</div>;
+  if (!isAdmin && user && user.is_verified === false && !fullscreen) {
+    return <Navigate to="/verify-otp" replace />;
   }
 
   return (
-    <div className="flex flex-col h-[100dvh] overflow-hidden bg-slate-50">
-      <TopHeader />
-      <main className="flex-1 overflow-y-auto w-full max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto pb-24">
+    <div className={fullscreen ? "App" : "flex flex-col h-[100dvh] overflow-hidden bg-slate-50"}>
+      {!fullscreen && <TopHeader />}
+      <main className={fullscreen ? "" : "flex-1 overflow-y-auto w-full max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto pb-24"}>
         {children}
       </main>
-      <BottomNav />
+      {(!fullscreen || location.pathname.startsWith("/reels")) && <BottomNav />}
+
+      {/* Mandatory Admin Security Setup Prompt */}
+      {isAdmin && !user?.admin_setup_completed && !adminSetupClosed && (
+        <AdminSetupModal open={true} onClose={() => setAdminSetupClosed(true)} />
+      )}
     </div>
   );
 };
@@ -86,6 +91,8 @@ function App() {
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/verify-otp" element={<VerifyOtpPage />} />
               <Route path="/complete-profile" element={<CompleteProfilePage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/account-security" element={<AccountSecurityPage />} />
               <Route path="/post-enquiry" element={<PostEnquiryPage />} />
               <Route path="/leads" element={<LeadsPage />} />
               <Route path="/profile" element={<ProfilePage />} />

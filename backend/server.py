@@ -111,6 +111,10 @@ class User(Base):
     is_verified = Column(Boolean, default=False, nullable=False)
     verification_code = Column(String(10), nullable=True)
     verification_expires_at = Column(String(255), nullable=True)
+    secondary_email = Column(String(255), nullable=True)
+    security_question = Column(String(255), nullable=True)
+    security_answer_hash = Column(String(255), nullable=True)
+    admin_setup_completed = Column(Boolean, default=False, nullable=False)
     created_at = Column(String(255), nullable=False)
 
 class Company(Base):
@@ -368,6 +372,9 @@ class UserPublic(BaseModel):
     plan_name: Optional[str] = None
     plan_expires_at: Optional[str] = None
     is_verified: bool = False
+    secondary_email: Optional[str] = None
+    security_question: Optional[str] = None
+    admin_setup_completed: bool = False
 
 
 class RegisterIn(BaseModel):
@@ -722,7 +729,10 @@ def user_to_dict(user: User) -> dict:
         "avatar_url": user.avatar_url,
         "plan_name": user.plan_name,
         "plan_expires_at": user.plan_expires_at,
-        "is_verified": bool(getattr(user, "is_verified", False)),
+        "is_verified": True if user.role == "admin" else bool(getattr(user, "is_verified", False)),
+        "secondary_email": getattr(user, "secondary_email", None),
+        "security_question": getattr(user, "security_question", None),
+        "admin_setup_completed": bool(getattr(user, "admin_setup_completed", False)),
         "unlocked_enquiries": user.unlocked_enquiries or [],
         "created_at": user.created_at,
     }
@@ -1069,6 +1079,243 @@ async def resend_otp(payload: ResendOtpIn, request: Request, db: AsyncSession = 
         logger.error(f"Failed sending resend OTP email to {email}: {e}")
         
     return {"ok": True, "message": "Verification code resent successfully"}
+
+
+class AdminSetupIn(BaseModel):
+    email: EmailStr
+    password: str
+    secondary_email: Optional[EmailStr] = None
+    security_question: str
+    security_answer: str
+
+
+@api.post("/auth/admin-setup")
+async def admin_setup(payload: AdminSetupIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admin accounts can perform admin security setup")
+
+    stmt = select(User).where(User.id == user["id"])
+    admin_user = (await db.execute(stmt)).scalar_one_or_none()
+    if not admin_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    new_email = payload.email.strip().lower()
+    if new_email != admin_user.email.lower():
+        stmt_check = select(User).where(User.email == new_email)
+        if (await db.execute(stmt_check)).scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Email is already in use by another account")
+
+    admin_user.email = new_email
+    admin_user.password_hash = hash_password(payload.password)
+    admin_user.secondary_email = payload.secondary_email.strip().lower() if payload.secondary_email else None
+    admin_user.security_question = payload.security_question.strip()
+    admin_user.security_answer_hash = hash_password(payload.security_answer.strip().lower())
+    admin_user.admin_setup_completed = True
+    admin_user.is_verified = True
+    await db.commit()
+
+    logger.info(f"Admin security setup completed for {admin_user.email}")
+    return {"ok": True, "message": "Admin security credentials updated successfully", "user": user_to_dict(admin_user)}
+
+
+class SecuritySetupUpdateIn(BaseModel):
+    otp: str
+    email: Optional[EmailStr] = None
+    new_password: Optional[str] = None
+    secondary_email: Optional[EmailStr] = None
+    security_question: Optional[str] = None
+    security_answer: Optional[str] = None
+
+
+@api.post("/auth/security-setup/request-otp")
+async def security_setup_request_otp(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt = select(User).where(User.id == user["id"])
+    db_user = (await db.execute(stmt)).scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    import random
+    otp = f"{random.randint(100000, 999999)}"
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    
+    db_user.verification_code = otp
+    db_user.verification_expires_at = expires
+    await db.commit()
+
+    try:
+        html_body = build_otp_email(otp, db_user.name, "confirm updating your security credentials & settings")
+        await send_email(db_user.email, "Security Update Verification Code - IIP", html_body)
+    except Exception as e:
+        logger.error(f"Failed sending security setup OTP email to {db_user.email}: {e}")
+
+    return {"ok": True, "message": f"Verification OTP code sent to primary email ({db_user.email[:3]}***@{db_user.email.split('@')[-1]})"}
+
+
+@api.post("/auth/security-setup/verify-and-update")
+async def security_setup_verify_and_update(payload: SecuritySetupUpdateIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt = select(User).where(User.id == user["id"])
+    db_user = (await db.execute(stmt)).scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not db_user.verification_code or db_user.verification_code.strip() != payload.otp.strip():
+        raise HTTPException(status_code=400, detail="Invalid or expired verification OTP code")
+
+    if payload.email:
+        new_email = payload.email.strip().lower()
+        if new_email != db_user.email.lower():
+            stmt_check = select(User).where(User.email == new_email)
+            if (await db.execute(stmt_check)).scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Email is already in use by another account")
+            db_user.email = new_email
+
+    if payload.new_password:
+        if len(payload.new_password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters long")
+        db_user.password_hash = hash_password(payload.new_password)
+
+    if payload.secondary_email is not None:
+        db_user.secondary_email = payload.secondary_email.strip().lower() if payload.secondary_email else None
+
+    if payload.security_question and payload.security_answer:
+        db_user.security_question = payload.security_question.strip()
+        db_user.security_answer_hash = hash_password(payload.security_answer.strip().lower())
+
+    if db_user.role == "admin":
+        db_user.admin_setup_completed = True
+        db_user.is_verified = True
+
+    db_user.verification_code = None
+    db_user.verification_expires_at = None
+    await db.commit()
+
+    logger.info(f"Security setup updated for user {db_user.email}")
+    return {"ok": True, "message": "Security credentials updated successfully!", "user": user_to_dict(db_user)}
+
+
+class ForgotPrimaryIn(BaseModel):
+    identifier: str
+
+
+class ForgotSecondaryIn(BaseModel):
+    identifier: str
+
+
+class GetQuestionIn(BaseModel):
+    identifier: str
+
+
+class ResetViaOtpIn(BaseModel):
+    identifier: str
+    otp: str
+    new_password: str
+
+
+class ResetViaSecurityIn(BaseModel):
+    identifier: str
+    answer: str
+    new_password: str
+
+
+@api.post("/auth/forgot-password/request-primary")
+async def forgot_request_primary(payload: ForgotPrimaryIn, db: AsyncSession = Depends(get_db)):
+    ident = payload.identifier.strip().lower()
+    stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user:
+        return {"ok": True, "message": "If the account exists, an OTP has been sent to primary email.", "email": ident}
+    
+    import random
+    otp = f"{random.randint(100000, 999999)}"
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    user.verification_code = otp
+    user.verification_expires_at = expires
+    await db.commit()
+
+    try:
+        html_body = build_otp_email(otp, user.name, "reset your IIP account password")
+        await send_email(user.email, "Password Reset Code - IIP", html_body)
+    except Exception as e:
+        logger.error(f"Failed sending password reset OTP to primary email {user.email}: {e}")
+
+    return {"ok": True, "message": f"Password reset OTP sent to primary email ({user.email[:3]}***@{user.email.split('@')[-1]})", "email": user.email}
+
+
+@api.post("/auth/forgot-password/request-secondary")
+async def forgot_request_secondary(payload: ForgotSecondaryIn, db: AsyncSession = Depends(get_db)):
+    ident = payload.identifier.strip().lower()
+    stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user or not user.secondary_email:
+        raise HTTPException(status_code=400, detail="No secondary recovery email configured for this account")
+
+    import random
+    otp = f"{random.randint(100000, 999999)}"
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    user.verification_code = otp
+    user.verification_expires_at = expires
+    await db.commit()
+
+    try:
+        html_body = build_otp_email(otp, user.name, "reset your IIP account password via secondary email")
+        await send_email(user.secondary_email, "Password Reset Code (Secondary Email) - IIP", html_body)
+    except Exception as e:
+        logger.error(f"Failed sending reset OTP to secondary email {user.secondary_email}: {e}")
+
+    sec_masked = f"{user.secondary_email[:3]}***@{user.secondary_email.split('@')[-1]}"
+    return {"ok": True, "message": f"Reset code sent to secondary email ({sec_masked})", "email": user.email}
+
+
+@api.post("/auth/forgot-password/get-question")
+async def forgot_get_question(payload: GetQuestionIn, db: AsyncSession = Depends(get_db)):
+    ident = payload.identifier.strip().lower()
+    stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user or not user.security_question:
+        raise HTTPException(status_code=400, detail="No security question configured for this account")
+
+    return {
+        "ok": True,
+        "email": user.email,
+        "security_question": user.security_question
+    }
+
+
+@api.post("/auth/forgot-password/reset-via-otp")
+async def reset_via_otp(payload: ResetViaOtpIn, db: AsyncSession = Depends(get_db)):
+    ident = payload.identifier.strip().lower()
+    stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not user.verification_code or user.verification_code.strip() != payload.otp.strip():
+        raise HTTPException(status_code=400, detail="Invalid reset OTP code")
+
+    user.password_hash = hash_password(payload.new_password)
+    user.verification_code = None
+    user.verification_expires_at = None
+    await db.commit()
+
+    return {"ok": True, "message": "Password reset successfully. You can now sign in with your new password."}
+
+
+@api.post("/auth/forgot-password/reset-via-security")
+async def reset_via_security(payload: ResetViaSecurityIn, db: AsyncSession = Depends(get_db)):
+    ident = payload.identifier.strip().lower()
+    stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user or not user.security_answer_hash:
+        raise HTTPException(status_code=400, detail="Security question not set up for this account")
+
+    ans_clean = payload.answer.strip().lower()
+    if not verify_password(ans_clean, user.security_answer_hash):
+        raise HTTPException(status_code=400, detail="Incorrect security answer")
+
+    user.password_hash = hash_password(payload.new_password)
+    await db.commit()
+
+    return {"ok": True, "message": "Password reset successfully via Security Question. You can now sign in."}
 
 
 @api.post("/auth/login")
@@ -4260,6 +4507,7 @@ async def seed_data(db: AsyncSession):
             mobile="919999999999", password_hash=hash_password("admin123"),
             role="admin", company_id=None,
             avatar_url="https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=200",
+            is_verified=True,
             created_at=now_iso(),
         ))
         await db.commit()
@@ -4626,26 +4874,53 @@ async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
-    for tbl, col in [("posts", "group_id"), ("reels", "group_id"), ("enquiries", "group_id"), ("jobs", "group_id"), ("products", "stock_left"), ("products", "location")]:
+    # Auto-migrate any missing columns on existing PostgreSQL tables
+    migrations = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code VARCHAR(10)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_expires_at VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS secondary_email VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS security_question VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS security_answer_hash VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_setup_completed BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_enquiries JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_unlocks JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS cover_url VARCHAR(1024)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS owner_name VARCHAR(255)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS gst VARCHAR(50)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS pan VARCHAR(50)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS business_type VARCHAR(1024)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS year_established INTEGER",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS address TEXT",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS employees VARCHAR(255)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS certifications JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE posts ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
+        "ALTER TABLE reels ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
+        "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_left INTEGER DEFAULT 100",
+        "ALTER TABLE products ADD COLUMN IF NOT EXISTS location VARCHAR(255) DEFAULT 'India'",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb",
+    ]
+
+    for q in migrations:
         try:
             async with engine.begin() as conn:
-                await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} VARCHAR(255)"))
-        except Exception:
-            pass
-        
-    async with engine.begin() as conn:
-        try:
-            await conn.execute(text("ALTER TABLE enquiries ADD COLUMN media_urls JSONB"))
-        except Exception:
-            pass
+                await conn.execute(text(q))
+        except Exception as e:
+            logger.warning(f"Migration query ignored: {q} -> {e}")
 
-    async with AsyncSessionLocal() as session:
-        await seed_data(session)
-        await _seed_plans_if_empty(session)
-        await _seed_categories_if_empty(session)
-        await _seed_areas_if_empty(session)
-        await _seed_slides_if_empty(session)
-        await _seed_industrial_groups_if_empty(session)
+    try:
+        async with AsyncSessionLocal() as session:
+            await seed_data(session)
+            await _seed_plans_if_empty(session)
+            await _seed_categories_if_empty(session)
+            await _seed_areas_if_empty(session)
+            await _seed_slides_if_empty(session)
+            await _seed_industrial_groups_if_empty(session)
+    except Exception as e:
+        logger.error(f"Error during startup data seeding: {e}")
         
     logger.info("IIP started, seed data ensured (PostgreSQL)")
 
