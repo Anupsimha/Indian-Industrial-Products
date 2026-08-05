@@ -262,6 +262,9 @@ class Notification(Base):
     title = Column(String(255), nullable=False)
     body = Column(Text, nullable=False)
     read = Column(Boolean, default=False, nullable=False)
+    type = Column(String(100), nullable=True)
+    target_id = Column(String(255), nullable=True)
+    link_url = Column(String(1024), nullable=True)
     created_at = Column(String(255), nullable=False)
 
 class Category(Base):
@@ -1594,10 +1597,16 @@ async def follow_company(company_id: str, user: dict = Depends(get_current_user)
     stmt_comp = select(Company).where(Company.id == company_id)
     company = (await db.execute(stmt_comp)).scalar_one_or_none()
     if company:
+        follower_company = user.get("company_id")
+        link_target = f"/company/{follower_company}" if follower_company else f"/company/{company_id}"
         notif = Notification(
             id=str(uuid.uuid4()), user_id=company.owner_id,
             title="New follower", body=f"{user['name']} started following you",
-            read=False, created_at=now_iso(),
+            read=False,
+            type="follower",
+            target_id=user["id"],
+            link_url=link_target,
+            created_at=now_iso(),
         )
         db.add(notif)
     await db.commit()
@@ -2397,51 +2406,83 @@ MAX_ENQUIRY_MEDIA_SIZE = 10 * 1024 * 1024  # 10 MB per file
 @api.post("/enquiries", response_model=EnquiryOut)
 async def create_enquiry(
     request: Request,
-    name: str = Form(...),
-    mobile: str = Form(...),
-    requirement: str = Form(...),
-    category: str = Form(...),
-    location: str = Form(...),
-    product_name: Optional[str] = Form(None),
-    quantity: Optional[str] = Form(None),
-    state: Optional[str] = Form(None),
-    city: Optional[str] = Form(None),
-    industrial_area: Optional[str] = Form(None),
-    company_id: Optional[str] = Form(None),
-    post_id: Optional[str] = Form(None),
-    media: List[UploadFile] = File(default=[]),
     db: AsyncSession = Depends(get_db),
 ):
+    content_type = request.headers.get("content-type", "").lower()
+    
+    name, mobile, requirement, category, location = "", "", "", "", ""
+    product_name, quantity, state, city, industrial_area = None, None, None, None, None
+    company_id, post_id = None, None
+    saved_media_urls: List[str] = []
+
+    if "application/json" in content_type:
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        name = data.get("name", "")
+        mobile = data.get("mobile", "")
+        requirement = data.get("requirement", "")
+        category = data.get("category", "")
+        location = data.get("location", "")
+        product_name = data.get("product_name")
+        quantity = data.get("quantity")
+        state = data.get("state")
+        city = data.get("city")
+        industrial_area = data.get("industrial_area")
+        company_id = data.get("company_id")
+        post_id = data.get("post_id")
+    else:
+        form = await request.form()
+        name = form.get("name", "")
+        mobile = form.get("mobile", "")
+        requirement = form.get("requirement", "")
+        category = form.get("category", "")
+        location = form.get("location", "")
+        product_name = form.get("product_name")
+        quantity = form.get("quantity")
+        state = form.get("state")
+        city = form.get("city")
+        industrial_area = form.get("industrial_area")
+        company_id = form.get("company_id")
+        post_id = form.get("post_id")
+
+        media_files = form.getlist("media")
+        for upload in media_files:
+            if hasattr(upload, "filename") and upload.filename:
+                m_type = getattr(upload, "content_type", "") or ""
+                if m_type and m_type not in ALLOWED_ENQUIRY_MEDIA_TYPES:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File '{upload.filename}' has unsupported type '{m_type}'. Allowed: JPG, PNG, WEBP, GIF, PDF."
+                    )
+                file_data = await upload.read()
+                if len(file_data) > MAX_ENQUIRY_MEDIA_SIZE:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File '{upload.filename}' exceeds 10 MB size limit."
+                    )
+                file_ext = Path(upload.filename).suffix.lower() or ".jpg"
+                unique_filename = f"{uuid.uuid4().hex}{file_ext}"
+                file_path = ENQUIRY_MEDIA_DIR / unique_filename
+                with file_path.open("wb") as buf:
+                    buf.write(file_data)
+                saved_media_urls.append(f"/api/enquiry-media/{unique_filename}")
+
+    if not name or not mobile or not requirement:
+        raise HTTPException(status_code=400, detail="Name, mobile, and requirement are required fields.")
+
+    if not category:
+        category = "General Industrial"
+    if not location:
+        location = "India"
+
     # Resolve company_id from post if not provided
     if post_id and not company_id:
         stmt_post = select(Post).where(Post.id == post_id)
         post = (await db.execute(stmt_post)).scalar_one_or_none()
         if post:
             company_id = post.company_id
-
-    # Save uploaded media files to enquiry-media/ folder
-    saved_media_urls: List[str] = []
-    for upload in media:
-        if not upload.filename:
-            continue
-        content_type = upload.content_type or ""
-        if content_type not in ALLOWED_ENQUIRY_MEDIA_TYPES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File '{upload.filename}' has unsupported type '{content_type}'. Allowed: JPG, PNG, WEBP, GIF, PDF."
-            )
-        file_data = await upload.read()
-        if len(file_data) > MAX_ENQUIRY_MEDIA_SIZE:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File '{upload.filename}' exceeds the 10 MB size limit."
-            )
-        file_ext = Path(upload.filename).suffix.lower() or ".jpg"
-        unique_filename = f"{uuid.uuid4().hex}{file_ext}"
-        file_path = ENQUIRY_MEDIA_DIR / unique_filename
-        with file_path.open("wb") as buf:
-            buf.write(file_data)
-        saved_media_urls.append(f"/api/enquiry-media/{unique_filename}")
 
     eid = str(uuid.uuid4())
     doc = Enquiry(
@@ -2462,9 +2503,13 @@ async def create_enquiry(
         if company:
             notif = Notification(
                 id=str(uuid.uuid4()), user_id=company.owner_id,
-                title="New Lead!",
-                body=f"{name} - {requirement[:60]}",
-                read=False, created_at=now_iso(),
+                title="New Lead Enquiry!",
+                body=f"{name} submitted enquiry for {category}: {requirement[:60]}",
+                read=False,
+                type="lead_enquiry",
+                target_id=eid,
+                link_url="/leads",
+                created_at=now_iso(),
             )
             db.add(notif)
 
@@ -2584,8 +2629,22 @@ async def list_notifications(user: dict = Depends(get_current_user), db: AsyncSe
     docs = (await db.execute(stmt)).scalars().all()
     return [{
         "id": d.id, "user_id": d.user_id, "title": d.title,
-        "body": d.body, "read": d.read, "created_at": d.created_at
+        "body": d.body, "read": d.read, "created_at": d.created_at,
+        "type": getattr(d, "type", None),
+        "target_id": getattr(d, "target_id", None),
+        "link_url": getattr(d, "link_url", None)
     } for d in docs]
+
+
+@api.patch("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    stmt = select(Notification).where(and_(Notification.id == notification_id, Notification.user_id == user["id"]))
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    doc.read = True
+    await db.commit()
+    return {"ok": True, "message": "Notification marked as read"}
 
 
 @api.post("/notifications/read-all")
@@ -4902,6 +4961,9 @@ async def startup():
         "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_left INTEGER DEFAULT 100",
         "ALTER TABLE products ADD COLUMN IF NOT EXISTS location VARCHAR(255) DEFAULT 'India'",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS type VARCHAR(100)",
+        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_id VARCHAR(255)",
+        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link_url VARCHAR(1024)",
     ]
 
     for q in migrations:

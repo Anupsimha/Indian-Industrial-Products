@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Send, FileText, Upload, Trash2, CheckCircle2, ChevronDown, ListTodo, Paperclip } from "lucide-react";
 import { BackButton } from "../components/BackButton";
 import { LocationPicker } from "../components/LocationPicker";
+import { CATEGORIES } from "../lib/constants";
 
 export default function PostEnquiryPage() {
   const [form, setForm] = useState({
@@ -191,7 +192,9 @@ export default function PostEnquiryPage() {
                 className={inputCls}
               >
                 <option value="">Select Category</option>
-                {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                {Array.from(new Set([...CATEGORIES, ...categories.map(c => typeof c === 'string' ? c : c.name)])).map((catName) => (
+                  <option key={catName} value={catName}>{catName}</option>
+                ))}
               </select>
               <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             </div>

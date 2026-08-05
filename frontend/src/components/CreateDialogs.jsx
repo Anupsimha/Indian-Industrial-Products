@@ -3,6 +3,7 @@ import { X, Briefcase, MapPin, Banknote, FileText } from "lucide-react";
 import { MediaUploader } from "./MediaUploader";
 import api, { formatApiError } from "../lib/api";
 import { toast } from "sonner";
+import { CATEGORIES } from "../lib/constants";
 
 export const PostDialog = ({ open, onClose, onSaved }) => {
   const [content, setContent] = useState("");
@@ -74,12 +75,22 @@ export const PostDialog = ({ open, onClose, onSaved }) => {
             data-testid="post-content-input"
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
           />
-          <input
-            value={category} onChange={(e) => setCategory(e.target.value)}
-            placeholder="Category (optional)"
-            data-testid="post-category-input"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-          />
+          <div>
+            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-1">Category (optional)</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              data-testid="post-category-input"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white font-medium"
+            >
+              <option value="">Select Category...</option>
+              {CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Media (optional)</label>
             <div className="mt-2">

@@ -7,6 +7,7 @@ import { optimizedUrl } from "../lib/cloudinary";
 import { useAuth } from "../context/AuthContext";
 import { EnquiryDialog } from "./EnquiryDialog";
 import { PlanBadge } from "./PlanBadge";
+import { toast } from "sonner";
 
 export const PostCard = ({ post, onUpdate }) => {
   const { user } = useAuth();
