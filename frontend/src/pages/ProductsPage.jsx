@@ -131,9 +131,10 @@ export default function ProductsPage() {
   const updateCartQty = (id, change) => updateQty(id, change);
 
   // Calculations (cartSubtotal comes from CartContext)
-  const deliveryCost = cart.length > 0 ? deliveryOptions[selectedDelivery].cost : 0;
+  const deliveryCost = cart.length > 0 ? (deliveryOptions[selectedDelivery]?.cost || 0) : 0;
   const gstCost = Math.round(cartSubtotal * 0.18);
   const cartTotal = cartSubtotal + deliveryCost + gstCost;
+
 
   const placeOrder = async () => {
     try {
@@ -632,7 +633,8 @@ export default function ProductsPage() {
                   <Truck size={18} className="text-blue-900" />
                   <div>
                     <div className="font-bold text-xs text-slate-900">Delivery Preference</div>
-                    <div className="text-[10px] text-slate-500 mt-0.5">{deliveryOptions[selectedDelivery].label}</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">{deliveryOptions[selectedDelivery]?.label || "Standard Delivery"}</div>
+
                   </div>
                 </div>
 

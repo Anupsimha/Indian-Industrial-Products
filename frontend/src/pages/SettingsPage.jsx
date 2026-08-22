@@ -298,7 +298,29 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* SECTION 4: Legal & Gateway Compliance Links */}
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-3">
+          <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
+            <ShieldCheck size={18} className="text-blue-800" /> Merchant Policies & Support
+          </h2>
+          <p className="text-xs text-slate-500">Access support information and legal merchant policies required for payment gateway compliance.</p>
+          <div className="grid grid-cols-2 gap-2 pt-1 text-xs font-bold text-blue-900">
+            <Link to="/contact" className="p-3 bg-slate-50 hover:bg-blue-50 rounded-2xl border border-slate-100 flex items-center justify-between transition-colors">
+              <span>Contact Us</span> <ArrowRight size={14} />
+            </Link>
+            <Link to="/terms" className="p-3 bg-slate-50 hover:bg-blue-50 rounded-2xl border border-slate-100 flex items-center justify-between transition-colors">
+              <span>Terms &amp; Conditions</span> <ArrowRight size={14} />
+            </Link>
+            <Link to="/privacy" className="p-3 bg-slate-50 hover:bg-blue-50 rounded-2xl border border-slate-100 flex items-center justify-between transition-colors">
+              <span>Privacy Policy</span> <ArrowRight size={14} />
+            </Link>
+            <Link to="/refund-policy" className="p-3 bg-slate-50 hover:bg-blue-50 rounded-2xl border border-slate-100 flex items-center justify-between transition-colors">
+              <span>Refund &amp; Shipping</span> <ArrowRight size={14} />
+            </Link>
+          </div>
+        </div>
       </div>
+
 
       {/* Admin Security Setup Modal */}
       {isAdmin && (

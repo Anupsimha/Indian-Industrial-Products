@@ -108,9 +108,9 @@ export default function PricingPage() {
           }
         },
         prefill: {
-          name: user.name,
-          email: user.email,
-          contact: user.mobile
+          name: user?.name || "Subscriber",
+          email: user?.email || "",
+          contact: user?.mobile || process.env.REACT_APP_SUPPORT_PHONE || "",
         },
         modal: {
           ondismiss: () => {

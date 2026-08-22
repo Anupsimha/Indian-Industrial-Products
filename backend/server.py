@@ -6,6 +6,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 # Email utility (imported after load_dotenv so env vars are available)
 from email_utils import send_email, build_otp_email
+from shiprocket_utils import fetch_shipping_rates, create_shiprocket_adhoc_order, register_shiprocket_pickup_location
 
 import os
 import uuid
@@ -141,6 +142,11 @@ class Company(Base):
     business_type = Column(String(1024), nullable=True)
     year_established = Column(Integer, nullable=True)
     address = Column(Text, nullable=True)
+    city = Column(String(100), nullable=True)
+    state = Column(String(100), nullable=True)
+    pincode = Column(String(20), nullable=True)
+    pickup_location_name = Column(String(100), nullable=True)
+    shiprocket_pickup_id = Column(String(100), nullable=True)
     employees = Column(String(255), nullable=True)
     certifications = Column(JSON, default=list, nullable=True)
     is_featured = Column(Boolean, default=False, nullable=False)
@@ -417,6 +423,11 @@ class CompanyOut(BaseModel):
     business_type: Optional[str] = None
     year_established: Optional[int] = None
     address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    pickup_location_name: Optional[str] = None
+    shiprocket_pickup_id: Optional[str] = None
     employees: Optional[str] = None
     certifications: Optional[List[str]] = None
     is_featured: bool = False
@@ -447,6 +458,10 @@ class CompanyUpdate(BaseModel):
     business_type: Optional[str] = None
     year_established: Optional[int] = None
     address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    pickup_location_name: Optional[str] = None
     employees: Optional[str] = None
     certifications: Optional[List[str]] = None
 
@@ -459,6 +474,10 @@ class CompanyCreate(BaseModel):
     logo_url: Optional[str] = None
     cover_url: Optional[str] = None
     website: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
 
 
 class IndustrialGroupCreate(BaseModel):
@@ -859,7 +878,13 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
         gst=company.gst, pan=company.pan,
         business_type=company.business_type,
         year_established=company.year_established,
-        address=company.address, employees=company.employees,
+        address=company.address,
+        city=getattr(company, "city", None),
+        state=getattr(company, "state", None),
+        pincode=getattr(company, "pincode", None),
+        pickup_location_name=getattr(company, "pickup_location_name", None),
+        shiprocket_pickup_id=getattr(company, "shiprocket_pickup_id", None),
+        employees=company.employees,
         certifications=company.certifications,
         is_featured=company.is_featured,
         followers_count=followers_count,
@@ -1627,6 +1652,11 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
         raise HTTPException(status_code=403, detail="Forbidden")
     
     update_data = {k: v for k, v in payload.model_dump().items() if v is not None}
+
+    # Auto-assign pickup_location_name if not already assigned
+    pickup_nickname = company.pickup_location_name or f"IIP_WH_{company_id[:8].upper()}"
+    update_data["pickup_location_name"] = pickup_nickname
+
     if update_data:
         stmt_upd = update(Company).where(Company.id == company_id).values(**update_data)
         await db.execute(stmt_upd)
@@ -1634,8 +1664,25 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
         # reload
         stmt_c = select(Company).where(Company.id == company_id)
         company = (await db.execute(stmt_c)).scalar_one()
+
+        # Trigger Shiprocket addpickup registration for dynamic warehouse routing
+        try:
+            register_shiprocket_pickup_location({
+                "pickup_location": company.pickup_location_name,
+                "name": company.owner_name or company.name,
+                "email": company.email,
+                "phone": company.mobile,
+                "address": company.address or company.location,
+                "city": company.city or company.location,
+                "state": company.state or "Delhi",
+                "pin_code": company.pincode or "110001",
+                "gstin": company.gst or ""
+            })
+        except Exception as sr_err:
+            logger.error(f"Failed registering pickup location with Shiprocket: {str(sr_err)}")
         
     return await hydrate_company(company, user, db)
+
 
 
 # -------------------- Posts --------------------
@@ -1920,7 +1967,17 @@ def process_product_images(user_id: str, product_id: str, image_url: str, images
 async def create_product(request: Request, payload: ProductCreate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not user.get("company_id"):
         raise HTTPException(status_code=403, detail="Only businesses can add products")
+
+    stmt_comp = select(Company).where(Company.id == user["company_id"])
+    company = (await db.execute(stmt_comp)).scalar_one_or_none()
+    if not company or not company.address or not company.pincode or len(str(company.pincode).strip()) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="Please complete your company warehouse address and 6-digit Pincode in profile settings before adding products to the marketplace."
+        )
+
     pid = str(uuid.uuid4())
+
     
     image_url, images = process_product_images(user["id"], pid, payload.image_url, payload.images or [], request)
     
@@ -4170,6 +4227,99 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 logger.info(f"Webhook marked order {order.id} as paid (Razorpay Order: {razorpay_order_id})")
                 
     return {"status": "ok"}
+
+class ShippingCalculateIn(BaseModel):
+    pincode: str
+    weight_kg: Optional[float] = 1.0
+    cod: Optional[bool] = False
+    pickup_pincode: Optional[str] = None
+
+class ShippingCreateOrderIn(BaseModel):
+    order_id: str
+    delivery_pincode: str
+    shipping_address: str
+    consignee_name: str
+    consignee_phone: str
+
+@api.post("/shipping/calculate-rate")
+async def calculate_shipping_rate(payload: ShippingCalculateIn):
+    if not payload.pincode or len(payload.pincode.strip()) < 6:
+        raise HTTPException(status_code=400, detail="Invalid 6-digit Pincode")
+    options = fetch_shipping_rates(
+        delivery_pincode=payload.pincode.strip(),
+        weight_kg=payload.weight_kg or 1.0,
+        cod=payload.cod or False,
+        pickup_pincode=payload.pickup_pincode
+    )
+    return {"ok": True, "options": options}
+
+@api.post("/shipping/create-order")
+async def create_shipping_order(payload: ShippingCreateOrderIn, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
+    stmt = select(Order).where(Order.id == payload.order_id)
+    order = (await db.execute(stmt)).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    pickup_nickname = "Primary Warehouse"
+    if order.company_id:
+        stmt_comp = select(Company).where(Company.id == order.company_id)
+        seller_comp = (await db.execute(stmt_comp)).scalar_one_or_none()
+        if seller_comp and seller_comp.pickup_location_name:
+            pickup_nickname = seller_comp.pickup_location_name
+
+    sr_payload = {
+        "order_id": order.id,
+        "order_date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
+        "pickup_location": pickup_nickname,
+        "billing_customer_name": payload.consignee_name,
+
+        "billing_last_name": "",
+        "billing_address": payload.shipping_address,
+        "billing_city": "City",
+        "billing_pincode": payload.delivery_pincode,
+        "billing_state": "State",
+        "billing_country": "India",
+        "billing_email": user.get("email", "buyer@iip.com"),
+        "billing_phone": payload.consignee_phone,
+        "shipping_is_billing": True,
+        "order_items": [
+            {
+                "name": item.get("name", "Industrial Product") if isinstance(item, dict) else "Industrial Product",
+                "sku": item.get("id", "PROD_SKU") if isinstance(item, dict) else "PROD_SKU",
+                "units": item.get("quantity", 1) if isinstance(item, dict) else 1,
+                "selling_price": item.get("price", 100) if isinstance(item, dict) else 100,
+            } for item in (order.items if isinstance(order.items, list) else [])
+        ],
+        "payment_method": "Prepaid" if order.payment_method != "cod" else "COD",
+        "sub_total": order.total,
+        "length": 10,
+        "breadth": 10,
+        "height": 10,
+        "weight": 1.5
+    }
+
+    result = create_shiprocket_adhoc_order(sr_payload)
+    return {"ok": True, "shipment": result}
+
+@api.get("/shipping/track/{order_id}")
+async def track_shipping_order(order_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(Order).where(Order.id == order_id)
+    order = (await db.execute(stmt)).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    return {
+        "ok": True,
+        "order_id": order.id,
+        "status": order.status,
+        "tracking": {
+            "current_status": "In Transit" if order.status in ["processing", "shipped"] else order.status.capitalize(),
+            "courier": "Shiprocket Partner",
+            "estimated_delivery": (datetime.now() + timedelta(days=3)).strftime("%d %b %Y"),
+            "location": "Central Distribution Hub"
+        }
+    }
+
 
 # Chat functionality
 import re

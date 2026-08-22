@@ -39,7 +39,48 @@ export default function CartPage() {
   const [isPlacing, setIsPlacing] = useState(false);
   const [rzpLoaded, setRzpLoaded] = useState(false);
 
-  const deliveryCost = cart.length > 0 ? DELIVERY_OPTIONS[selectedDelivery].cost : 0;
+  const [pincode, setPincode] = useState("110001");
+  const [shiprocketOptions, setShiprocketOptions] = useState([]);
+  const [loadingRates, setLoadingRates] = useState(false);
+
+  const fetchShiprocketRates = async (targetPincode) => {
+    if (!targetPincode || targetPincode.length < 6) {
+      toast.error("Please enter a valid 6-digit Pincode");
+      return;
+    }
+    setLoadingRates(true);
+    try {
+      const sellerPincode = cart[0]?.seller_pincode || cart[0]?.pincode || cart[0]?.company_pincode || "110001";
+      const res = await api.post("/shipping/calculate-rate", {
+        pincode: targetPincode,
+        weight_kg: 1.5,
+        pickup_pincode: sellerPincode
+      });
+      if (res.data?.ok && res.data?.options?.length > 0) {
+        setShiprocketOptions(res.data.options);
+        setSelectedDelivery(res.data.options[0].id);
+        toast.success(`Loaded Shiprocket shipping rates for Pincode ${targetPincode}`);
+      }
+    } catch (e) {
+      toast.error("Could not calculate live rates. Showing standard options.");
+    } finally {
+      setLoadingRates(false);
+    }
+  };
+
+  const getSelectedDeliveryDetails = () => {
+    if (cart.length === 0) return { label: "Standard Delivery", cost: 0 };
+    if (shiprocketOptions.length > 0) {
+      const found = shiprocketOptions.find(o => o.id === selectedDelivery);
+      if (found) return { label: found.courier_name, cost: found.rate };
+    }
+    const fallback = DELIVERY_OPTIONS[selectedDelivery] || DELIVERY_OPTIONS.free || { label: "Standard Delivery", cost: 0 };
+    return { label: fallback.label || "Standard Delivery", cost: fallback.cost || 0 };
+  };
+
+  const activeDelivery = getSelectedDeliveryDetails();
+  const deliveryCost = activeDelivery.cost;
+
   const gstCost = Math.round(cartSubtotal * 0.18);
   const cartTotal = cartSubtotal + deliveryCost + gstCost;
 
@@ -141,9 +182,9 @@ export default function CartPage() {
           }
         },
         prefill: {
-          name: user?.name || "Guest User",
-          email: user?.email || "guest@example.com",
-          contact: user?.mobile || "9999999999",
+          name: user?.name || "Customer",
+          email: user?.email || "",
+          contact: user?.mobile || process.env.REACT_APP_SUPPORT_PHONE || "",
         },
         notes: { address: "IIP Industrial Marketplace" },
         theme: { color: "#1e3a5f" },
@@ -321,42 +362,108 @@ export default function CartPage() {
             <button onClick={() => setStep("cart")} className="p-2 rounded-full bg-slate-100 hover:bg-slate-200">
               <ArrowLeft size={16} />
             </button>
-            <h1 className="font-display text-xl font-black text-slate-900">Delivery Options</h1>
+            <h1 className="font-display text-xl font-black text-slate-900">Delivery & Logistics</h1>
+          </div>
+
+          {/* Shiprocket Pincode Serviceability Lookup */}
+          <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-900 rounded-2xl text-white space-y-3 shadow-md">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 font-bold text-sm">
+                <Truck size={18} className="text-purple-300" />
+                <span>Shiprocket Express Delivery</span>
+              </div>
+              <span className="text-[10px] bg-purple-500/30 text-purple-200 px-2 py-0.5 rounded-full font-bold">Pan-India</span>
+            </div>
+            <p className="text-xs text-blue-200">Enter delivery Pincode to get real-time shipping rates and estimated delivery timelines.</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={pincode}
+                onChange={(e) => setPincode(e.target.value)}
+                placeholder="Enter 6-digit Pincode"
+                maxLength={6}
+                className="flex-1 px-3 py-2 rounded-xl text-slate-900 text-sm font-semibold focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => fetchShiprocketRates(pincode)}
+                disabled={loadingRates}
+                className="px-4 py-2 bg-white text-blue-900 font-extrabold text-xs rounded-xl hover:bg-blue-50 transition-colors shrink-0 disabled:opacity-50"
+              >
+                {loadingRates ? "Calculating..." : "Check Rates"}
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2.5">
-            {Object.entries(DELIVERY_OPTIONS).map(([key, opt]) => {
-              const Icon = opt.icon;
-              const isActive = selectedDelivery === key;
-              return (
-                <button
-                  key={key}
-                  onClick={() => setSelectedDelivery(key)}
-                  className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border transition-all text-left
-                    ${isActive ? "border-blue-900 bg-blue-50/60 shadow-sm" : "border-slate-100 bg-white hover:border-slate-300 hover:bg-slate-50"}`}
-                >
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isActive ? "bg-blue-900 text-white" : "bg-slate-100 text-slate-500"}`}>
-                    <Icon size={16} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-bold text-sm text-slate-900">{opt.label}</span>
-                      {opt.badge && (
-                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wider
-                          ${opt.badge === "FREE" ? "bg-emerald-100 text-emerald-700" :
-                            opt.badge === "Fastest" ? "bg-orange-100 text-orange-700" :
-                            "bg-purple-100 text-purple-700"}`}
-                        >{opt.badge}</span>
-                      )}
+            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Available Delivery Options</div>
+            
+            {/* Render Live Shiprocket Options if calculated */}
+            {shiprocketOptions.length > 0 ? (
+              shiprocketOptions.map((opt) => {
+                const isActive = selectedDelivery === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => setSelectedDelivery(opt.id)}
+                    className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border transition-all text-left
+                      ${isActive ? "border-purple-600 bg-purple-50/70 shadow-sm ring-2 ring-purple-600/20" : "border-slate-100 bg-white hover:border-slate-300 hover:bg-slate-50"}`}
+                  >
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isActive ? "bg-purple-700 text-white" : "bg-purple-100 text-purple-700"}`}>
+                      <Truck size={16} />
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">{opt.desc}</div>
-                  </div>
-                  <div className={`font-display font-extrabold text-sm shrink-0 ${opt.cost === 0 ? "text-emerald-600" : "text-blue-900"}`}>
-                    {opt.cost === 0 ? "FREE" : `₹${opt.cost}`}
-                  </div>
-                </button>
-              );
-            })}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-sm text-slate-900">{opt.courier_name}</span>
+                        {opt.badge && (
+                          <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wider bg-purple-100 text-purple-700">
+                            {opt.badge}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">Est. Delivery: {opt.etd}</div>
+                    </div>
+                    <div className="font-display font-extrabold text-sm shrink-0 text-purple-900">
+                      ₹{opt.rate}
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              /* Fallback default delivery options */
+              Object.entries(DELIVERY_OPTIONS).map(([key, opt]) => {
+                const Icon = opt.icon;
+                const isActive = selectedDelivery === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setSelectedDelivery(key)}
+                    className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border transition-all text-left
+                      ${isActive ? "border-blue-900 bg-blue-50/60 shadow-sm" : "border-slate-100 bg-white hover:border-slate-300 hover:bg-slate-50"}`}
+                  >
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isActive ? "bg-blue-900 text-white" : "bg-slate-100 text-slate-500"}`}>
+                      <Icon size={16} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-sm text-slate-900">{opt.label}</span>
+                        {opt.badge && (
+                          <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wider
+                            ${opt.badge === "FREE" ? "bg-emerald-100 text-emerald-700" :
+                              opt.badge === "Fastest" ? "bg-orange-100 text-orange-700" :
+                              "bg-purple-100 text-purple-700"}`}
+                          >{opt.badge}</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">{opt.desc}</div>
+                    </div>
+                    <div className={`font-display font-extrabold text-sm shrink-0 ${opt.cost === 0 ? "text-emerald-600" : "text-blue-900"}`}>
+                      {opt.cost === 0 ? "FREE" : `₹${opt.cost}`}
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
 
           <button
@@ -417,7 +524,7 @@ export default function CartPage() {
               <span>₹{cartSubtotal.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-sm text-slate-600">
-              <span>Delivery ({DELIVERY_OPTIONS[selectedDelivery].label})</span>
+              <span>Delivery ({activeDelivery.label})</span>
               <span className={deliveryCost === 0 ? "text-emerald-600 font-bold" : ""}>
                 {deliveryCost === 0 ? "FREE" : `₹${deliveryCost}`}
               </span>

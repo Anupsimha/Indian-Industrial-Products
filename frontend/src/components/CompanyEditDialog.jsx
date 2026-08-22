@@ -28,6 +28,9 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
         business_type: company.business_type || "",
         year_established: company.year_established || "",
         address: company.address || "",
+        city: company.city || "",
+        state: company.state || "",
+        pincode: company.pincode || "",
         employees: company.employees || "",
       });
       setLogo(company.logo_url || "");
@@ -95,8 +98,19 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
             <Row label="WhatsApp" value={form.whatsapp} onChange={(v) => setForm({ ...form, whatsapp: v })} testid="ce-wa" />
             <Row label="Email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} testid="ce-email" />
             <Row label="Website" value={form.website} onChange={(v) => setForm({ ...form, website: v })} testid="ce-web" />
-            <Row label="Address" textarea value={form.address} onChange={(v) => setForm({ ...form, address: v })} testid="ce-addr" />
-            <Row label="Location (city, state)" value={form.location} onChange={(v) => setForm({ ...form, location: v })} testid="ce-loc" />
+          </Section>
+
+          <Section title="Shiprocket Warehouse & Pickup Location">
+            <p className="text-[11px] text-slate-500 mb-2">Used by Shiprocket couriers for direct factory/shop pickup and rate calculation.</p>
+            <Row label="Street Address / Factory Unit" textarea value={form.address} onChange={(v) => setForm({ ...form, address: v })} testid="ce-addr" placeholder="Unit 4B, Sector 58, Industrial Estate" />
+            <div className="grid grid-cols-2 gap-3">
+              <Row label="City" value={form.city} onChange={(v) => setForm({ ...form, city: v })} testid="ce-city" placeholder="e.g. New Delhi" />
+              <Row label="State" value={form.state} onChange={(v) => setForm({ ...form, state: v })} testid="ce-state" placeholder="e.g. Delhi" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Row label="6-Digit Warehouse Pincode *" value={form.pincode} onChange={(v) => setForm({ ...form, pincode: v })} testid="ce-pincode" placeholder="110020" />
+              <Row label="City / Region Summary" value={form.location} onChange={(v) => setForm({ ...form, location: v })} testid="ce-loc" placeholder="New Delhi, India" />
+            </div>
           </Section>
 
           <Section title="Compliance">

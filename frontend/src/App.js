@@ -42,6 +42,10 @@ import SettingsPage from "@/pages/SettingsPage";
 import MembershipPage from "@/pages/MembershipPage";
 import IndustrialGroupsPage from "@/pages/IndustrialGroupsPage";
 import IndustrialGroupDetailPage from "@/pages/IndustrialGroupDetailPage";
+import ContactUsPage from "@/pages/ContactUsPage";
+import TermsAndConditionsPage from "@/pages/TermsAndConditionsPage";
+import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
+import RefundPolicyPage from "@/pages/RefundPolicyPage";
 
 const Layout = ({ children }) => {
   const { user } = useAuth();
@@ -117,6 +121,10 @@ function App() {
               <Route path="/cart" element={<CartPage />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/contact" element={<ContactUsPage />} />
+              <Route path="/terms" element={<TermsAndConditionsPage />} />
+              <Route path="/privacy" element={<PrivacyPolicyPage />} />
+              <Route path="/refund-policy" element={<RefundPolicyPage />} />
             </Routes>
           </Layout>
         </BrowserRouter>

@@ -32,7 +32,7 @@ export default function LoginPage() {
         <div className="flex flex-col items-center mb-5">
           <Logo size={56} withText={false} />
           <h1 className="mt-3 font-display text-2xl font-bold text-slate-900">Welcome to IIP</h1>
-          <p className="text-xs text-slate-500">Engineering Tomorrow, Together.</p>
+          <p className="text-xs text-slate-500">Industrial Marketplace & Business Network.</p>
         </div>
         <form onSubmit={submit} className="space-y-3" data-testid="login-form">
           <div>
