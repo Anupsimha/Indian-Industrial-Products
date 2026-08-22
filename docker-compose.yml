@@ -13,6 +13,7 @@ services:
 
     environment:
       - CHOKIDAR_USEPOLLING=true
+      - WDS_SOCKET_PORT=3001
 
     depends_on:
       - backend
@@ -49,6 +50,10 @@ services:
 
     networks:
       - iip-network
+
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
 
     restart: unless-stopped
 

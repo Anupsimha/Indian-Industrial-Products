@@ -68,9 +68,23 @@ export default function LoginPage() {
             New to IIP?{" "}
             <Link to="/register" className="font-semibold text-blue-800" data-testid="register-link">Create account</Link>
           </p>
-          <p className="text-[10px] text-center text-slate-400">
-            Demo: rajesh@bharatsteel.com / demo123
-          </p>
+          <div className="pt-2 border-t border-slate-100 space-y-1.5 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setIdentifier("demo@iip.com");
+                setPassword("DemoUser@123");
+                toast.success("Loaded Razorpay Reviewer Demo Account!");
+              }}
+              data-testid="fill-demo-reviewer-btn"
+              className="w-full py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-900 text-xs font-bold transition-colors border border-blue-200"
+            >
+              Fill Reviewer Demo Account
+            </button>
+            <p className="text-[10px] text-slate-400">
+              Demo: demo@iip.com / DemoUser@123
+            </p>
+          </div>
         </form>
       </div>
     </div>

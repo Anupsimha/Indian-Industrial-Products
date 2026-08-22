@@ -64,6 +64,12 @@ webpackConfig.devServer = (devServerConfig) => {
   // Fix allowedHosts validation error
   devServerConfig.allowedHosts = "all";
 
+  devServerConfig.client = {
+    webSocketURL: {
+      port: 3001,
+    },
+  };
+
   devServerConfig.proxy = {
     "/api": {
       target: "http://backend:8000",

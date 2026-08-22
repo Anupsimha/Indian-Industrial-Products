@@ -58,7 +58,10 @@ export default function CompanyDetailPage() {
     } catch {}
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const toggleFollow = async () => {
     try {

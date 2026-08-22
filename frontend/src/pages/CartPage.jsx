@@ -156,6 +156,11 @@ export default function CartPage() {
       };
       
       const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", function (response) {
+        const reason = response.error?.description || "Transaction declined";
+        toast.error(`Payment Failed: ${reason}`);
+        setIsPlacing(false);
+      });
       rzp.open();
     } catch (err) {
       toast.error("Failed to open payment gateway. Try another method.");

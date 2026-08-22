@@ -87,6 +87,17 @@ credentials.json
 *.key
 .credentials
 
-backend/VacancyResume/*
-backend/products-images/*
-backend/uploads/*
+# Media and User Uploads
+uploads/
+/uploads/
+/products-images/
+/reels-uploaded/
+/enquiry-media/
+/VacancyResume/
+**/uploads/
+**/products-images/
+**/reels-uploaded/
+**/enquiry-media/
+**/VacancyResume/
+**/media/
+

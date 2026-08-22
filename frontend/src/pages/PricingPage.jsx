@@ -112,12 +112,21 @@ export default function PricingPage() {
           email: user.email,
           contact: user.mobile
         },
+        modal: {
+          ondismiss: () => {
+            toast.info("Payment cancelled.");
+          },
+        },
         theme: {
           color: "#1e3a8a"
         }
       };
 
       const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", function (response) {
+        const reason = response.error?.description || "Transaction declined";
+        toast.error(`Payment Failed: ${reason}`);
+      });
       rzp.open();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Failed to initiate payment");

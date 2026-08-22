@@ -56,8 +56,12 @@ PRODUCT_IMAGES_DIR.mkdir(exist_ok=True)
 ENQUIRY_MEDIA_DIR = ROOT_DIR / "enquiry-media"
 ENQUIRY_MEDIA_DIR.mkdir(exist_ok=True)
 
-# -------------------- Setup JWT --------------------
+# -------------------- Setup JWT & Razorpay Config --------------------
 JWT_SECRET = os.environ.get('JWT_SECRET', 'supersecretjwtkeyforiipmarketplace')
+
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "rzp_test_TC7Rq6NgUW0TiB")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "SlP4dzu1iYGRV902XsswqT2H")
+RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "iip_webhook_secret_2026")
 JWT_ALGO = "HS256"
 
 app = FastAPI(title="IIP - Indian Industrial Products")
@@ -4042,16 +4046,11 @@ async def create_payment_order(payload: CreateOrderIn, user: dict = Depends(get_
     price = plan.yearly_price if payload.billing_cycle == "yearly" else plan.monthly_price
     amount_paise = int(price * 100)
     
-    # Razorpay keys
-    key_id = "rzp_test_TC7Rq6NgUW0TiB"
-    key_secret = "SlP4dzu1iYGRV902XsswqT2H"
-    
-    # If 0 price (e.g. Free plan), return success directly or handle it
     if amount_paise == 0:
-        return {"order_id": "free_plan", "amount": 0, "key": key_id, "currency": "INR"}
+        return {"order_id": "free_plan", "amount": 0, "key": RAZORPAY_KEY_ID, "currency": "INR"}
         
     import requests
-    auth = (key_id, key_secret)
+    auth = (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
     order_payload = {
         "amount": amount_paise,
         "currency": "INR",
@@ -4063,20 +4062,18 @@ async def create_payment_order(payload: CreateOrderIn, user: dict = Depends(get_
             logger.error(f"Razorpay error: {r.text}")
             raise HTTPException(status_code=500, detail="Failed to create order with payment gateway")
         order_data = r.json()
-        return {"order_id": order_data["id"], "amount": amount_paise, "key": key_id, "currency": "INR"}
+        return {"order_id": order_data["id"], "amount": amount_paise, "key": RAZORPAY_KEY_ID, "currency": "INR"}
     except Exception as e:
         logger.error(f"Failed calling Razorpay: {str(e)}")
         raise HTTPException(status_code=500, detail="Payment gateway connection error")
 
 @api.post("/payments/verify")
 async def verify_payment(payload: VerifyPaymentIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    key_secret = "SlP4dzu1iYGRV902XsswqT2H"
-    
     if payload.razorpay_order_id != "free_plan":
         import hmac
         import hashlib
         msg = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
-        generated = hmac.new(key_secret.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
+        generated = hmac.new(RAZORPAY_KEY_SECRET.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(generated, payload.razorpay_signature):
             raise HTTPException(status_code=400, detail="Payment signature verification failed")
             
@@ -4099,14 +4096,12 @@ async def verify_payment(payload: VerifyPaymentIn, user: dict = Depends(get_curr
 @api.post("/payments/create-order-cart")
 async def create_payment_order_cart(payload: CreateCartOrderIn, user: dict = Depends(get_current_user)):
     amount_paise = int(payload.amount * 100)
-    key_id = "rzp_test_TC7Rq6NgUW0TiB"
-    key_secret = "SlP4dzu1iYGRV902XsswqT2H"
     
     if amount_paise == 0:
-        return {"order_id": "free_cart", "amount": 0, "key": key_id, "currency": "INR"}
+        return {"order_id": "free_cart", "amount": 0, "key": RAZORPAY_KEY_ID, "currency": "INR"}
         
     import requests
-    auth = (key_id, key_secret)
+    auth = (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
     order_payload = {
         "amount": amount_paise,
         "currency": "INR",
@@ -4118,21 +4113,63 @@ async def create_payment_order_cart(payload: CreateCartOrderIn, user: dict = Dep
             logger.error(f"Razorpay error: {r.text}")
             raise HTTPException(status_code=500, detail="Failed to create order with payment gateway")
         order_data = r.json()
-        return {"order_id": order_data["id"], "amount": amount_paise, "key": key_id, "currency": "INR"}
+        return {"order_id": order_data["id"], "amount": amount_paise, "key": RAZORPAY_KEY_ID, "currency": "INR"}
     except Exception as e:
         logger.error(f"Failed calling Razorpay: {str(e)}")
         raise HTTPException(status_code=500, detail="Payment gateway connection error")
 
 @api.post("/payments/verify-cart")
 async def verify_cart_payment(payload: VerifyCartPaymentIn, user: dict = Depends(get_current_user)):
-    key_secret = "SlP4dzu1iYGRV902XsswqT2H"
     import hmac
     import hashlib
     msg = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
-    generated = hmac.new(key_secret.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
+    generated = hmac.new(RAZORPAY_KEY_SECRET.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(generated, payload.razorpay_signature):
         raise HTTPException(status_code=400, detail="Payment signature verification failed")
     return {"ok": True}
+
+@api.post("/payments/webhook")
+async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    import hmac
+    import hashlib
+    
+    body_bytes = await request.body()
+    sig_header = request.headers.get("X-Razorpay-Signature", "")
+    
+    if RAZORPAY_WEBHOOK_SECRET:
+        generated_sig = hmac.new(
+            RAZORPAY_WEBHOOK_SECRET.encode("utf-8"),
+            body_bytes,
+            hashlib.sha256
+        ).hexdigest()
+        
+        if not hmac.compare_digest(generated_sig, sig_header):
+            logger.warning("Razorpay Webhook: Invalid Signature")
+            raise HTTPException(status_code=400, detail="Invalid webhook signature")
+            
+    try:
+        event = json.loads(body_bytes.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid webhook JSON")
+        
+    event_type = event.get("event", "")
+    logger.info(f"Razorpay Webhook Received Event: {event_type}")
+    
+    if event_type in ["payment.captured", "order.paid"]:
+        payment_entity = event.get("payload", {}).get("payment", {}).get("entity", {})
+        razorpay_order_id = payment_entity.get("order_id")
+        razorpay_payment_id = payment_entity.get("id")
+        
+        if razorpay_order_id:
+            stmt = select(Order).where(Order.razorpay_order_id == razorpay_order_id)
+            order = (await db.execute(stmt)).scalar_one_or_none()
+            if order and order.status != "paid":
+                order.status = "paid"
+                order.payment_method = "razorpay"
+                await db.commit()
+                logger.info(f"Webhook marked order {order.id} as paid (Razorpay Order: {razorpay_order_id})")
+                
+    return {"status": "ok"}
 
 # Chat functionality
 import re
@@ -4576,6 +4613,19 @@ async def seed_data(db: AsyncSession):
         await _seed_jobs_if_empty(db)
         return
 
+    # Seed explicit Razorpay Reviewer Demo Account
+    stmt_demo = select(User).where(User.email == "demo@iip.com")
+    if (await db.execute(stmt_demo)).scalar_one_or_none() is None:
+        db.add(User(
+            id=str(uuid.uuid4()), name="Demo Reviewer", email="demo@iip.com",
+            mobile="919988776655", password_hash=hash_password("DemoUser@123"),
+            role="buyer", company_id=None,
+            avatar_url="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200",
+            is_verified=True,
+            created_at=now_iso(),
+        ))
+        await db.commit()
+
     role_emails = {
         "rajesh@bharatsteel.com": "Rajesh Kumar",
         "arun@suryatools.in": "Arun Subramanian",
@@ -4591,6 +4641,7 @@ async def seed_data(db: AsyncSession):
             password_hash=hash_password("demo123"),
             role="manufacturer", company_id=None,
             avatar_url="https://images.unsplash.com/photo-1560250097-0b93528c311a?w=200",
+            is_verified=True,
             created_at=now_iso(),
         ))
         company_owner_map[owner_email] = uid
@@ -4602,6 +4653,7 @@ async def seed_data(db: AsyncSession):
         mobile="919800012345", password_hash=hash_password("demo123"),
         role="buyer", company_id=None,
         avatar_url="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200",
+        is_verified=True,
         created_at=now_iso(),
     ))
     await db.commit()
@@ -4995,19 +5047,22 @@ async def shutdown():
 app.include_router(api)
 
 _cors_origins = os.environ.get("CORS_ORIGINS", "*")
-if _cors_origins.strip() == "*":
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=".*",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+default_origins = [
+    "http://localhost:3001",
+    "http://localhost:3000",
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:3000",
+]
+if _cors_origins.strip() != "*":
+    for o in _cors_origins.split(","):
+        if o.strip() and o.strip() not in default_origins:
+            default_origins.append(o.strip())
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=default_origins,
+    allow_origin_regex=".*",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

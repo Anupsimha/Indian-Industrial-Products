@@ -31,7 +31,10 @@ export default function AdminPage() {
       }
     } catch {}
   };
-  useEffect(() => { if (user?.role === "admin") reload(); /* eslint-disable-next-line */ }, [user, tab]);
+  useEffect(() => {
+    if (user?.role === "admin") reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, tab]);
 
   if (loading) return <div className="p-10 text-center text-slate-400">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;

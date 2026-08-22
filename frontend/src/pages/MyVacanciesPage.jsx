@@ -58,6 +58,7 @@ export default function MyVacanciesPage() {
 
   useEffect(() => {
     loadJobs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   if (loading || fetching) {

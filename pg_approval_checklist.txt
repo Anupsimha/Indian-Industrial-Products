@@ -1,0 +1,524 @@
+Absolutely. Since your integration already works in **test mode**, the goal is to ensure there are **no issues when Razorpay reviews your application** and when you switch to live keys. Below is a detailed developer checklist focused on **Point 6 (Payment Flow)** and **Point 7 (Demo Login)**.
+
+---
+
+# 1. Product/Service Discovery
+
+A Razorpay reviewer should be able to understand what they're buying.
+
+## Checklist
+
+* ☐ Homepage loads without errors.
+* ☐ Company/app name is visible.
+* ☐ Products/services are clearly listed.
+* ☐ Pricing is displayed before checkout.
+* ☐ Currency is INR (or the correct currency).
+* ☐ Product description is present.
+* ☐ No "Coming Soon" pages for the payment flow.
+* ☐ No broken images or broken links.
+
+---
+
+# 2. Login Flow (if authentication is required)
+
+If users must log in before paying:
+
+## Create a Demo Account
+
+Example:
+
+```
+Email:
+demo@example.com
+
+Password:
+Demo@123
+```
+
+or
+
+```
+Phone:
+9999999999
+
+OTP:
+123456
+```
+
+(Only if your app supports a demo OTP.)
+
+---
+
+## Ensure
+
+* ☐ Demo account never expires.
+* ☐ Password isn't changed automatically.
+* ☐ No CAPTCHA.
+* ☐ No MFA requirement.
+* ☐ Reviewer can log in immediately.
+
+---
+
+## Demo Data
+
+The account should contain enough data to reach checkout.
+
+For example:
+
+```
+Orders
+
+Subscription
+
+Cart
+
+Products
+
+Invoices
+```
+
+should all work.
+
+---
+
+# 3. Cart / Order Creation
+
+Before Razorpay opens:
+
+## Verify
+
+* ☐ Cart total is correct.
+* ☐ Taxes are calculated correctly.
+* ☐ Discounts applied correctly.
+* ☐ Shipping (if applicable).
+* ☐ Coupon validation.
+* ☐ Final amount equals backend amount.
+
+---
+
+Backend should create:
+
+```
+POST /create-order
+```
+
+Response:
+
+```json
+{
+    "order_id":"order_xxxxxx",
+    "amount":49900,
+    "currency":"INR"
+}
+```
+
+---
+
+## Verify
+
+Never create order on frontend.
+
+Correct:
+
+```
+Frontend
+
+↓
+
+Backend
+
+↓
+
+Razorpay Orders API
+
+↓
+
+order_id
+
+↓
+
+Frontend
+```
+
+Wrong:
+
+```
+Frontend
+
+↓
+
+Razorpay directly
+```
+
+---
+
+# 4. Razorpay Checkout
+
+When checkout opens:
+
+Verify
+
+* ☐ Correct merchant name.
+* ☐ Correct logo.
+* ☐ Correct amount.
+* ☐ Correct order description.
+* ☐ Customer email prefilled.
+* ☐ Customer phone prefilled.
+
+Example:
+
+```
+Company Name
+
+Premium Subscription
+
+₹999
+```
+
+---
+
+# 5. Payment Success Flow
+
+After successful payment:
+
+## Frontend
+
+Receive
+
+```
+razorpay_payment_id
+
+razorpay_order_id
+
+razorpay_signature
+```
+
+---
+
+Send to backend
+
+```
+POST /verify-payment
+```
+
+Body
+
+```json
+{
+    "payment_id":"pay_xxx",
+    "order_id":"order_xxx",
+    "signature":"xxxxx"
+}
+```
+
+---
+
+Backend
+
+Must
+
+* ☐ Verify signature.
+* ☐ Verify order exists.
+* ☐ Verify amount matches.
+* ☐ Verify currency.
+* ☐ Save payment.
+* ☐ Mark order paid.
+* ☐ Return success.
+
+---
+
+User should see
+
+```
+Payment Successful
+
+Order #1234
+
+Thank you
+```
+
+NOT
+
+```
+Payment Success
+```
+
+with no confirmation.
+
+---
+
+# 6. Payment Failure Flow
+
+Many developers ignore this.
+
+Handle
+
+* UPI timeout
+* Card declined
+* User cancels
+* Network loss
+* Payment failed
+
+User should see
+
+```
+Payment Failed
+
+Reason:
+Bank declined transaction
+
+Try Again
+```
+
+instead of a blank page.
+
+---
+
+# 7. Duplicate Payment Protection
+
+Prevent
+
+```
+User clicks Pay
+
+↓
+
+Network hangs
+
+↓
+
+Clicks Pay again
+```
+
+Backend should prevent duplicate paid orders.
+
+---
+
+# 8. Refresh Protection
+
+If user refreshes
+
+```
+Success Page
+```
+
+they should NOT create another payment.
+
+---
+
+# 9. Payment Verification
+
+Never trust frontend.
+
+Verify using
+
+```
+razorpay_signature
+```
+
+using HMAC SHA256.
+
+Checklist
+
+* ☐ Signature verified
+* ☐ Payment belongs to order
+* ☐ Amount matches
+* ☐ Order still unpaid
+* ☐ Save transaction atomically
+
+---
+
+# 10. Webhook
+
+Even if frontend closes,
+
+Webhook should update payment.
+
+Example events
+
+```
+payment.authorized
+
+payment.captured
+
+payment.failed
+
+refund.processed
+```
+
+Checklist
+
+* ☐ Webhook secret configured
+* ☐ Signature verified
+* ☐ Duplicate webhook handling
+* ☐ Logging enabled
+* ☐ Retry-safe (idempotent)
+
+---
+
+# 11. Database
+
+Store
+
+```
+Order
+
+↓
+
+Pending
+
+↓
+
+Paid
+```
+
+Don't depend only on frontend response.
+
+Save
+
+```
+order_id
+
+payment_id
+
+amount
+
+currency
+
+status
+
+created_at
+
+paid_at
+```
+
+---
+
+# 12. Logs
+
+Log
+
+```
+Order created
+
+Payment started
+
+Payment verified
+
+Webhook received
+
+Refund
+
+Failure
+```
+
+Never log
+
+* Card numbers
+* CVV
+* Secrets
+* API Secret
+
+---
+
+# 13. Production Secrets
+
+Keep
+
+```
+KEY_ID
+
+KEY_SECRET
+
+WEBHOOK_SECRET
+```
+
+Only on backend.
+
+Never expose
+
+```
+KEY_SECRET
+```
+
+to React.
+
+---
+
+# 14. Live Key Switch
+
+Only these values should change:
+
+```
+Test Key ID
+
+↓
+
+Live Key ID
+```
+
+```
+Test Secret
+
+↓
+
+Live Secret
+```
+
+Everything else should remain unchanged.
+
+---
+
+# 15. Reviewer's End-to-End Journey
+
+Imagine you're the Razorpay reviewer. They should be able to:
+
+1. Open your website/app.
+2. Understand what you're offering.
+3. Log in (if required) using the demo account you provide.
+4. Browse products or services.
+5. Add an item or choose a plan.
+6. Proceed to checkout.
+7. See the correct order summary and amount.
+8. Open the Razorpay payment popup with the correct merchant name, logo, and amount.
+9. Complete a test purchase (or inspect the flow, depending on their process).
+10. Be redirected to a clear success page with an order/payment confirmation.
+11. Navigate the site without encountering errors or dead ends.
+
+---
+
+## Production Readiness Checklist
+
+### Backend
+
+* ✅ Server-side order creation only
+* ✅ Signature verification implemented
+* ✅ Amount and currency validation
+* ✅ Idempotent payment verification
+* ✅ Webhook verification
+* ✅ Webhook retry handling
+* ✅ Database transaction safety
+* ✅ Proper error logging
+* ✅ Live secrets stored securely (environment variables)
+
+### Frontend
+
+* ✅ Clear product/service information
+* ✅ Accurate pricing and order summary
+* ✅ Razorpay checkout configured with merchant branding
+* ✅ Success page
+* ✅ Failure page with retry option
+* ✅ Loading indicators during payment
+* ✅ Prevention of duplicate submissions
+* ✅ Graceful handling of network errors
+
+### Database
+
+* ✅ Orders table
+* ✅ Payment status tracking
+* ✅ Razorpay order ID
+* ✅ Razorpay payment ID
+* ✅ Audit timestamps
+* ✅ Refund status (if applicable)
+
+If all of the above is in place, your integration is typically in good shape for Razorpay's review and for handling real customer payments reliably.

@@ -45,6 +45,7 @@ export const ApplyJobDialog = ({ open, onClose, job, onApplied }) => {
         setLocationPreferred("");
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, job, user]);
 
   if (!open || !job) return null;

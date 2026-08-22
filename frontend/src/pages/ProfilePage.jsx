@@ -62,6 +62,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     loadCompanyData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   if (loading) return <div className="p-10 text-center text-slate-400 font-semibold" data-testid="profile-loading">Loading...</div>;

@@ -86,14 +86,18 @@ def _send_email_sync(
     msg.attach(MIMEText(plain, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    with smtplib.SMTP(cfg["host"], cfg["port"]) as server:
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        # Strip spaces from app-password (Google allows spaces for readability)
-        password = cfg["password"].replace(" ", "")
-        server.login(cfg["user"], password)
-        server.sendmail(cfg["from_addr"], recipients, msg.as_string())
+    password = cfg["password"].replace(" ", "")
+    if int(cfg["port"]) == 465:
+        with smtplib.SMTP_SSL(cfg["host"], int(cfg["port"])) as server:
+            server.login(cfg["user"], password)
+            server.sendmail(cfg["from_addr"], recipients, msg.as_string())
+    else:
+        with smtplib.SMTP(cfg["host"], int(cfg["port"])) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(cfg["user"], password)
+            server.sendmail(cfg["from_addr"], recipients, msg.as_string())
 
     logger.info("Email sent to %s — subject: %s", recipients, subject)
 

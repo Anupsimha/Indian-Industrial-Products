@@ -52,6 +52,7 @@ export default function IndustrialGroupDetailPage() {
 
   useEffect(() => {
     fetchGroupDetails();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const fetchTabData = async () => {
@@ -92,6 +93,7 @@ export default function IndustrialGroupDetailPage() {
 
   useEffect(() => {
     fetchTabData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group, activeTab]);
 
   const handleJoinExit = async () => {
