@@ -35,56 +35,7 @@ export const TopHeader = () => {
             <Logo />
           </div>
         </Link>
-
-        <div className="flex items-center gap-1 lg:gap-3">
-          <Link
-            to="/search"
-            className={`p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${isBuyer ? "hidden md:block" : "block"}`}
-            data-testid="header-search"
-          >
-            <Search size={22} />
-          </Link>
-
-          {/* Cart Button with Badge */}
-          <Link
-            to="/cart"
-            className={`relative p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${user ? "hidden md:block" : "block"}`}
-            data-testid="header-cart"
-          >
-            <ShoppingCart size={22} />
-            {cartCount > 0 && (
-              <span className="absolute top-1 right-1 lg:top-2 lg:right-2 flex h-4 w-4 items-center justify-center rounded-full bg-orange-600 text-[8px] font-bold text-white ring-2 ring-white animate-pulse">
-                {cartCount > 9 ? "9+" : cartCount}
-              </span>
-            )}
-          </Link>
-
-          <Link
-            to={user ? "/chats" : "/login"}
-            className={`p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${user ? "hidden md:block" : "block"}`}
-            data-testid="header-chats"
-          >
-            <MessageSquare size={22} />
-          </Link>
-          <Link
-            to="/bookmarks"
-            className="p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors block"
-            data-testid="header-bookmarks"
-            title="Bookmarks"
-          >
-            <Bookmark size={22} />
-          </Link>
-          <Link
-            to={user ? "/notifications" : "/login"}
-            className="relative p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors block"
-            data-testid="header-notifications"
-          >
-            <Bell size={22} />
-            <span className="absolute top-1 right-1 lg:top-2 lg:right-2 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[8px] font-bold text-white ring-2 ring-white">
-              3
-            </span>
-          </Link>
-          <div className="relative">
+<div className="relative">
             <button
               onClick={handleProfileClick}
               className="ml-1 inline-flex items-center justify-center w-9 h-9 lg:w-11 lg:h-11 rounded-full bg-blue-800 text-white hover:bg-blue-900 transition-colors overflow-hidden ring-2 ring-blue-50"
@@ -245,6 +196,54 @@ export const TopHeader = () => {
               </div>
             )}
           </div>
+        <div className="flex items-center gap-1 lg:gap-3">
+          <Link
+            to="/search"
+            className={`p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${isBuyer ? "hidden md:block" : "block"}`}
+            data-testid="header-search"
+          >
+            <Search size={22} />
+          </Link>
+
+          {/* Cart Button with Badge */}
+          <Link
+            to="/cart"
+            className={`relative p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${user ? "hidden md:block" : "block"}`}
+            data-testid="header-cart"
+          >
+            <ShoppingCart size={22} />
+            {cartCount > 0 && (
+              <span className="absolute top-1 right-1 lg:top-2 lg:right-2 flex h-4 w-4 items-center justify-center rounded-full bg-orange-600 text-[8px] font-bold text-white ring-2 ring-white animate-pulse">
+                {cartCount > 9 ? "9+" : cartCount}
+              </span>
+            )}
+          </Link>
+
+          <Link
+            to={user ? "/chats" : "/login"}
+            className={`p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${user ? "hidden md:block" : "block"}`}
+            data-testid="header-chats"
+          >
+            <MessageSquare size={22} />
+          </Link>
+          <Link
+            to="/bookmarks"
+            className="p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors block"
+            data-testid="header-bookmarks"
+            title="Bookmarks"
+          >
+            <Bookmark size={22} />
+          </Link>
+          <Link
+            to={user ? "/notifications" : "/login"}
+            className="relative p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors block"
+            data-testid="header-notifications"
+          >
+            <Bell size={22} />
+            <span className="absolute top-1 right-1 lg:top-2 lg:right-2 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[8px] font-bold text-white ring-2 ring-white">
+              3
+            </span>
+          </Link>
         </div>
       </div>
     </header>

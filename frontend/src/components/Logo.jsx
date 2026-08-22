@@ -21,10 +21,10 @@ export const Logo = ({ size = 36, withText = true }) => {
             IIP
           </span>
           <span className="text-[9px] sm:text-[10px] font-bold text-orange-600 tracking-wider leading-none mt-0 whitespace-nowrap">
-            Industrial Marketplace  
+            Indian Industrial   
           </span>
           <span className="text-[9px] sm:text-[10px] font-bold text-orange-600 tracking-wider leading-none whitespace-nowrap">
-            & Business Network
+            Marketplace 
           </span>
         </div>
       )}
