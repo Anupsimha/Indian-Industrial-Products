@@ -8,8 +8,9 @@ export default function ContactUsPage() {
   const [form, setForm] = useState({ name: "", email: "", mobile: "", subject: "", message: "" });
   const [submitted, setSubmitted] = useState(false);
 
-  const phone = process.env.REACT_APP_SUPPORT_PHONE || "+91 9876543210";
-  const email = process.env.REACT_APP_SUPPORT_EMAIL || "support@iipmarketplace.com";
+  const phone = process.env.REACT_APP_SUPPORT_PHONE || "+91 9380036328";
+  const email = process.env.REACT_APP_SUPPORT_EMAIL || "support@indianindustrialplatform.com";
+  const address = process.env.REACT_APP_SUPPORT_ADDRESS || "No. 35 Suvarna Nagar Doddabidrekallu Nagasandra - 560073";
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -46,7 +47,7 @@ export default function ContactUsPage() {
             </h2>
             <p className="text-xs text-slate-600 font-medium leading-relaxed">
               <strong className="text-slate-900">Indian Industrial Products (IIP)</strong><br />
-              Registered Office: Ground Floor, B-12, Industrial Hub, Okhla Phase 3, New Delhi - 110020, India
+              Registered Office: {address}
             </p>
 
             <hr className="border-slate-100" />
