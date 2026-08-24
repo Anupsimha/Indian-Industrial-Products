@@ -34,6 +34,7 @@ def get_shiprocket_token() -> Optional[str]:
             "email": SHIPROCKET_EMAIL,
             "password": SHIPROCKET_PASSWORD
         }
+
         res = requests.post(url, json=payload, timeout=10)
         if res.status_code == 200:
             data = res.json()
@@ -42,11 +43,15 @@ def get_shiprocket_token() -> Optional[str]:
                 _token_cache["token"] = token
                 _token_cache["expires_at"] = now + (9 * 24 * 3600)  # cache 9 days
                 return token
-        logger.error(f"Shiprocket auth failed: {res.status_code} {res.text}")
+        if res.status_code == 403:
+            logger.error(f"Shiprocket auth failed (403 Access Forbidden): Please enable API User access in Shiprocket Dashboard (Settings -> API Users). Details: {res.text}")
+        else:
+            logger.error(f"Shiprocket auth failed: {res.status_code} {res.text}")
     except Exception as e:
         logger.error(f"Shiprocket auth exception: {str(e)}")
 
     return None
+
 
 def fetch_shipping_rates(
     delivery_pincode: str,

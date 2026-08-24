@@ -182,7 +182,42 @@ export const TopHeader = () => {
                   Analytics
                 </button>
                 <hr className="my-1 border-slate-100" />
+                <div className="px-4 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Help &amp; Legal</div>
+                <Link
+                  to="/contact"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                  data-testid="header-dropdown-contact"
+                >
+                  Contact Support
+                </Link>
+                <Link
+                  to="/terms"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                  data-testid="header-dropdown-terms"
+                >
+                  Terms &amp; Conditions
+                </Link>
+                <Link
+                  to="/privacy"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                  data-testid="header-dropdown-privacy"
+                >
+                  Privacy Policy
+                </Link>
+                <Link
+                  to="/refund-policy"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                  data-testid="header-dropdown-refund"
+                >
+                  Refund &amp; Shipping Policy
+                </Link>
+                <hr className="my-1 border-slate-100" />
                 <button
+
                   onClick={async () => {
                     setDropdownOpen(false);
                     await logout();

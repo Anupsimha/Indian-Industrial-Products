@@ -112,11 +112,11 @@ export default function OrdersPage() {
           const orderCreationTime = new Date(order.created_at);
           const estDeliveryTime = new Date(orderCreationTime.getTime() + 7 * 24 * 60 * 60 * 1000);
           const cutoffTime = new Date(estDeliveryTime.getTime() - 72 * 60 * 60 * 1000);
-          const canReject = new Date() < cutoffTime && 
-                            order.status !== "cancelled" && 
-                            order.status !== "rejected" && 
-                            order.status !== "completed" && 
-                            order.status !== "delivered";
+          const canReject = new Date() < cutoffTime &&
+            order.status !== "cancelled" &&
+            order.status !== "rejected" &&
+            order.status !== "completed" &&
+            order.status !== "delivered";
 
           return (
             <div

@@ -1015,8 +1015,10 @@ async def register(payload: RegisterIn, response: Response, db: AsyncSession = D
             cover_url=None,
             mobile=payload.mobile, whatsapp=payload.mobile,
             email=email, website=None, owner_id=user_id,
+            pickup_location_name=f"IIP_WH_{company_id[:8].upper()}",
             created_at=now_iso(),
         )
+
         db.add(company_doc)
 
     user_doc = User(
@@ -2047,6 +2049,66 @@ async def delete_product(product_id: str, user: dict = Depends(get_current_user)
     return {"ok": True}
 
 
+async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSession):
+    """
+    Automatically push paid/created orders directly to live Shiprocket panel.
+    """
+    try:
+        pickup_location = "Home"
+        if order.items and isinstance(order.items, list) and len(order.items) > 0:
+            first_item = order.items[0]
+            comp_id = first_item.get("company_id") if isinstance(first_item, dict) else None
+            if comp_id:
+                stmt_c = select(Company).where(Company.id == comp_id)
+                comp = (await db.execute(stmt_c)).scalar_one_or_none()
+                if comp and comp.pickup_location_name:
+                    pickup_location = comp.pickup_location_name
+
+        sr_payload = {
+            "order_id": order.id[:30],
+            "order_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "pickup_location": pickup_location,
+            "channel_id": "",
+            "comment": "Paid order on IIP Marketplace",
+            "billing_customer_name": user.get("name", "Buyer"),
+            "billing_last_name": "",
+            "billing_address": order.address or "Factory Address",
+            "billing_city": "New Delhi",
+            "billing_pincode": "110001",
+            "billing_state": "Delhi",
+            "billing_country": "India",
+            "billing_email": user.get("email", "buyer@iip.com"),
+            "billing_phone": user.get("mobile", "919876543210"),
+            "shipping_is_billing": True,
+            "order_items": [
+                {
+                    "name": item.get("name", "Industrial Product") if isinstance(item, dict) else "Industrial Product",
+                    "sku": item.get("id", "PROD_SKU")[:20] if isinstance(item, dict) else "PROD_SKU",
+                    "units": item.get("qty", 1) if isinstance(item, dict) else 1,
+                    "selling_price": item.get("price", 100) if isinstance(item, dict) else 100,
+                } for item in (order.items if isinstance(order.items, list) else [])
+            ],
+            "payment_method": "Prepaid" if order.payment_method != "cod" else "COD",
+            "sub_total": order.total,
+            "length": 10,
+            "breadth": 10,
+            "height": 10,
+            "weight": 1.5
+        }
+
+        result = create_shiprocket_adhoc_order(sr_payload)
+        
+        # If dynamic pickup nickname wasn't recognized by Shiprocket API, retry with primary registered nickname ("Home")
+        if isinstance(result, dict) and "Wrong Pickup location entered" in str(result.get("raw") or ""):
+            sr_payload["pickup_location"] = "Home"
+            result = create_shiprocket_adhoc_order(sr_payload)
+
+        logger.info(f"Shiprocket order sync result for Order {order.id}: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Error syncing order to Shiprocket: {str(e)}")
+        return None
+
 # -------------------- Orders --------------------
 @api.post("/orders", response_model=OrderOut)
 async def create_order(payload: OrderCreate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -2072,6 +2134,10 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
     db.add(order)
     await db.commit()
     await db.refresh(order)
+
+    # Automatically push order to live Shiprocket panel
+    await auto_sync_order_to_shiprocket(order, user, db)
+
     return OrderOut(
         id=order.id, user_id=order.user_id, items=order.items or [],
         subtotal=order.subtotal, delivery_cost=order.delivery_cost,
@@ -2080,6 +2146,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
         razorpay_order_id=order.razorpay_order_id,
         status=order.status, address=order.address, created_at=order.created_at
     )
+
 
 
 @api.get("/orders/me", response_model=List[OrderOut])
@@ -4782,12 +4849,18 @@ async def seed_data(db: AsyncSession):
         "mehul@gujaratpolymer.com": "Mehul Patel",
         "amit@delhielectricals.in": "Amit Sharma",
     }
+    user_mobiles = {
+        "rajesh@bharatsteel.com": "919876543210",
+        "arun@suryatools.in": "919812345670",
+        "mehul@gujaratpolymer.com": "919823456780",
+        "amit@delhielectricals.in": "919834567890",
+    }
     company_owner_map = {}
     for owner_email, name in role_emails.items():
         uid = str(uuid.uuid4())
         db.add(User(
             id=uid, name=name, email=owner_email,
-            mobile=f"9198{abs(hash(owner_email)) % 100000000:08d}",
+            mobile=user_mobiles.get(owner_email, "919876543210"),
             password_hash=hash_password("demo123"),
             role="manufacturer", company_id=None,
             avatar_url="https://images.unsplash.com/photo-1560250097-0b93528c311a?w=200",
@@ -4795,6 +4868,7 @@ async def seed_data(db: AsyncSession):
             created_at=now_iso(),
         ))
         company_owner_map[owner_email] = uid
+
 
     # Seed buyer
     buyer_id = str(uuid.uuid4())

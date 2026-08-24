@@ -8,6 +8,8 @@ import { CartProvider } from "@/context/CartContext";
 import { InstallAppBanner } from "@/components/InstallAppBanner";
 import { TopHeader } from "@/components/TopHeader";
 import { BottomNav } from "@/components/BottomNav";
+import { Footer } from "@/components/Footer";
+
 
 import HomePage from "@/pages/HomePage";
 import ReelsPage from "@/pages/ReelsPage";
@@ -69,7 +71,9 @@ const Layout = ({ children }) => {
       {!fullscreen && <TopHeader />}
       <main className={fullscreen ? "" : "flex-1 overflow-y-auto w-full max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto pb-24"}>
         {children}
+        {!fullscreen && <Footer />}
       </main>
+
       {(!fullscreen || location.pathname.startsWith("/reels")) && <BottomNav />}
 
       {/* Mandatory Admin Security Setup Prompt */}

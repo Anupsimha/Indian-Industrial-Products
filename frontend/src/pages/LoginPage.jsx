@@ -87,6 +87,17 @@ export default function LoginPage() {
           </div>
         </form>
       </div>
+
+      <div className="mt-4 text-[11px] text-center text-slate-400 flex justify-center gap-3">
+        <Link to="/contact" className="hover:text-slate-600">Contact Us</Link>
+        <span>•</span>
+        <Link to="/terms" className="hover:text-slate-600">Terms</Link>
+        <span>•</span>
+        <Link to="/privacy" className="hover:text-slate-600">Privacy</Link>
+        <span>•</span>
+        <Link to="/refund-policy" className="hover:text-slate-600">Refunds</Link>
+      </div>
     </div>
   );
+
 }

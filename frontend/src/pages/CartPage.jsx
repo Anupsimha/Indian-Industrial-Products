@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   ShoppingCart, Truck, CreditCard, CheckCircle, ArrowRight, ArrowLeft,
@@ -17,22 +17,13 @@ const STEPS = [
   { id: "payment", label: "Payment", icon: ShieldCheck },
 ];
 
-const DELIVERY_OPTIONS = {
-  express: { label: "Express – 90 Min", cost: 299, desc: "2 slots left today", badge: "Fastest", color: "text-orange-600", icon: Zap },
-  oneday: { label: "1-Day Delivery", cost: 149, desc: "By tomorrow, 9 PM", badge: "", color: "text-blue-700", icon: Clock },
-  porter: { label: "Porter Same-Day", cost: 89, desc: "Today via Porter", badge: "Popular", color: "text-purple-600", icon: Truck },
-  free: { label: "Free Delivery (≤20 km)", cost: 0, desc: "You're 12.4 km away", badge: "FREE", color: "text-emerald-600", icon: Package },
-  standard: { label: "Standard (20-100 km)", cost: 99, desc: "2-4 Business Days", badge: "", color: "text-slate-600", icon: Truck },
-  india: { label: "Pan India (100+ km)", cost: 199, desc: "3-7 Business Days", badge: "", color: "text-slate-600", icon: Truck },
-};
-
 export default function CartPage() {
   const { cart, updateQty, removeFromCart, clearCart, cartSubtotal, cartCount } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
 
   const [step, setStep] = useState("cart");
-  const [selectedDelivery, setSelectedDelivery] = useState("free");
+  const [selectedDelivery, setSelectedDelivery] = useState("shiprocket_express");
   const [selectedPayment, setSelectedPayment] = useState("razorpay");
   const [upiId, setUpiId] = useState("");
   const [confirmedOrder, setConfirmedOrder] = useState(null);
@@ -43,14 +34,14 @@ export default function CartPage() {
   const [shiprocketOptions, setShiprocketOptions] = useState([]);
   const [loadingRates, setLoadingRates] = useState(false);
 
-  const fetchShiprocketRates = async (targetPincode) => {
+  const fetchShiprocketRates = useCallback(async (targetPincode) => {
     if (!targetPincode || targetPincode.length < 6) {
       toast.error("Please enter a valid 6-digit Pincode");
       return;
     }
     setLoadingRates(true);
     try {
-      const sellerPincode = cart[0]?.seller_pincode || cart[0]?.pincode || cart[0]?.company_pincode || "110001";
+      const sellerPincode = cart[0]?.seller_pincode || cart[0]?.pincode || cart[0]?.company_pincode || "560073";
       const res = await api.post("/shipping/calculate-rate", {
         pincode: targetPincode,
         weight_kg: 1.5,
@@ -59,27 +50,35 @@ export default function CartPage() {
       if (res.data?.ok && res.data?.options?.length > 0) {
         setShiprocketOptions(res.data.options);
         setSelectedDelivery(res.data.options[0].id);
-        toast.success(`Loaded Shiprocket shipping rates for Pincode ${targetPincode}`);
+        toast.success(`Fetched live Shiprocket shipping rates for Pincode ${targetPincode}`);
       }
     } catch (e) {
-      toast.error("Could not calculate live rates. Showing standard options.");
+      toast.error("Could not calculate live rates. Please check pincode.");
     } finally {
       setLoadingRates(false);
     }
-  };
+  }, [cart]);
+
+  // Auto-fetch Shiprocket rates when entering delivery step
+  useEffect(() => {
+    if (step === "delivery" && shiprocketOptions.length === 0 && !loadingRates) {
+      fetchShiprocketRates(pincode);
+    }
+  }, [step, shiprocketOptions.length, loadingRates, pincode, fetchShiprocketRates]);
+
 
   const getSelectedDeliveryDetails = () => {
     if (cart.length === 0) return { label: "Standard Delivery", cost: 0 };
     if (shiprocketOptions.length > 0) {
-      const found = shiprocketOptions.find(o => o.id === selectedDelivery);
+      const found = shiprocketOptions.find(o => o.id === selectedDelivery) || shiprocketOptions[0];
       if (found) return { label: found.courier_name, cost: found.rate };
     }
-    const fallback = DELIVERY_OPTIONS[selectedDelivery] || DELIVERY_OPTIONS.free || { label: "Standard Delivery", cost: 0 };
-    return { label: fallback.label || "Standard Delivery", cost: fallback.cost || 0 };
+    return { label: "Shiprocket Express Delivery", cost: 149 };
   };
 
   const activeDelivery = getSelectedDeliveryDetails();
   const deliveryCost = activeDelivery.cost;
+
 
   const gstCost = Math.round(cartSubtotal * 0.18);
   const cartTotal = cartSubtotal + deliveryCost + gstCost;
@@ -430,40 +429,13 @@ export default function CartPage() {
                 );
               })
             ) : (
-              /* Fallback default delivery options */
-              Object.entries(DELIVERY_OPTIONS).map(([key, opt]) => {
-                const Icon = opt.icon;
-                const isActive = selectedDelivery === key;
-                return (
-                  <button
-                    key={key}
-                    onClick={() => setSelectedDelivery(key)}
-                    className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border transition-all text-left
-                      ${isActive ? "border-blue-900 bg-blue-50/60 shadow-sm" : "border-slate-100 bg-white hover:border-slate-300 hover:bg-slate-50"}`}
-                  >
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isActive ? "bg-blue-900 text-white" : "bg-slate-100 text-slate-500"}`}>
-                      <Icon size={16} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-bold text-sm text-slate-900">{opt.label}</span>
-                        {opt.badge && (
-                          <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wider
-                            ${opt.badge === "FREE" ? "bg-emerald-100 text-emerald-700" :
-                              opt.badge === "Fastest" ? "bg-orange-100 text-orange-700" :
-                              "bg-purple-100 text-purple-700"}`}
-                          >{opt.badge}</span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">{opt.desc}</div>
-                    </div>
-                    <div className={`font-display font-extrabold text-sm shrink-0 ${opt.cost === 0 ? "text-emerald-600" : "text-blue-900"}`}>
-                      {opt.cost === 0 ? "FREE" : `₹${opt.cost}`}
-                    </div>
-                  </button>
-                );
-              })
+              <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-2">
+                <Loader2 size={24} className="mx-auto text-purple-700 animate-spin" />
+                <div className="text-xs font-bold text-slate-700">Fetching Live Shiprocket Courier Rates...</div>
+                <p className="text-[11px] text-slate-500">Enter your 6-digit destination Pincode above to view available express courier partners.</p>
+              </div>
             )}
+
           </div>
 
           <button
