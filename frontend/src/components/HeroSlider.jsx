@@ -3,7 +3,7 @@ import api from "../lib/api";
 
 const defaultSlides = [
   {
-    title: "India's Engineering Marketplace",
+    title: "India's Engineering Platform",
     subtitle: "Discover 1,500+ verified manufacturers",
     image:
       "https://images.unsplash.com/photo-1577894947058-cfdae4276bef?w=1600",

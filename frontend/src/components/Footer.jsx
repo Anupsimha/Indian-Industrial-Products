@@ -4,9 +4,9 @@ import { Phone, Mail, MapPin, ShieldCheck, Scale, FileText, RefreshCw, HelpCircl
 import { Logo } from "./Logo";
 
 export const Footer = () => {
-  const phone = process.env.REACT_APP_SUPPORT_PHONE || "+91 9876543210";
-  const email = process.env.REACT_APP_SUPPORT_EMAIL || "support@iipmarketplace.com";
-  const address = process.env.REACT_APP_SUPPORT_ADDRESS || "Ground Floor, B-12, Industrial Hub, Okhla Phase 3, New Delhi - 110020";
+  const phone = process.env.REACT_APP_SUPPORT_PHONE || "+91 9380036328";
+  const email = process.env.REACT_APP_SUPPORT_EMAIL || "support@indianindustrialplatform.com";
+  const address = process.env.REACT_APP_SUPPORT_ADDRESS || "No. 35 Suvarna Nagar Doddabidrekallu Nagasandra - 560073";
 
   return (
     <footer className="bg-slate-900 text-slate-300 pt-10 pb-20 md:pb-10 border-t border-slate-800" data-testid="global-footer">

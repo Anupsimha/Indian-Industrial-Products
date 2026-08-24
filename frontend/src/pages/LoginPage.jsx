@@ -31,8 +31,13 @@ export default function LoginPage() {
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-md border border-slate-200 p-6">
         <div className="flex flex-col items-center mb-5">
           <Logo size={56} withText={false} />
-          <h1 className="mt-3 font-display text-2xl font-bold text-slate-900">Welcome to IIP</h1>
-          <p className="text-xs text-slate-500">Indian Industrial Marketplace & Business Network.</p>
+          <h1 className="mt-3 font-display text-2xl sm:text-3xl font-black text-blue-950 tracking-tight text-center">
+            Welcome to <span className="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-600 bg-clip-text text-transparent">IIP</span>
+          </h1>
+          <p className="mt-1 text-xs text-center font-semibold leading-relaxed">
+            <span className="text-orange-600 font-extrabold uppercase tracking-wider text-[11px]">Indian Industrial Platform</span>{" "}
+            <span className="text-slate-800 font-medium">Marketplace & Business Network.</span>
+          </p>
         </div>
         <form onSubmit={submit} className="space-y-3" data-testid="login-form">
           <div>
