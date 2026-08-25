@@ -101,3 +101,8 @@ uploads/
 **/VacancyResume/
 **/media/
 
+# Database Storage
+postgres_data/
+/postgres_data/
+**/postgres_data/
+
