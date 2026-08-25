@@ -593,6 +593,7 @@ class ProductOut(BaseModel):
     id: str
     company_id: str
     company_name: str
+    seller_pincode: Optional[str] = None
     name: str
     category: str
     image_url: str
@@ -719,6 +720,8 @@ class OrderOut(BaseModel):
     status: str
     address: Optional[str] = None
     created_at: str
+    shiprocket_status: Optional[str] = "SUCCESS"
+    shiprocket_warning: Optional[str] = None
 
 
 # -------------------- Helpers --------------------
@@ -836,6 +839,7 @@ def make_product_out(doc: Product, company: Optional[Company]) -> ProductOut:
     return ProductOut(
         id=doc.id, company_id=doc.company_id,
         company_name=company.name if company else "",
+        seller_pincode=company.pincode if (company and company.pincode) else None,
         name=doc.name, category=doc.category,
         image_url=clean_product_url(doc.image_url),
         images=[clean_product_url(img) for img in (doc.images or [])],
@@ -1669,19 +1673,32 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
 
         # Trigger Shiprocket addpickup registration for dynamic warehouse routing
         try:
-            register_shiprocket_pickup_location({
+            sr_res = register_shiprocket_pickup_location({
                 "pickup_location": company.pickup_location_name,
                 "name": company.owner_name or company.name,
                 "email": company.email,
                 "phone": company.mobile,
-                "address": company.address or company.location,
-                "city": company.city or company.location,
-                "state": company.state or "Delhi",
-                "pin_code": company.pincode or "110001",
+                "address": company.address,
+                "city": company.city,
+                "state": company.state,
+                "pin_code": company.pincode,
                 "gstin": company.gst or ""
             })
+            if not sr_res.get("ok"):
+                logger.error(f"Shiprocket pickup location registration failed for company '{company.name}': {sr_res.get('error')}")
+                raise HTTPException(status_code=400, detail=sr_res.get("error", "Shiprocket pickup location registration failed"))
+            else:
+                reg_nickname = sr_res.get("pickup_location")
+                if reg_nickname and reg_nickname != company.pickup_location_name:
+                    await db.execute(update(Company).where(Company.id == company_id).values(pickup_location_name=reg_nickname))
+                    await db.commit()
+                    company.pickup_location_name = reg_nickname
+                logger.info(f"Shiprocket pickup location registered for company '{company.name}': {reg_nickname}")
+        except HTTPException:
+            raise
         except Exception as sr_err:
             logger.error(f"Failed registering pickup location with Shiprocket: {str(sr_err)}")
+            raise HTTPException(status_code=400, detail=f"Failed registering pickup location with Shiprocket: {str(sr_err)}")
         
     return await hydrate_company(company, user, db)
 
@@ -2051,18 +2068,47 @@ async def delete_product(product_id: str, user: dict = Depends(get_current_user)
 
 async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSession):
     """
-    Automatically push paid/created orders directly to live Shiprocket panel.
+    Automatically push paid/created orders directly to live Shiprocket panel using seller company pickup location.
     """
     try:
-        pickup_location = "Home"
+        pickup_location = None
         if order.items and isinstance(order.items, list) and len(order.items) > 0:
             first_item = order.items[0]
             comp_id = first_item.get("company_id") if isinstance(first_item, dict) else None
             if comp_id:
                 stmt_c = select(Company).where(Company.id == comp_id)
                 comp = (await db.execute(stmt_c)).scalar_one_or_none()
-                if comp and comp.pickup_location_name:
-                    pickup_location = comp.pickup_location_name
+                if comp:
+                    # Register/verify pickup location with Shiprocket using actual seller company details
+                    sr_res = register_shiprocket_pickup_location({
+                        "pickup_location": comp.pickup_location_name,
+                        "name": comp.owner_name or comp.name,
+                        "email": comp.email,
+                        "phone": comp.mobile,
+                        "address": comp.address,
+                        "city": comp.city,
+                        "state": comp.state,
+                        "pin_code": comp.pincode,
+                        "gstin": comp.gst or ""
+                    })
+                    if sr_res.get("ok"):
+                        pickup_location = sr_res.get("pickup_location")
+                        if pickup_location and pickup_location != comp.pickup_location_name:
+                            comp.pickup_location_name = pickup_location
+                            await db.execute(update(Company).where(Company.id == comp.id).values(pickup_location_name=pickup_location))
+                            await db.commit()
+                    else:
+                        logger.error(f"Cannot sync order to Shiprocket: Seller pickup location registration failed for company '{comp.name}': {sr_res.get('error')}")
+                        return {"ok": False, "error": f"Seller pickup location error: {sr_res.get('error')}"}
+
+        if not pickup_location:
+            logger.error(f"Cannot sync order to Shiprocket: No valid seller company pickup location found for Order {order.id}")
+            return {"ok": False, "error": "No valid seller company pickup location registered for order."}
+
+        billing_phone = sanitize_shiprocket_phone(user.get("mobile"))
+        if not billing_phone:
+            logger.error(f"Cannot sync order to Shiprocket: Invalid buyer phone number for Order {order.id}")
+            return {"ok": False, "error": "Invalid buyer phone number for order sync."}
 
         sr_payload = {
             "order_id": order.id[:30],
@@ -2073,12 +2119,12 @@ async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSessi
             "billing_customer_name": user.get("name", "Buyer"),
             "billing_last_name": "",
             "billing_address": order.address or "Factory Address",
-            "billing_city": "New Delhi",
-            "billing_pincode": "110001",
-            "billing_state": "Delhi",
+            "billing_city": user.get("city") or "New Delhi",
+            "billing_pincode": user.get("pincode") or "110001",
+            "billing_state": user.get("state") or "Delhi",
             "billing_country": "India",
-            "billing_email": user.get("email", "buyer@iip.com"),
-            "billing_phone": user.get("mobile", "919876543210"),
+            "billing_email": user.get("email"),
+            "billing_phone": billing_phone,
             "shipping_is_billing": True,
             "order_items": [
                 {
@@ -2098,12 +2144,10 @@ async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSessi
 
         result = create_shiprocket_adhoc_order(sr_payload)
         
-        # If dynamic pickup nickname wasn't recognized by Shiprocket API, retry with primary registered nickname ("Home")
-        if isinstance(result, dict) and "Wrong Pickup location entered" in str(result.get("raw") or ""):
-            sr_payload["pickup_location"] = "Home"
-            result = create_shiprocket_adhoc_order(sr_payload)
-
-        logger.info(f"Shiprocket order sync result for Order {order.id}: {result}")
+        if isinstance(result, dict) and not result.get("ok"):
+            logger.error(f"Shiprocket order sync failed for Order {order.id}: {result.get('error')}")
+        else:
+            logger.info(f"Shiprocket order sync success for Order {order.id}: {result}")
         return result
     except Exception as e:
         logger.error(f"Error syncing order to Shiprocket: {str(e)}")
@@ -2136,7 +2180,12 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
     await db.refresh(order)
 
     # Automatically push order to live Shiprocket panel
-    await auto_sync_order_to_shiprocket(order, user, db)
+    sr_res = await auto_sync_order_to_shiprocket(order, user, db)
+    shiprocket_status = "SUCCESS"
+    shiprocket_warning = None
+    if isinstance(sr_res, dict) and not sr_res.get("ok"):
+        shiprocket_status = "FAILED"
+        shiprocket_warning = sr_res.get("error") or "Shiprocket order sync failed"
 
     return OrderOut(
         id=order.id, user_id=order.user_id, items=order.items or [],
@@ -2144,7 +2193,8 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
         gst=order.gst, total=order.total, delivery_option=order.delivery_option,
         payment_method=order.payment_method, payment_id=order.payment_id,
         razorpay_order_id=order.razorpay_order_id,
-        status=order.status, address=order.address, created_at=order.created_at
+        status=order.status, address=order.address, created_at=order.created_at,
+        shiprocket_status=shiprocket_status, shiprocket_warning=shiprocket_warning
     )
 
 
@@ -4167,12 +4217,15 @@ async def create_payment_order(payload: CreateOrderIn, user: dict = Depends(get_
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
         
-    price = plan.yearly_price if payload.billing_cycle == "yearly" else plan.monthly_price
-    amount_paise = int(price * 100)
-    
-    if amount_paise == 0:
-        return {"order_id": "free_plan", "amount": 0, "key": RAZORPAY_KEY_ID, "currency": "INR"}
+    base_price = plan.yearly_price if payload.billing_cycle == "yearly" else plan.monthly_price
+    if base_price == 0:
+        return {"order_id": "free_plan", "amount": 0, "base_price": 0, "gst": 0, "total": 0, "key": RAZORPAY_KEY_ID, "currency": "INR"}
         
+    # Mandatory 18% GST calculation for membership/plan purchases
+    gst_amount = round(base_price * 0.18, 2)
+    total_price = round(base_price + gst_amount, 2)
+    amount_paise = int(round(total_price * 100))
+    
     import requests
     auth = (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
     order_payload = {
@@ -4186,7 +4239,15 @@ async def create_payment_order(payload: CreateOrderIn, user: dict = Depends(get_
             logger.error(f"Razorpay error: {r.text}")
             raise HTTPException(status_code=500, detail="Failed to create order with payment gateway")
         order_data = r.json()
-        return {"order_id": order_data["id"], "amount": amount_paise, "key": RAZORPAY_KEY_ID, "currency": "INR"}
+        return {
+            "order_id": order_data["id"],
+            "amount": amount_paise,
+            "base_price": base_price,
+            "gst": gst_amount,
+            "total": total_price,
+            "key": RAZORPAY_KEY_ID,
+            "currency": "INR"
+        }
     except Exception as e:
         logger.error(f"Failed calling Razorpay: {str(e)}")
         raise HTTPException(status_code=500, detail="Payment gateway connection error")
@@ -4300,6 +4361,7 @@ class ShippingCalculateIn(BaseModel):
     weight_kg: Optional[float] = 1.0
     cod: Optional[bool] = False
     pickup_pincode: Optional[str] = None
+    company_id: Optional[str] = None
 
 class ShippingCreateOrderIn(BaseModel):
     order_id: str
@@ -4309,16 +4371,34 @@ class ShippingCreateOrderIn(BaseModel):
     consignee_phone: str
 
 @api.post("/shipping/calculate-rate")
-async def calculate_shipping_rate(payload: ShippingCalculateIn):
+async def calculate_shipping_rate(payload: ShippingCalculateIn, db: AsyncSession = Depends(get_db)):
     if not payload.pincode or len(payload.pincode.strip()) < 6:
-        raise HTTPException(status_code=400, detail="Invalid 6-digit Pincode")
-    options = fetch_shipping_rates(
+        raise HTTPException(status_code=400, detail="Invalid 6-digit destination Pincode")
+    
+    pickup_pin = (payload.pickup_pincode or "").strip()
+    
+    # If pickup_pincode was not explicitly provided, look up the vendor company's pincode in DB
+    if not pickup_pin and payload.company_id:
+        stmt_comp = select(Company).where(Company.id == payload.company_id)
+        comp = (await db.execute(stmt_comp)).scalar_one_or_none()
+        if comp and comp.pincode:
+            pickup_pin = comp.pincode.strip()
+
+    if not pickup_pin or len(pickup_pin) != 6 or not pickup_pin.isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail="Seller warehouse pickup pincode is missing or invalid. Please ensure the vendor's company profile includes a 6-digit warehouse pincode."
+        )
+
+    res = fetch_shipping_rates(
         delivery_pincode=payload.pincode.strip(),
         weight_kg=payload.weight_kg or 1.0,
         cod=payload.cod or False,
-        pickup_pincode=payload.pickup_pincode
+        pickup_pincode=pickup_pin
     )
-    return {"ok": True, "options": options}
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Could not calculate Shiprocket rates"))
+    return {"ok": True, "options": res.get("options", []), "pickup_pincode": pickup_pin}
 
 @api.post("/shipping/create-order")
 async def create_shipping_order(payload: ShippingCreateOrderIn, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
@@ -4339,7 +4419,6 @@ async def create_shipping_order(payload: ShippingCreateOrderIn, db: AsyncSession
         "order_date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
         "pickup_location": pickup_nickname,
         "billing_customer_name": payload.consignee_name,
-
         "billing_last_name": "",
         "billing_address": payload.shipping_address,
         "billing_city": "City",
@@ -4366,6 +4445,8 @@ async def create_shipping_order(payload: ShippingCreateOrderIn, db: AsyncSession
     }
 
     result = create_shiprocket_adhoc_order(sr_payload)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Shiprocket order creation failed"))
     return {"ok": True, "shipment": result}
 
 @api.get("/shipping/track/{order_id}")

@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import {
   ShoppingCart, Truck, CreditCard, CheckCircle, ArrowRight, ArrowLeft,
   Minus, Plus, X, MapPin, ShieldCheck, Smartphone, Banknote, Package,
-  Star, Clock, Zap, ChevronRight, Loader2, BadgeCheck
+  Star, Clock, Zap, ChevronRight, Loader2, BadgeCheck, AlertTriangle
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
@@ -33,6 +33,7 @@ export default function CartPage() {
   const [pincode, setPincode] = useState("110001");
   const [shiprocketOptions, setShiprocketOptions] = useState([]);
   const [loadingRates, setLoadingRates] = useState(false);
+  const [rateError, setRateError] = useState(null);
 
   const fetchShiprocketRates = useCallback(async (targetPincode) => {
     if (!targetPincode || targetPincode.length < 6) {
@@ -40,20 +41,32 @@ export default function CartPage() {
       return;
     }
     setLoadingRates(true);
+    setRateError(null);
     try {
-      const sellerPincode = cart[0]?.seller_pincode || cart[0]?.pincode || cart[0]?.company_pincode || "560073";
+      const sellerPincode = cart[0]?.seller_pincode || cart[0]?.pincode || cart[0]?.company_pincode;
+      const companyId = cart[0]?.company_id || cart[0]?.seller_id;
       const res = await api.post("/shipping/calculate-rate", {
         pincode: targetPincode,
         weight_kg: 1.5,
-        pickup_pincode: sellerPincode
+        pickup_pincode: sellerPincode || undefined,
+        company_id: companyId || undefined
       });
       if (res.data?.ok && res.data?.options?.length > 0) {
         setShiprocketOptions(res.data.options);
         setSelectedDelivery(res.data.options[0].id);
-        toast.success(`Fetched live Shiprocket shipping rates for Pincode ${targetPincode}`);
+        setRateError(null);
+        toast.success(`Fetched live Shiprocket rates (From ${res.data.pickup_pincode || "Vendor"} to ${targetPincode})`);
+      } else {
+        setShiprocketOptions([]);
+        const msg = res.data?.detail || res.data?.error || "No serviceable couriers found for this pincode.";
+        setRateError(msg);
+        toast.error(msg);
       }
     } catch (e) {
-      toast.error("Could not calculate live rates. Please check pincode.");
+      setShiprocketOptions([]);
+      const msg = e.response?.data?.detail || e.response?.data?.error || e.message || "Failed to calculate live rates from Shiprocket.";
+      setRateError(msg);
+      toast.error(msg);
     } finally {
       setLoadingRates(false);
     }
@@ -61,10 +74,10 @@ export default function CartPage() {
 
   // Auto-fetch Shiprocket rates when entering delivery step
   useEffect(() => {
-    if (step === "delivery" && shiprocketOptions.length === 0 && !loadingRates) {
+    if (step === "delivery" && shiprocketOptions.length === 0 && !loadingRates && !rateError) {
       fetchShiprocketRates(pincode);
     }
-  }, [step, shiprocketOptions.length, loadingRates, pincode, fetchShiprocketRates]);
+  }, [step, shiprocketOptions.length, loadingRates, rateError, pincode, fetchShiprocketRates]);
 
 
   const getSelectedDeliveryDetails = () => {
@@ -73,14 +86,14 @@ export default function CartPage() {
       const found = shiprocketOptions.find(o => o.id === selectedDelivery) || shiprocketOptions[0];
       if (found) return { label: found.courier_name, cost: found.rate };
     }
-    return { label: "Shiprocket Express Delivery", cost: 149 };
+    return { label: "Shipping Rate Pending", cost: 0 };
   };
 
   const activeDelivery = getSelectedDeliveryDetails();
   const deliveryCost = activeDelivery.cost;
 
-
-  const gstCost = Math.round(cartSubtotal * 0.18);
+  const taxableTotal = cartSubtotal + deliveryCost;
+  const gstCost = Math.round(taxableTotal * 0.18);
   const cartTotal = cartSubtotal + deliveryCost + gstCost;
 
   // Load Razorpay checkout.js
@@ -95,7 +108,19 @@ export default function CartPage() {
     document.body.appendChild(script);
   }, []);
 
+  const validatePhoneForShiprocket = () => {
+    const raw = user?.mobile || "";
+    const cleanDigits = raw.replace(/\D/g, "").replace(/^91/, "");
+    const clean10 = cleanDigits.length > 10 ? cleanDigits.slice(-10) : cleanDigits;
+    if (!clean10 || clean10.length !== 10 || !/^[6-9]\d{9}$/.test(clean10)) {
+      toast.error(`Invalid mobile number '${raw || "missing"}' in your profile. Shiprocket requires a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.`);
+      return false;
+    }
+    return true;
+  };
+
   const placeOrder = async (paymentId = null, method = selectedPayment) => {
+    if (!validatePhoneForShiprocket()) return;
     setIsPlacing(true);
     setStep("processing");
     try {
@@ -106,6 +131,7 @@ export default function CartPage() {
           qty: item.qty,
           price: item.price || "On Request",
           image_url: item.image_url,
+          company_id: item.company_id || "",
           company_name: item.company_name || "",
         })),
         subtotal: cartSubtotal,
@@ -124,8 +150,16 @@ export default function CartPage() {
           const { data } = await api.post("/orders", orderPayload);
           orderId = `IIP${data.id.slice(0, 8).toUpperCase()}`;
           setConfirmedOrder(data);
-        } catch {
-          setConfirmedOrder({ id: orderId, total: cartTotal, payment_method: method });
+          if (data.shiprocket_warning) {
+            toast.warning(`Order created, but Shiprocket notice: ${data.shiprocket_warning}`, { duration: 7000 });
+          } else {
+            toast.success("Order created & synced with Shiprocket!");
+          }
+        } catch (err) {
+          toast.error(err.response?.data?.detail || "Failed to place order.");
+          setIsPlacing(false);
+          setStep("payment");
+          return;
         }
       } else {
         setConfirmedOrder({ id: orderId, total: cartTotal, payment_method: method });
@@ -135,7 +169,7 @@ export default function CartPage() {
         clearCart();
         setStep("confirmed");
         setIsPlacing(false);
-      }, 2500);
+      }, 2000);
     } catch {
       toast.error("Failed to place order. Please try again.");
       setStep("payment");
@@ -144,6 +178,7 @@ export default function CartPage() {
   };
 
   const handleRazorpayPayment = async () => {
+    if (!validatePhoneForShiprocket()) return;
     if (!rzpLoaded || !window.Razorpay) {
       toast.error("Payment gateway is loading, please wait a moment.");
       return;
@@ -397,8 +432,31 @@ export default function CartPage() {
           <div className="space-y-2.5">
             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Available Delivery Options</div>
             
-            {/* Render Live Shiprocket Options if calculated */}
-            {shiprocketOptions.length > 0 ? (
+            {loadingRates ? (
+              <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-2">
+                <Loader2 size={24} className="mx-auto text-purple-700 animate-spin" />
+                <div className="text-xs font-bold text-slate-700">Fetching Live Shiprocket Courier Rates...</div>
+                <p className="text-[11px] text-slate-500">Connecting to Shiprocket API for Pincode {pincode}...</p>
+              </div>
+            ) : rateError ? (
+              <div className="p-5 bg-rose-50 border border-rose-200 rounded-2xl space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-rose-100 rounded-xl text-rose-700 shrink-0">
+                    <AlertTriangle size={18} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-extrabold text-rose-900">Shiprocket Serviceability Failed</div>
+                    <p className="text-[11px] text-rose-700 mt-0.5 leading-relaxed">{rateError}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => fetchShiprocketRates(pincode)}
+                  className="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-colors"
+                >
+                  Retry Fetching Rates
+                </button>
+              </div>
+            ) : shiprocketOptions.length > 0 ? (
               shiprocketOptions.map((opt) => {
                 const isActive = selectedDelivery === opt.id;
                 return (
@@ -430,9 +488,9 @@ export default function CartPage() {
               })
             ) : (
               <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-2">
-                <Loader2 size={24} className="mx-auto text-purple-700 animate-spin" />
-                <div className="text-xs font-bold text-slate-700">Fetching Live Shiprocket Courier Rates...</div>
-                <p className="text-[11px] text-slate-500">Enter your 6-digit destination Pincode above to view available express courier partners.</p>
+                <Truck size={24} className="mx-auto text-slate-400" />
+                <div className="text-xs font-bold text-slate-700">Enter Destination Pincode</div>
+                <p className="text-[11px] text-slate-500">Please enter your 6-digit Pincode above and click "Check Rates" to load real-time Shiprocket courier options.</p>
               </div>
             )}
 
@@ -440,10 +498,16 @@ export default function CartPage() {
 
           <button
             onClick={() => setStep("checkout")}
-            className="w-full py-4 bg-blue-900 text-white font-extrabold rounded-2xl flex items-center justify-center gap-2 hover:bg-blue-950 shadow-lg active:scale-95 transition-all"
+            disabled={shiprocketOptions.length === 0}
+            className="w-full py-4 bg-blue-900 text-white font-extrabold rounded-2xl flex items-center justify-center gap-2 hover:bg-blue-950 shadow-lg active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none"
           >
             Proceed to Checkout <ArrowRight size={16} />
           </button>
+          {shiprocketOptions.length === 0 && (
+            <p className="text-[11px] text-center text-amber-700 font-semibold mt-1">
+              * Valid Shiprocket shipping rate selection required before checkout.
+            </p>
+          )}
         </div>
       )}
 
@@ -705,6 +769,19 @@ export default function CartPage() {
               Your order has been placed and is being processed.
             </p>
           </div>
+
+          {/* Shiprocket Sync Notice if failed */}
+          {confirmedOrder?.shiprocket_warning && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left text-xs text-amber-900 space-y-1 shadow-sm">
+              <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+                Shiprocket Shipping Sync Notice
+              </div>
+              <p className="text-amber-800 leading-relaxed">
+                {confirmedOrder.shiprocket_warning}
+              </p>
+            </div>
+          )}
 
           {/* Order Details card */}
           <div className="bg-white border border-slate-100 rounded-2xl p-5 text-left shadow-sm space-y-3">

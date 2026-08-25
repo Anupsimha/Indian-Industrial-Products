@@ -83,12 +83,16 @@ export default function PricingPage() {
       });
       const orderData = orderRes.data;
 
+      const basePrice = billing === "yearly" ? p.yearly_price : p.monthly_price;
+      const gstAmount = Math.round(basePrice * 0.18);
+      const totalPrice = basePrice + gstAmount;
+
       const options = {
         key: orderData.key,
         amount: orderData.amount,
         currency: orderData.currency,
         name: "Indian Industrial Products",
-        description: `Subscription: ${p.name}`,
+        description: `${p.name} Plan (₹${basePrice} + ₹${gstAmount} 18% GST = ₹${totalPrice})`,
         order_id: orderData.order_id,
         handler: async function (response) {
           try {
@@ -155,7 +159,9 @@ export default function PricingPage() {
         {plans.map((p) => {
           const c = COLOR_MAP[p.color] || COLOR_MAP.blue;
           const Icon = ICONS[p.color] || Zap;
-          const price = billing === "yearly" ? p.yearly_price : p.monthly_price;
+          const basePrice = billing === "yearly" ? p.yearly_price : p.monthly_price;
+          const gstAmount = Math.round(basePrice * 0.18);
+          const totalPrice = basePrice + gstAmount;
           const cad = billing === "yearly" ? "/year" : "/month";
           return (
             <div key={p.id} className={`relative bg-white rounded-2xl p-5 border ${c.ring} shadow-sm hover:shadow-md transition-all`} data-testid={`plan-${p.name.toLowerCase().replace(/\s+/g, "-")}`}>
@@ -169,11 +175,18 @@ export default function PricingPage() {
                 <div className="font-display text-2xl font-bold text-slate-900">{p.name}</div>
               </div>
               {p.description && <p className="text-xs text-slate-500 mt-1">{p.description}</p>}
-              <div className="mt-2 flex items-baseline gap-1">
-                <span className="font-display text-3xl font-bold text-slate-900">
-                  {price > 0 ? `₹${price.toLocaleString("en-IN")}` : (p.name === "Enterprise" ? "Custom" : "₹0")}
-                </span>
-                {price > 0 && <span className="text-xs text-slate-500">{cad}</span>}
+              <div className="mt-2 space-y-0.5">
+                <div className="flex items-baseline gap-1">
+                  <span className="font-display text-3xl font-bold text-slate-900">
+                    {basePrice > 0 ? `₹${totalPrice.toLocaleString("en-IN")}` : (p.name === "Enterprise" ? "Custom" : "₹0")}
+                  </span>
+                  {basePrice > 0 && <span className="text-xs text-slate-500">{cad} (incl. 18% GST)</span>}
+                </div>
+                {basePrice > 0 && (
+                  <div className="text-[11px] text-slate-500 font-medium">
+                    Base: ₹{basePrice.toLocaleString("en-IN")} + ₹{gstAmount.toLocaleString("en-IN")} (18% GST)
+                  </div>
+                )}
               </div>
               <ul className="mt-3 space-y-1.5">
                 {(p.features || []).map((f) => (

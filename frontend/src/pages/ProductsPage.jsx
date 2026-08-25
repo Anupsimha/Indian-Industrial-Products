@@ -132,7 +132,8 @@ export default function ProductsPage() {
 
   // Calculations (cartSubtotal comes from CartContext)
   const deliveryCost = cart.length > 0 ? (deliveryOptions[selectedDelivery]?.cost || 0) : 0;
-  const gstCost = Math.round(cartSubtotal * 0.18);
+  const taxableTotal = cartSubtotal + deliveryCost;
+  const gstCost = Math.round(taxableTotal * 0.18);
   const cartTotal = cartSubtotal + deliveryCost + gstCost;
 
 
