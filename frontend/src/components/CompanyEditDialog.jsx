@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { X, Info } from "lucide-react";
+import { X, Info, CheckCircle2 } from "lucide-react";
 import { MediaUploader, SingleImageUploader } from "./MediaUploader";
 import api, { formatApiError } from "../lib/api";
 import { toast } from "sonner";
@@ -117,14 +117,45 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
 
           <Section title="Shiprocket Warehouse & Pickup Location">
             <p className="text-[11px] text-slate-500 mb-2">Used by Shiprocket couriers for direct factory/shop pickup and rate calculation.</p>
-            <div className="mb-3 p-3 bg-blue-50 border border-blue-100 rounded-xl text-[11px] text-blue-900 space-y-1">
-              <div className="font-bold flex items-center gap-1.5 text-blue-950">
-                <Info size={14} className="text-blue-600 shrink-0" /> Shiprocket Pickup Verification Policy
+            
+            <div className="mb-3 p-3 bg-blue-50 border border-blue-100 rounded-xl text-[11px] font-medium space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  {company?.shiprocket_phone_verified ? (
+                    <span className="text-emerald-700 font-bold flex items-center gap-1 text-xs">
+                      <CheckCircle2 size={16} className="text-emerald-600 shrink-0" /> Shiprocket Pickup Verified
+                    </span>
+                  ) : (
+                    <span className="text-amber-800 font-bold flex items-center gap-1 text-xs">
+                      <Info size={16} className="text-amber-600 shrink-0" /> Phone OTP Verification Pending
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const res = await api.post("/companies/me/sync-pickup-status");
+                      if (res.data?.shiprocket_phone_verified) {
+                        toast.success("Shiprocket Warehouse Phone Verification Confirmed!");
+                        onSaved?.();
+                      } else {
+                        toast.warning("Verification is still pending in Shiprocket. Check warehouse mobile number for OTP.");
+                      }
+                    } catch (err) {
+                      toast.error(formatApiError(err.response?.data?.detail) || "Failed to sync status");
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-blue-800 text-white font-bold text-[11px] hover:bg-blue-900 transition-colors shadow-xs"
+                >
+                  Sync Status
+                </button>
               </div>
-              <p className="leading-relaxed text-blue-800">
-                Shiprocket mandates 1-time OTP verification for new warehouse addresses. After saving, log into your <strong>Shiprocket Panel → Settings → Pickup Addresses</strong> to verify the OTP for this location so couriers pick up directly from your factory.
+              <p className="leading-relaxed text-slate-600">
+                Shiprocket requires a 1-time OTP verification for new warehouse phone numbers. If pending, verify the OTP sent to <strong>{form.mobile || "your warehouse mobile"}</strong> or check your Shiprocket Panel.
               </p>
             </div>
+
             <Row label="Street Address / Factory Unit" required textarea value={form.address} onChange={(v) => setForm({ ...form, address: v })} testid="ce-addr" placeholder="Unit 4B, Sector 58, Industrial Estate" />
             <div className="grid grid-cols-2 gap-3">
               <Row label="City" required value={form.city} onChange={(v) => setForm({ ...form, city: v })} testid="ce-city" placeholder="e.g. New Delhi" />

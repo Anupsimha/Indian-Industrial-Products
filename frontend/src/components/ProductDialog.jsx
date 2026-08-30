@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, MapPin, ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { X, MapPin, ImagePlus, Loader2, Trash2, AlertTriangle } from "lucide-react";
 import api, { formatApiError } from "../lib/api";
 import { toast } from "sonner";
 
@@ -224,6 +224,14 @@ export const ProductDialog = ({ open, onClose, onSaved, initial }) => {
         </div>
 
         <form onSubmit={submit} className="p-5 space-y-5">
+          <div className="p-3 bg-amber-50/80 border border-amber-200/80 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+            <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold block">Shiprocket Warehouse Logistics Notice</span>
+              Couriers will calculate rates and pick up orders directly from your company's registered warehouse pincode and verified phone number.
+            </div>
+          </div>
+
           {/* Image Upload */}
           <div>
             <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-2">

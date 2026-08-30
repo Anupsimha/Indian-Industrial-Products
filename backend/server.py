@@ -6,7 +6,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 # Email utility (imported after load_dotenv so env vars are available)
 from email_utils import send_email, build_otp_email
-from shiprocket_utils import fetch_shipping_rates, create_shiprocket_adhoc_order, register_shiprocket_pickup_location
+from shiprocket_utils import fetch_shipping_rates, create_shiprocket_adhoc_order, register_shiprocket_pickup_location, check_shiprocket_pickup_verification
 
 import os
 import uuid
@@ -147,6 +147,8 @@ class Company(Base):
     pincode = Column(String(20), nullable=True)
     pickup_location_name = Column(String(100), nullable=True)
     shiprocket_pickup_id = Column(String(100), nullable=True)
+    shiprocket_phone_verified = Column(Boolean, default=False, nullable=True)
+    shiprocket_warning = Column(String(512), nullable=True)
     employees = Column(String(255), nullable=True)
     certifications = Column(JSON, default=list, nullable=True)
     is_featured = Column(Boolean, default=False, nullable=False)
@@ -439,6 +441,8 @@ class CompanyOut(BaseModel):
     pincode: Optional[str] = None
     pickup_location_name: Optional[str] = None
     shiprocket_pickup_id: Optional[str] = None
+    shiprocket_phone_verified: bool = False
+    shiprocket_warning: Optional[str] = None
     employees: Optional[str] = None
     certifications: Optional[List[str]] = None
     is_featured: bool = False
@@ -918,6 +922,8 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
         pincode=getattr(company, "pincode", None),
         pickup_location_name=getattr(company, "pickup_location_name", None),
         shiprocket_pickup_id=getattr(company, "shiprocket_pickup_id", None),
+        shiprocket_phone_verified=bool(getattr(company, "shiprocket_phone_verified", False)),
+        shiprocket_warning=getattr(company, "shiprocket_warning", None),
         employees=company.employees,
         certifications=company.certifications,
         is_featured=company.is_featured,
@@ -1747,11 +1753,21 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
                 raise HTTPException(status_code=400, detail=sr_res.get("error", "Shiprocket pickup location registration failed"))
             else:
                 reg_nickname = sr_res.get("pickup_location")
+                is_ver = bool(sr_res.get("phone_verified", False))
+                warn = sr_res.get("phone_warning")
+                upd_vals = {
+                    "shiprocket_phone_verified": is_ver,
+                    "shiprocket_warning": warn
+                }
                 if reg_nickname and reg_nickname != company.pickup_location_name:
-                    await db.execute(update(Company).where(Company.id == company_id).values(pickup_location_name=reg_nickname))
-                    await db.commit()
+                    upd_vals["pickup_location_name"] = reg_nickname
                     company.pickup_location_name = reg_nickname
-                logger.info(f"Shiprocket pickup location registered for company '{company.name}': {reg_nickname}")
+                
+                await db.execute(update(Company).where(Company.id == company_id).values(**upd_vals))
+                await db.commit()
+                company.shiprocket_phone_verified = is_ver
+                company.shiprocket_warning = warn
+                logger.info(f"Shiprocket pickup location registered for company '{company.name}': {reg_nickname} (Verified: {is_ver})")
         except HTTPException:
             raise
         except Exception as sr_err:
@@ -1759,6 +1775,44 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
             raise HTTPException(status_code=400, detail=f"Failed registering pickup location with Shiprocket: {str(sr_err)}")
         
     return await hydrate_company(company, user, db)
+
+
+@api.post("/companies/me/sync-pickup-status")
+async def sync_company_pickup_status(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not user.get("company_id"):
+        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
+    
+    stmt_c = select(Company).where(Company.id == user["company_id"])
+    comp = (await db.execute(stmt_c)).scalar_one_or_none()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Company profile not found.")
+
+    res = check_shiprocket_pickup_verification(
+        nickname=comp.pickup_location_name,
+        phone_raw=comp.mobile,
+        pincode=comp.pincode
+    )
+    is_verified = bool(res.get("phone_verified", False))
+    status_str = res.get("status", "NOT_FOUND")
+
+    warn = None
+    if not is_verified:
+        warn = "Phone verification is pending in your Shiprocket Panel (Settings -> Pickup Addresses). Check your mobile number for Shiprocket OTP."
+
+    await db.execute(update(Company).where(Company.id == comp.id).values(
+        shiprocket_phone_verified=is_verified,
+        shiprocket_warning=warn
+    ))
+    await db.commit()
+
+    return {
+        "ok": True,
+        "company_id": comp.id,
+        "pickup_location_name": comp.pickup_location_name,
+        "shiprocket_phone_verified": is_verified,
+        "status": status_str,
+        "warning": warn
+    }
 
 
 
@@ -2053,6 +2107,19 @@ async def create_product(request: Request, payload: ProductCreate, user: dict = 
             detail="Please complete your company warehouse address and 6-digit Pincode in profile settings before adding products to the marketplace."
         )
 
+    # Product Creation Verification Guardrail: Check live Shiprocket warehouse verification
+    if not getattr(company, "shiprocket_phone_verified", False):
+        live_ver = check_shiprocket_pickup_verification(company.pickup_location_name, company.mobile, company.pincode)
+        if live_ver.get("phone_verified"):
+            await db.execute(update(Company).where(Company.id == company.id).values(shiprocket_phone_verified=True, shiprocket_warning=None))
+            await db.commit()
+            company.shiprocket_phone_verified = True
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Warehouse pickup location verification is pending on Shiprocket. Please complete 1-time phone OTP verification for your warehouse mobile number before listing products for sale."
+            )
+
     pid = str(uuid.uuid4())
 
     
@@ -2151,10 +2218,16 @@ async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSessi
                     })
                     if sr_res.get("ok"):
                         pickup_location = sr_res.get("pickup_location")
-                        if pickup_location and pickup_location != comp.pickup_location_name:
-                            comp.pickup_location_name = pickup_location
-                            await db.execute(update(Company).where(Company.id == comp.id).values(pickup_location_name=pickup_location))
-                            await db.commit()
+                        is_ver = bool(sr_res.get("phone_verified", False))
+                        warn = sr_res.get("phone_warning")
+                        await db.execute(update(Company).where(Company.id == comp.id).values(
+                            pickup_location_name=pickup_location,
+                            shiprocket_phone_verified=is_ver,
+                            shiprocket_warning=warn
+                        ))
+                        await db.commit()
+                        if not is_ver:
+                            logger.warning(f"Order sync note: Seller pickup location '{pickup_location}' for company '{comp.name}' is unverified on Shiprocket.")
                     else:
                         logger.error(f"Cannot sync order to Shiprocket: Seller pickup location registration failed for company '{comp.name}': {sr_res.get('error')}")
                         return {"ok": False, "error": f"Seller pickup location error: {sr_res.get('error')}"}

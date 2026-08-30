@@ -240,6 +240,37 @@ def get_shiprocket_pickup_locations() -> List[Dict[str, Any]]:
     return []
 
 
+def check_shiprocket_pickup_verification(nickname: Optional[str], phone_raw: Optional[str], pincode: Optional[str]) -> Dict[str, Any]:
+    """
+    Check live verification status of a registered pickup location in Shiprocket master account.
+    Returns {"ok": True, "phone_verified": True/False, "pickup_location": nickname, "status": "VERIFIED"/"PENDING_VERIFICATION"}.
+    """
+    locations = get_shiprocket_pickup_locations()
+    if not locations:
+        return {"ok": False, "phone_verified": False, "pickup_location": nickname, "status": "NOT_FOUND"}
+
+    clean_p = sanitize_shiprocket_phone(phone_raw or "")
+    clean_pin = str(pincode or "").strip()
+    clean_nick = str(nickname or "").strip().lower()
+
+    for loc in locations:
+        loc_nick = str(loc.get("pickup_location") or "").strip().lower()
+        loc_pin = str(loc.get("pin_code") or "").strip()
+        loc_phone = sanitize_shiprocket_phone(str(loc.get("phone") or ""))
+        is_verified = bool(loc.get("phone_verified") == 1 or loc.get("status") == 1)
+
+        if (clean_nick and loc_nick == clean_nick) or (clean_pin and loc_pin == clean_pin and clean_p and loc_phone == clean_p):
+            return {
+                "ok": True,
+                "phone_verified": is_verified,
+                "pickup_location": loc.get("pickup_location"),
+                "status": "VERIFIED" if is_verified else "PENDING_VERIFICATION",
+                "raw": loc
+            }
+
+    return {"ok": False, "phone_verified": False, "pickup_location": nickname, "status": "NOT_FOUND"}
+
+
 def register_shiprocket_pickup_location(pickup_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Register or update a seller's shop/warehouse address with Shiprocket via POST /v1/external/settings/company/addpickup.
@@ -358,13 +389,15 @@ def register_shiprocket_pickup_location(pickup_data: Dict[str, Any]) -> Dict[str
         if res.status_code in [200, 201]:
             data = res.json()
             logger.info(f"Shiprocket pickup location registered successfully: {pickup_nickname}")
+            verification = check_shiprocket_pickup_verification(pickup_nickname, clean_phone, pincode)
             return {
                 "ok": True,
                 "pickup_location": pickup_nickname,
                 "status": "REGISTERED",
+                "phone_verified": verification.get("phone_verified", False),
                 "raw": data
             }
-        
+
         err_msg = ""
         try:
             data = res.json()
