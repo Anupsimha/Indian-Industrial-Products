@@ -88,7 +88,7 @@ export const Footer = () => {
         </div>
 
         <div className="pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-slate-500">
-          <div>© {new Date().getFullYear()} Indian Industrial Products (IIP). All rights reserved.</div>
+          <div>© {new Date().getFullYear()} Indian Industrial Platform (IIP). All rights reserved.</div>
           <div className="flex items-center gap-4">
             <Link to="/terms" className="hover:text-slate-400">Terms</Link>
             <Link to="/privacy" className="hover:text-slate-400">Privacy</Link>
