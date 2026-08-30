@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { Navigate, Link } from "react-router-dom";
-import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image } from "lucide-react";
+import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 import { SingleImageUploader } from "../components/MediaUploader";
@@ -42,6 +42,7 @@ export default function AdminPage() {
 
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
+    { id: "contact-enquiries", label: "Contact Inquiries", icon: Inbox },
     { id: "industrial-groups", label: "Industrial Groups", icon: Building2 },
     { id: "plans", label: "Plans", icon: Crown },
     { id: "slides", label: "Slides", icon: Image },
@@ -71,6 +72,7 @@ export default function AdminPage() {
       </div>
 
       {tab === "overview" && stats && analytics && <Overview stats={stats} analytics={analytics} />}
+      {tab === "contact-enquiries" && <ContactEnquiriesTab />}
       {tab === "industrial-groups" && <IndustrialGroupsTab />}
       {tab === "plans" && <PlansTab plans={plans} reload={reload} setPlanEdit={setPlanEdit} planEdit={planEdit} />}
       {tab === "slides" && <SlidesTab />}
@@ -710,6 +712,132 @@ const IndustrialGroupsTab = () => {
             <div className="flex gap-2">
               <button onClick={() => edit(g)} data-testid={`admin-group-edit-${g.id}`} className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 rounded-lg">Edit</button>
               <button onClick={() => remove(g.id)} data-testid={`admin-group-delete-${g.id}`} className="px-2.5 py-1 text-xs font-semibold text-rose-600 bg-rose-50 rounded-lg">Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const ContactEnquiriesTab = () => {
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/admin/contact-enquiries");
+      setList(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      if (err.response?.status === 404) {
+        setList([]);
+      } else {
+        const detail = err.response?.data?.detail;
+        const msg = typeof detail === "string" ? detail : "Failed to load contact inquiries";
+        if (err.response?.status !== 401 && err.response?.status !== 403) {
+          toast.error(msg);
+        }
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const toggleStatus = async (id, currentStatus) => {
+    const nextStatus = currentStatus === "resolved" ? "pending" : "resolved";
+    try {
+      await api.patch(`/admin/contact-enquiries/${id}/status?status_val=${nextStatus}`);
+      toast.success(`Marked as ${nextStatus}`);
+      load();
+    } catch {
+      toast.error("Failed to update status");
+    }
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm("Delete this inquiry?")) return;
+    try {
+      await api.delete(`/admin/contact-enquiries/${id}`);
+      toast.success("Deleted inquiry");
+      load();
+    } catch {
+      toast.error("Failed to delete");
+    }
+  };
+
+  if (loading) return <div className="p-8 text-center text-xs text-slate-400">Loading contact submissions...</div>;
+
+  if (list.length === 0) {
+    return (
+      <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl space-y-2 mt-2" data-testid="admin-contact-empty">
+        <Inbox className="mx-auto text-slate-300" size={36} />
+        <h4 className="font-bold text-slate-700 text-sm">No Contact Submissions Yet</h4>
+        <p className="text-xs text-slate-400">Inquiries submitted via the Contact Us page will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-3" data-testid="admin-contact-tab">
+      <div className="flex items-center justify-between text-xs text-slate-500 font-semibold px-1">
+        <span>Total Received: {list.length}</span>
+        <span>Showing latest contact form queries</span>
+      </div>
+
+      <div className="space-y-3">
+        {list.map((c) => (
+          <div key={c.id} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3" data-testid={`admin-contact-item-${c.id}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-900 text-sm">{c.name}</span>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                    c.status === "resolved" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                  }`}>
+                    {c.status}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500 flex flex-wrap items-center gap-3">
+                  <a href={`mailto:${c.email}`} className="text-blue-700 font-medium hover:underline flex items-center gap-1">
+                    <Mail size={12} /> {c.email}
+                  </a>
+                  {c.mobile && (
+                    <a href={`tel:${c.mobile.replace(/\D/g, "")}`} className="text-slate-600 font-medium hover:underline flex items-center gap-1">
+                      <Phone size={12} /> {c.mobile}
+                    </a>
+                  )}
+                  <span className="text-slate-400 text-[11px]">
+                    {new Date(c.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => toggleStatus(c.id, c.status)}
+                  data-testid={`admin-contact-toggle-${c.id}`}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-colors ${
+                    c.status === "resolved" ? "bg-slate-100 text-slate-600 hover:bg-slate-200" : "bg-emerald-600 text-white hover:bg-emerald-700"
+                  }`}
+                >
+                  {c.status === "resolved" ? "Mark Pending" : "Mark Resolved"}
+                </button>
+                <button
+                  onClick={() => remove(c.id)}
+                  data-testid={`admin-contact-delete-${c.id}`}
+                  className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 space-y-1">
+              {c.subject && <div className="text-xs font-bold text-slate-800">Subject: {c.subject}</div>}
+              <p className="text-xs text-slate-600 whitespace-pre-wrap leading-relaxed">{c.message}</p>
             </div>
           </div>
         ))}

@@ -4,12 +4,15 @@ import api from "../lib/api";
 import { toast } from "sonner";
 import { SingleImageUploader } from "./MediaUploader";
 
+import { formatApiError } from "../lib/api";
+
 export const UserEditDialog = ({ open, onClose, user, onSaved }) => {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [role, setRole] = useState("manufacturer");
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
 
   useEffect(() => {
     if (user) {
@@ -17,6 +20,7 @@ export const UserEditDialog = ({ open, onClose, user, onSaved }) => {
       setMobile(user.mobile || "");
       setAvatarUrl(user.avatar_url || "");
       setRole(user.role || "manufacturer");
+      setErr("");
     }
   }, [user]);
 
@@ -25,6 +29,7 @@ export const UserEditDialog = ({ open, onClose, user, onSaved }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
+    setErr("");
     try {
       const res = await api.patch("/auth/me", {
         name,
@@ -35,8 +40,10 @@ export const UserEditDialog = ({ open, onClose, user, onSaved }) => {
       toast.success("Profile updated successfully!");
       onSaved?.(res.data);
       onClose();
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed to update profile");
+    } catch (error) {
+      const msg = formatApiError(error.response?.data?.detail) || "Failed to update profile";
+      setErr(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -57,6 +64,11 @@ export const UserEditDialog = ({ open, onClose, user, onSaved }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {err && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl font-medium" data-testid="edit-user-error-alert">
+              {err}
+            </div>
+          )}
           {/* Avatar Upload */}
           <div className="flex flex-col items-center justify-center space-y-2">
             <SingleImageUploader

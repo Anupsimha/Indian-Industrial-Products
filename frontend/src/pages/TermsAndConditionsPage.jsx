@@ -15,7 +15,7 @@ export default function TermsAndConditionsPage() {
             <Scale size={28} className="text-blue-400" /> Terms & Conditions
           </h1>
           <p className="text-slate-300 text-xs md:text-sm">
-            Last Updated: August 2026 | Indian Industrial Products (IIP) Marketplace
+            Last Updated: August 2026 | Indian Industrial Platform (IIP) Marketplace
           </p>
         </div>
       </div>
@@ -23,13 +23,13 @@ export default function TermsAndConditionsPage() {
       {/* Content */}
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-slate-700 text-sm leading-relaxed">
-          
+
           <section className="space-y-2">
             <h2 className="text-base md:text-lg font-bold text-slate-900 flex items-center gap-2">
               <FileText size={18} className="text-blue-900" /> 1. Introduction & Acceptance
             </h2>
             <p>
-              Welcome to <strong>Indian Industrial Products (IIP)</strong>. These Terms & Conditions govern your access to and use of our B2B e-commerce platform, website, and mobile services. By registering an account, placing an order, or accessing any part of IIP, you agree to be bound by these Terms and our Privacy & Refund Policies.
+              Welcome to <strong>Indian Industrial Platform (IIP)</strong>. These Terms & Conditions govern your access to and use of our B2B e-commerce platform, website, and mobile services. By registering an account, placing an order, or accessing any part of IIP, you agree to be bound by these Terms and our Privacy & Refund Policies.
             </p>
           </section>
 

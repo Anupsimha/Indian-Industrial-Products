@@ -65,7 +65,7 @@ RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "SlP4dzu1iYGRV902Xss
 RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "iip_webhook_secret_2026")
 JWT_ALGO = "HS256"
 
-app = FastAPI(title="IIP - Indian Industrial Products")
+app = FastAPI(title="IIP - Indian Industrial Platform")
 app.mount("/api/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads_api")
 app.mount("/api/reels-uploaded", StaticFiles(directory=str(REEL_DIR)), name="reels_local_api")
 app.mount("/api/products-images", StaticFiles(directory=str(PRODUCT_IMAGES_DIR)), name="products_images_api")
@@ -221,6 +221,17 @@ class Enquiry(Base):
     post_id = Column(String(36), nullable=True)
     status = Column(String(50), nullable=False)  # new, in_progress, closed
     media_urls = Column(JSON, default=list, nullable=True)  # list of uploaded image/file URLs
+    created_at = Column(String(255), nullable=False)
+
+class ContactEnquiry(Base):
+    __tablename__ = "contact_enquiries"
+    id = Column(String(36), primary_key=True)
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False)
+    mobile = Column(String(50), nullable=True)
+    subject = Column(String(255), nullable=True)
+    message = Column(Text, nullable=False)
+    status = Column(String(50), default="pending", nullable=False)  # pending, resolved
     created_at = Column(String(255), nullable=False)
 
 class Follow(Base):
@@ -667,6 +678,25 @@ class EnquiryOut(BaseModel):
     post_id: Optional[str] = None
     status: Literal["new", "in_progress", "closed", "completed", "pending"]
     media_urls: Optional[List[str]] = None
+    created_at: str
+
+
+class ContactEnquiryCreate(BaseModel):
+    name: str
+    email: EmailStr
+    mobile: Optional[str] = None
+    subject: Optional[str] = None
+    message: str
+
+
+class ContactEnquiryOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    mobile: Optional[str] = None
+    subject: Optional[str] = None
+    message: str
+    status: str
     created_at: str
 
 
@@ -1399,11 +1429,39 @@ async def update_me(
 ):
     upd = {k: v for k, v in payload.model_dump().items() if v is not None}
     if upd:
+        if "mobile" in upd and upd["mobile"] and upd["mobile"] != user.get("mobile"):
+            stmt_m = select(User).where(User.mobile == upd["mobile"], User.id != user["id"])
+            existing_m = (await db.execute(stmt_m)).scalar_one_or_none()
+            if existing_m:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This mobile number is already registered with another account."
+                )
         if "avatar_url" in upd:
             upd["avatar_url"] = clean_media_url(upd["avatar_url"])
-        stmt_u = update(User).where(User.id == user["id"]).values(**upd)
-        await db.execute(stmt_u)
-        await db.commit()
+
+        try:
+            stmt_u = update(User).where(User.id == user["id"]).values(**upd)
+            await db.execute(stmt_u)
+            await db.commit()
+        except IntegrityError as ie:
+            await db.rollback()
+            err_msg = str(ie).lower()
+            if "mobile" in err_msg or "ix_users_mobile" in err_msg:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This mobile number is already registered with another account."
+                )
+            elif "email" in err_msg or "ix_users_email" in err_msg:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This email address is already registered with another account."
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Details provided conflict with an existing user account."
+                )
 
     stmt = select(User).where(User.id == user["id"])
     updated = (await db.execute(stmt)).scalar_one()
@@ -4631,6 +4689,73 @@ async def admin_list_users(user: dict = Depends(get_current_user), db: AsyncSess
     stmt = select(User).order_by(desc(User.created_at)).limit(500)
     docs = (await db.execute(stmt)).scalars().all()
     return [UserPublic(**user_to_dict(d)) for d in docs]
+
+
+# -------------------- Contact Us & Support Enquiries --------------------
+@api.post("/contact-us", response_model=ContactEnquiryOut)
+async def create_contact_enquiry(payload: ContactEnquiryCreate, db: AsyncSession = Depends(get_db)):
+    cid = str(uuid.uuid4())
+    doc = ContactEnquiry(
+        id=cid,
+        name=payload.name.strip(),
+        email=payload.email.strip(),
+        mobile=payload.mobile.strip() if payload.mobile else None,
+        subject=payload.subject.strip() if payload.subject else "General Contact Query",
+        message=payload.message.strip(),
+        status="pending",
+        created_at=datetime.utcnow().isoformat(),
+    )
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+    return doc
+
+
+@api.get("/admin/contact-enquiries", response_model=List[ContactEnquiryOut])
+async def admin_list_contact_enquiries(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    try:
+        stmt = select(ContactEnquiry).order_by(desc(ContactEnquiry.created_at)).limit(500)
+        docs = (await db.execute(stmt)).scalars().all()
+        return docs
+    except Exception:
+        return []
+
+
+@api.patch("/admin/contact-enquiries/{id}/status", response_model=ContactEnquiryOut)
+async def admin_update_contact_enquiry_status(
+    id: str,
+    status_val: str = Query(...),
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    stmt = select(ContactEnquiry).where(ContactEnquiry.id == id)
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contact enquiry not found")
+    doc.status = status_val
+    await db.commit()
+    await db.refresh(doc)
+    return doc
+
+
+@api.delete("/admin/contact-enquiries/{id}")
+async def admin_delete_contact_enquiry(
+    id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    stmt = select(ContactEnquiry).where(ContactEnquiry.id == id)
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if doc:
+        await db.delete(doc)
+        await db.commit()
+    return {"status": "ok"}
 
 
 # -------------------- Cloudinary Mock Signature Endpoint --------------------

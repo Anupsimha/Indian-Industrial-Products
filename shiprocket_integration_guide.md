@@ -1,6 +1,6 @@
 # Shiprocket Integration & Configuration Guide
 
-This document outlines the Shiprocket logistics integration in **Indian Industrial Products (IIP)**, including environment variables, API endpoints, workflow details, and setup instructions.
+This document outlines the Shiprocket logistics integration in **Indian Industrial Platform (IIP)**, including environment variables, API endpoints, workflow details, and setup instructions.
 
 ---
 

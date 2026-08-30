@@ -2,24 +2,33 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { Phone, Mail, MapPin, Clock, MessageSquare, ArrowLeft, Send, CheckCircle2, Building2 } from "lucide-react";
 import { toast } from "sonner";
-import { whatsappLink } from "../lib/api";
+import api, { formatApiError, whatsappLink } from "../lib/api";
 
 export default function ContactUsPage() {
   const [form, setForm] = useState({ name: "", email: "", mobile: "", subject: "", message: "" });
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const phone = process.env.REACT_APP_SUPPORT_PHONE || "+91 9380036328";
   const email = process.env.REACT_APP_SUPPORT_EMAIL || "support@indianindustrialplatform.com";
   const address = process.env.REACT_APP_SUPPORT_ADDRESS || "No. 35 Suvarna Nagar Doddabidrekallu Nagasandra - 560073";
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.email || !form.message) {
       toast.error("Please fill in all required fields.");
       return;
     }
-    setSubmitted(true);
-    toast.success("Thank you! Your message has been received. Our team will contact you within 24 hours.");
+    setLoading(true);
+    try {
+      await api.post("/contact-us", form);
+      setSubmitted(true);
+      toast.success("Thank you! Your message has been received. Our team will contact you within 24 hours.");
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "Failed to send message. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -46,7 +55,7 @@ export default function ContactUsPage() {
               Company Details
             </h2>
             <p className="text-xs text-slate-600 font-medium leading-relaxed">
-              <strong className="text-slate-900">Indian Industrial Products (IIP)</strong><br />
+              <strong className="text-slate-900">Indian Industrial Platform (IIP)</strong><br />
               Registered Office: {address}
             </p>
 
@@ -175,9 +184,11 @@ export default function ContactUsPage() {
 
                 <button
                   type="submit"
-                  className="w-full py-3 bg-blue-900 hover:bg-blue-950 text-white font-extrabold text-sm rounded-xl flex items-center justify-center gap-2 shadow-md transition-all active:scale-95"
+                  disabled={loading}
+                  data-testid="contact-submit-btn"
+                  className="w-full py-3 bg-blue-900 hover:bg-blue-950 text-white font-extrabold text-sm rounded-xl flex items-center justify-center gap-2 shadow-md transition-all active:scale-95 disabled:opacity-50"
                 >
-                  <Send size={16} /> Submit Message
+                  <Send size={16} /> {loading ? "Submitting..." : "Submit Message"}
                 </button>
               </form>
             )}

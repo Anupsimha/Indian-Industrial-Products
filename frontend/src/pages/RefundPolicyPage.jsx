@@ -15,7 +15,7 @@ export default function RefundPolicyPage() {
             <RefreshCw size={28} className="text-blue-400" /> Refund, Cancellation & Shipping Policy
           </h1>
           <p className="text-slate-300 text-xs md:text-sm">
-            Merchant Compliance Policies for Indian Industrial Products (IIP Marketplace)
+            Merchant Compliance Policies for Indian Industrial Platform (IIP Marketplace)
           </p>
         </div>
       </div>

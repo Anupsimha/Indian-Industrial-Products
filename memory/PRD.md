@@ -1,7 +1,7 @@
-# IIP - Indian Industrial Products | PRD & Architecture
+# IIP - Indian Industrial Platform | PRD & Architecture
 
 ## Original Problem Statement
-A modern web platform "IIP - Indian Industrial Products" (industrial blue/grey/orange theme, gear+India-map logo, tagline "Industrial Marketplace & Business Network"). UI inspired by Facebook + Instagram + B2B marketplace, mobile-first responsive. Features: home feed, hero auto-slider, vertical reels, company profiles, post enquiry, leads dashboard, product listings, JWT auth with 3 roles (Manufacturer/Supplier/Buyer), bottom mobile navigation, WhatsApp click-to-chat, follow/save/notifications, subscription plans (Basic ₹999, Standard ₹2999), Jobs/Vacancies section, Cloudinary media uploads, full company profile with GST/PAN/certifications, owner CRUD, admin dashboard.
+A modern web platform "IIP - Indian Industrial Platform" (industrial blue/grey/orange theme, gear+India-map logo, tagline "Industrial Marketplace & Business Network"). UI inspired by Facebook + Instagram + B2B marketplace, mobile-first responsive. Features: home feed, hero auto-slider, vertical reels, company profiles, post enquiry, leads dashboard, product listings, JWT auth with 3 roles (Manufacturer/Supplier/Buyer), bottom mobile navigation, WhatsApp click-to-chat, follow/save/notifications, subscription plans (Basic ₹999, Standard ₹2999), Jobs/Vacancies section, Cloudinary media uploads, full company profile with GST/PAN/certifications, owner CRUD, admin dashboard.
 
 ## User Personas
 - **Manufacturer / Supplier** — owns a company profile, posts content, uploads reels, lists products, posts vacancies, edits profile, receives leads on dashboard + WhatsApp.

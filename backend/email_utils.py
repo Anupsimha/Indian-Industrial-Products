@@ -168,7 +168,7 @@ def build_otp_email(otp: str, user_name: str, action: str = "unlock a lead conta
               </span>
               <p style="margin:6px 0 0;color:#bfdbfe;font-size:12px;letter-spacing:1px;
                         text-transform:uppercase;font-weight:600;">
-                Indian Industrial Products
+                Indian Industrial Platform
               </p>
             </td>
           </tr>
@@ -211,7 +211,7 @@ def build_otp_email(otp: str, user_name: str, action: str = "unlock a lead conta
             <td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;
                        text-align:center;">
               <p style="margin:0;font-size:11px;color:#cbd5e1;">
-                © 2026 IIP — Indian Industrial Products &nbsp;|&nbsp;
+                © 2026 IIP — Indian Industrial Platform &nbsp;|&nbsp;
                 <a href="#" style="color:#2563eb;text-decoration:none;">Unsubscribe</a>
               </p>
             </td>
@@ -248,7 +248,7 @@ def build_welcome_email(user_name: str) -> str:
           <td style="padding:36px 32px;">
             <p style="font-size:16px;color:#1e293b;font-weight:600;">Welcome, {user_name}! 🎉</p>
             <p style="font-size:14px;color:#475569;line-height:1.6;">
-              Your account on <strong>Indian Industrial Products</strong> has been created successfully.
+              Your account on <strong>Indian Industrial Platform</strong> has been created successfully.
               Start exploring verified buyer requirements, connect with suppliers, and grow your business.
             </p>
             <a href="#" style="display:inline-block;margin-top:16px;padding:12px 24px;
@@ -260,7 +260,7 @@ def build_welcome_email(user_name: str) -> str:
         </tr>
         <tr>
           <td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;text-align:center;">
-            <p style="margin:0;font-size:11px;color:#cbd5e1;">© 2026 IIP — Indian Industrial Products</p>
+            <p style="margin:0;font-size:11px;color:#cbd5e1;">© 2026 IIP — Indian Industrial Platform</p>
           </td>
         </tr>
       </table>

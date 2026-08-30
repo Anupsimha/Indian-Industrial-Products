@@ -29,7 +29,7 @@ export default function PricingPage() {
   const [billing, setBilling] = useState("monthly");
 
   useEffect(() => {
-    api.get("/plans").then((r) => setPlans(r.data)).catch(() => {});
+    api.get("/plans").then((r) => setPlans(r.data)).catch(() => { });
   }, []);
 
   const loadRazorpayScript = () => {
@@ -49,7 +49,7 @@ export default function PricingPage() {
   const choose = async (p) => {
     if (!user) { toast.error("Please sign in to subscribe"); return; }
     if (p.monthly_price === 0 && p.name === "Enterprise") { toast.message("Talk to sales: sales@iip.com"); return; }
-    
+
     const price = billing === "yearly" ? p.yearly_price : p.monthly_price;
     if (price === 0) {
       try {
@@ -91,7 +91,7 @@ export default function PricingPage() {
         key: orderData.key,
         amount: orderData.amount,
         currency: orderData.currency,
-        name: "Indian Industrial Products",
+        name: "Indian Industrial Platform",
         description: `${p.name} Plan (₹${basePrice} + ₹${gstAmount} 18% GST = ₹${totalPrice})`,
         order_id: orderData.order_id,
         handler: async function (response) {

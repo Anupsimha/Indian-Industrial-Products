@@ -15,20 +15,20 @@ export default function PrivacyPolicyPage() {
             <ShieldCheck size={28} className="text-emerald-400" /> Privacy Policy
           </h1>
           <p className="text-slate-300 text-xs md:text-sm">
-            Last Updated: August 2026 | How Indian Industrial Products Protects Your Data
+            Last Updated: August 2026 | How Indian Industrial Platform Protects Your Data
           </p>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-slate-700 text-sm leading-relaxed">
-          
+
           <section className="space-y-2">
             <h2 className="text-base md:text-lg font-bold text-slate-900 flex items-center gap-2">
               <Lock size={18} className="text-blue-900" /> 1. Information We Collect
             </h2>
             <p>
-              When you use Indian Industrial Products (IIP), we collect essential information required to fulfill product orders, verify buyer/seller profiles, and process transactions safely:
+              When you use Indian Industrial Platform (IIP), we collect essential information required to fulfill product orders, verify buyer/seller profiles, and process transactions safely:
             </p>
             <ul className="list-disc pl-5 space-y-1 text-xs text-slate-600">
               <li><strong>Account Details:</strong> Name, business email, contact phone number, company name, GSTIN.</li>

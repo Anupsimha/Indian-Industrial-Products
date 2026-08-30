@@ -183,19 +183,19 @@ export default function CartPage() {
       toast.error("Payment gateway is loading, please wait a moment.");
       return;
     }
-    
+
     setIsPlacing(true);
     try {
       const orderRes = await api.post("/payments/create-order-cart", {
         amount: cartTotal
       });
       const orderData = orderRes.data;
-      
+
       const options = {
         key: orderData.key,
         amount: orderData.amount,
         currency: orderData.currency,
-        name: "IIP – Indian Industrial Products",
+        name: "IIP – Indian Industrial Platform",
         description: `Payment for ${cartCount} item(s)`,
         order_id: orderData.order_id,
         image: "https://images.unsplash.com/photo-1581094288338-2314dddb7ece?w=100&h=100&fit=crop",
@@ -229,7 +229,7 @@ export default function CartPage() {
           },
         },
       };
-      
+
       const rzp = new window.Razorpay(options);
       rzp.on("payment.failed", function (response) {
         const reason = response.error?.description || "Transaction declined";
@@ -293,7 +293,7 @@ export default function CartPage() {
                     className={`w-8 h-8 rounded-full flex items-center justify-center transition-all font-bold text-xs
                       ${done ? "bg-emerald-500 text-white cursor-pointer hover:scale-110" :
                         active ? "bg-blue-900 text-white shadow-lg scale-110" :
-                        "bg-slate-200 text-slate-400"}`}
+                          "bg-slate-200 text-slate-400"}`}
                   >
                     {done ? <CheckCircle size={16} /> : <Icon size={14} />}
                   </button>
@@ -431,7 +431,7 @@ export default function CartPage() {
 
           <div className="space-y-2.5">
             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Available Delivery Options</div>
-            
+
             {loadingRates ? (
               <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-2">
                 <Loader2 size={24} className="mx-auto text-purple-700 animate-spin" />
@@ -714,13 +714,13 @@ export default function CartPage() {
               selectedPayment === "razorpay"
                 ? handleRazorpayPayment
                 : selectedPayment === "upi"
-                ? handleUpiPayment
-                : handleCodPayment
+                  ? handleUpiPayment
+                  : handleCodPayment
             }
             className={`w-full py-4 font-extrabold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg text-white
               ${selectedPayment === "razorpay" ? "bg-blue-900 hover:bg-blue-950" :
                 selectedPayment === "upi" ? "bg-purple-700 hover:bg-purple-800" :
-                "bg-emerald-600 hover:bg-emerald-700"}`}
+                  "bg-emerald-600 hover:bg-emerald-700"}`}
           >
             {selectedPayment === "razorpay" && <><CreditCard size={16} /> Pay ₹{cartTotal.toLocaleString()} with Razorpay</>}
             {selectedPayment === "upi" && <><Smartphone size={16} /> Confirm UPI Payment</>}
@@ -799,8 +799,8 @@ export default function CartPage() {
               <span className="text-xs text-slate-500">Payment</span>
               <span className="text-xs font-bold text-slate-800 uppercase">
                 {confirmedOrder?.payment_method === "razorpay" ? "Razorpay" :
-                 confirmedOrder?.payment_method === "upi" ? "UPI Transfer" :
-                 confirmedOrder?.payment_method === "cod" ? "Cash on Delivery" : "Paid"}
+                  confirmedOrder?.payment_method === "upi" ? "UPI Transfer" :
+                    confirmedOrder?.payment_method === "cod" ? "Cash on Delivery" : "Paid"}
               </span>
             </div>
             <div className="flex justify-between border-t border-dashed border-slate-200 pt-3">
@@ -813,10 +813,10 @@ export default function CartPage() {
               <span className="text-xs text-slate-500">Estimated Delivery</span>
               <span className="text-xs font-bold text-slate-800">
                 {selectedDelivery === "express" ? "Within 90 Minutes" :
-                 selectedDelivery === "oneday" ? "Tomorrow by 9 PM" :
-                 selectedDelivery === "porter" ? "Today via Porter" :
-                 selectedDelivery === "free" ? "2-3 Business Days" :
-                 "3-7 Business Days"}
+                  selectedDelivery === "oneday" ? "Tomorrow by 9 PM" :
+                    selectedDelivery === "porter" ? "Today via Porter" :
+                      selectedDelivery === "free" ? "2-3 Business Days" :
+                        "3-7 Business Days"}
               </span>
             </div>
           </div>
