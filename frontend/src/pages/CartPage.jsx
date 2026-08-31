@@ -30,10 +30,11 @@ export default function CartPage() {
   const [isPlacing, setIsPlacing] = useState(false);
   const [rzpLoaded, setRzpLoaded] = useState(false);
 
-  const [pincode, setPincode] = useState("110001");
+  const [pincode, setPincode] = useState(user?.pincode || "");
   const [shiprocketOptions, setShiprocketOptions] = useState([]);
   const [loadingRates, setLoadingRates] = useState(false);
   const [rateError, setRateError] = useState(null);
+  const [detectingLocation, setDetectingLocation] = useState(false);
 
   const fetchShiprocketRates = useCallback(async (targetPincode) => {
     if (!targetPincode || targetPincode.length < 6) {
@@ -72,12 +73,65 @@ export default function CartPage() {
     }
   }, [cart]);
 
-  // Auto-fetch Shiprocket rates when entering delivery step
-  useEffect(() => {
-    if (step === "delivery" && shiprocketOptions.length === 0 && !loadingRates && !rateError) {
-      fetchShiprocketRates(pincode);
+  const detectUserLocationPincode = useCallback(async () => {
+    if (user?.pincode && user.pincode.length === 6) {
+      setPincode(user.pincode);
+      fetchShiprocketRates(user.pincode);
+      return;
     }
-  }, [step, shiprocketOptions.length, loadingRates, rateError, pincode, fetchShiprocketRates]);
+
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported by your browser. Please enter your Pincode manually.");
+      return;
+    }
+
+    setDetectingLocation(true);
+    setLoadingRates(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`
+          );
+          const data = await res.json();
+          const detectedPin = data?.address?.postcode?.replace(/\D/g, "");
+          if (detectedPin && detectedPin.length === 6) {
+            setPincode(detectedPin);
+            toast.success(`Current location detected: Pincode ${detectedPin}`);
+            fetchShiprocketRates(detectedPin);
+          } else {
+            toast.info("Could not resolve PIN code from current location. Please enter Pincode manually.");
+            setLoadingRates(false);
+          }
+        } catch {
+          toast.error("Location lookup failed. Please enter Pincode manually.");
+          setLoadingRates(false);
+        } finally {
+          setDetectingLocation(false);
+        }
+      },
+      (err) => {
+        setLoadingRates(false);
+        setDetectingLocation(false);
+        if (err.code === err.PERMISSION_DENIED) {
+          toast.info("Location permission denied. Please enter delivery Pincode manually.");
+        }
+      },
+      { timeout: 8000 }
+    );
+  }, [user, fetchShiprocketRates]);
+
+  // Auto-detect location & fetch Shiprocket rates when entering delivery step
+  useEffect(() => {
+    if (step === "delivery" && shiprocketOptions.length === 0 && !loadingRates && !rateError && !detectingLocation) {
+      if (pincode && pincode.length === 6) {
+        fetchShiprocketRates(pincode);
+      } else {
+        detectUserLocationPincode();
+      }
+    }
+  }, [step, shiprocketOptions.length, loadingRates, rateError, pincode, detectingLocation, fetchShiprocketRates, detectUserLocationPincode]);
 
 
   const getSelectedDeliveryDetails = () => {
@@ -421,8 +475,18 @@ export default function CartPage() {
               />
               <button
                 type="button"
+                onClick={() => detectUserLocationPincode()}
+                disabled={detectingLocation || loadingRates}
+                className="px-3 py-2 bg-blue-800 hover:bg-blue-700 text-blue-100 font-bold text-xs rounded-xl flex items-center gap-1 transition-colors shrink-0 disabled:opacity-50"
+                title="Detect current location PIN code"
+              >
+                <MapPin size={14} />
+                {detectingLocation ? "Detecting..." : "Detect Location"}
+              </button>
+              <button
+                type="button"
                 onClick={() => fetchShiprocketRates(pincode)}
-                disabled={loadingRates}
+                disabled={loadingRates || !pincode || pincode.length < 6}
                 className="px-4 py-2 bg-white text-blue-900 font-extrabold text-xs rounded-xl hover:bg-blue-50 transition-colors shrink-0 disabled:opacity-50"
               >
                 {loadingRates ? "Calculating..." : "Check Rates"}

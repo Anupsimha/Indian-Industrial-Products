@@ -2460,10 +2460,12 @@ async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSessi
             m = re.search(r'\b[1-9][0-9]{5}\b', order.address)
             if m:
                 dest_pincode = m.group(0)
-        if not dest_pincode:
-            dest_pincode = (user.get("pincode") or "").strip()
-        if not dest_pincode or len(dest_pincode) != 6:
-            dest_pincode = "110001"
+        if not dest_pincode or len(dest_pincode) != 6 or not dest_pincode.isdigit():
+            if seller_comp and seller_comp.pincode and len(seller_comp.pincode.strip()) == 6:
+                dest_pincode = seller_comp.pincode.strip()
+            else:
+                logger.error(f"Cannot sync order {order.id} to Shiprocket: No valid 6-digit delivery pincode found.")
+                return {"ok": False, "error": "Invalid or missing 6-digit delivery pincode for order sync."}
 
         dest_city, dest_state = resolve_pincode_city_state(
             dest_pincode,

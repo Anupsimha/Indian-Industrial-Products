@@ -9,7 +9,7 @@ logger = logging.getLogger("shiprocket")
 SHIPROCKET_BASE_URL = os.environ.get("SHIPROCKET_BASE_URL", "https://apiv2.shiprocket.in/v1/external")
 SHIPROCKET_EMAIL = os.environ.get("SHIPROCKET_EMAIL", "")
 SHIPROCKET_PASSWORD = os.environ.get("SHIPROCKET_PASSWORD", "")
-DEFAULT_PICKUP_PINCODE = os.environ.get("SHIPROCKET_PICKUP_PINCODE", "110001")
+DEFAULT_PICKUP_PINCODE = os.environ.get("SHIPROCKET_PICKUP_PINCODE", "")
 
 _token_cache: Dict[str, Any] = {
     "token": None,
