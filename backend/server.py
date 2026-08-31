@@ -7,6 +7,7 @@ load_dotenv(ROOT_DIR / '.env')
 # Email utility (imported after load_dotenv so env vars are available)
 from email_utils import send_email, build_otp_email
 from shiprocket_utils import fetch_shipping_rates, create_shiprocket_adhoc_order, register_shiprocket_pickup_location, check_shiprocket_pickup_verification
+from payout_crypto import encrypt_bank_field, decrypt_bank_field, mask_account_number
 
 import os
 import uuid
@@ -356,6 +357,60 @@ class Order(Base):
     created_at = Column(String(255), nullable=False)
 
 
+class SellerBankAccount(Base):
+    __tablename__ = "seller_bank_accounts"
+    id = Column(String(36), primary_key=True)
+    company_id = Column(String(36), nullable=False, unique=True, index=True)
+    bank_name = Column(String(255), nullable=False)
+    account_holder_name = Column(String(255), nullable=False)
+    encrypted_account_number = Column(Text, nullable=False)
+    encrypted_ifsc_code = Column(Text, nullable=False)
+    account_type = Column(String(50), default="current", nullable=False)  # savings, current
+    verification_status = Column(String(50), default="unverified", nullable=False)  # unverified, verified, rejected
+    created_at = Column(String(255), nullable=False)
+    updated_at = Column(String(255), nullable=False)
+
+
+class SellerWallet(Base):
+    __tablename__ = "seller_wallets"
+    id = Column(String(36), primary_key=True)
+    company_id = Column(String(36), nullable=False, unique=True, index=True)
+    available_balance = Column(Float, default=0.0, nullable=False)
+    pending_balance = Column(Float, default=0.0, nullable=False)
+    total_settled = Column(Float, default=0.0, nullable=False)
+    settlement_policy = Column(String(50), default="weekly", nullable=False)  # weekly, monthly, on_demand
+    created_at = Column(String(255), nullable=False)
+    updated_at = Column(String(255), nullable=False)
+
+
+class WalletTransaction(Base):
+    __tablename__ = "wallet_transactions"
+    id = Column(String(36), primary_key=True)
+    wallet_id = Column(String(36), nullable=False, index=True)
+    company_id = Column(String(36), nullable=False, index=True)
+    order_id = Column(String(36), nullable=True)
+    type = Column(String(50), nullable=False)  # CREDIT_SALE, DEBIT_SETTLEMENT, COMMISSION_DEDUCTION
+    amount = Column(Float, nullable=False)
+    balance_after = Column(Float, nullable=False)
+    description = Column(String(512), nullable=False)
+    created_at = Column(String(255), nullable=False)
+
+
+class PayoutSettlement(Base):
+    __tablename__ = "payout_settlements"
+    id = Column(String(36), primary_key=True)
+    wallet_id = Column(String(36), nullable=False, index=True)
+    company_id = Column(String(36), nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    settlement_policy = Column(String(50), nullable=False)
+    status = Column(String(50), default="PENDING", nullable=False)  # PENDING, APPROVED, SETTLED, REJECTED
+    utr_reference_number = Column(String(255), nullable=True)
+    transfer_mode = Column(String(50), default="IMPS", nullable=False)  # NEFT, IMPS, UPI, MANUAL
+    rejection_reason = Column(String(512), nullable=True)
+    settled_at = Column(String(255), nullable=True)
+    created_at = Column(String(255), nullable=False)
+
+
 class IndustrialGroup(Base):
     __tablename__ = "industrial_groups"
     id = Column(String(36), primary_key=True)
@@ -497,10 +552,10 @@ class CompanyCreate(BaseModel):
 
 class IndustrialGroupCreate(BaseModel):
     name: str
-    slug: str
+    slug: Optional[str] = None
     location: str
     description: str
-    image_url: str
+    image_url: Optional[str] = ""
     cover_url: Optional[str] = None
     members_count: Optional[int] = 0
     companies_count: Optional[int] = 0
@@ -756,6 +811,68 @@ class OrderOut(BaseModel):
     created_at: str
     shiprocket_status: Optional[str] = "SUCCESS"
     shiprocket_warning: Optional[str] = None
+
+
+# -------------------- Bank & Wallet Pydantic Schemas --------------------
+class BankAccountIn(BaseModel):
+    bank_name: str
+    account_holder_name: str
+    account_number: str
+    ifsc_code: str
+    account_type: Optional[str] = "current"
+
+class BankAccountOut(BaseModel):
+    id: str
+    company_id: str
+    bank_name: str
+    account_holder_name: str
+    masked_account_number: str
+    account_type: str
+    verification_status: str
+    updated_at: str
+
+class SettlementPolicyIn(BaseModel):
+    settlement_policy: Literal["weekly", "monthly", "on_demand"]
+
+class WalletOut(BaseModel):
+    id: str
+    company_id: str
+    available_balance: float
+    pending_balance: float
+    total_settled: float
+    settlement_policy: str
+    bank_account: Optional[BankAccountOut] = None
+
+class WalletTransactionOut(BaseModel):
+    id: str
+    wallet_id: str
+    order_id: Optional[str] = None
+    type: str
+    amount: float
+    balance_after: float
+    description: str
+    created_at: str
+
+class PayoutSettlementOut(BaseModel):
+    id: str
+    company_id: str
+    company_name: Optional[str] = None
+    amount: float
+    settlement_policy: str
+    status: str
+    utr_reference_number: Optional[str] = None
+    transfer_mode: str
+    bank_account: Optional[BankAccountOut] = None
+    decrypted_account_number: Optional[str] = None
+    decrypted_ifsc_code: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    settled_at: Optional[str] = None
+    created_at: str
+
+class ProcessSettlementIn(BaseModel):
+    status: Literal["SETTLED", "REJECTED"]
+    utr_reference_number: Optional[str] = None
+    rejection_reason: Optional[str] = None
 
 
 # -------------------- Helpers --------------------
@@ -2101,24 +2218,20 @@ async def create_product(request: Request, payload: ProductCreate, user: dict = 
 
     stmt_comp = select(Company).where(Company.id == user["company_id"])
     company = (await db.execute(stmt_comp)).scalar_one_or_none()
+    # Check seller company warehouse address & pincode
     if not company or not company.address or not company.pincode or len(str(company.pincode).strip()) < 6:
         raise HTTPException(
             status_code=400,
             detail="Please complete your company warehouse address and 6-digit Pincode in profile settings before adding products to the marketplace."
         )
 
-    # Product Creation Verification Guardrail: Check live Shiprocket warehouse verification
+    # Live verification status sync (non-blocking)
     if not getattr(company, "shiprocket_phone_verified", False):
         live_ver = check_shiprocket_pickup_verification(company.pickup_location_name, company.mobile, company.pincode)
         if live_ver.get("phone_verified"):
             await db.execute(update(Company).where(Company.id == company.id).values(shiprocket_phone_verified=True, shiprocket_warning=None))
             await db.commit()
             company.shiprocket_phone_verified = True
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Warehouse pickup location verification is pending on Shiprocket. Please complete 1-time phone OTP verification for your warehouse mobile number before listing products for sale."
-            )
 
     pid = str(uuid.uuid4())
 
@@ -2194,59 +2307,80 @@ async def delete_product(product_id: str, user: dict = Depends(get_current_user)
 async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSession):
     """
     Automatically push paid/created orders directly to live Shiprocket panel using seller company pickup location.
+    Falls back cleanly to Master Account Verified Warehouse if seller OTP verification is pending.
     """
     try:
         pickup_location = None
+        seller_comp = None
+        is_ver = False
+
         if order.items and isinstance(order.items, list) and len(order.items) > 0:
             first_item = order.items[0]
-            comp_id = first_item.get("company_id") if isinstance(first_item, dict) else None
+            comp_id = (first_item.get("company_id") or "").strip() if isinstance(first_item, dict) else ""
+            if not comp_id and isinstance(first_item, dict):
+                prod_id = first_item.get("product_id") or first_item.get("id")
+                if prod_id:
+                    stmt_p = select(Product).where(Product.id == prod_id)
+                    prod = (await db.execute(stmt_p)).scalar_one_or_none()
+                    if prod:
+                        comp_id = prod.company_id
+
             if comp_id:
                 stmt_c = select(Company).where(Company.id == comp_id)
-                comp = (await db.execute(stmt_c)).scalar_one_or_none()
-                if comp:
+                seller_comp = (await db.execute(stmt_c)).scalar_one_or_none()
+                if seller_comp and seller_comp.address and seller_comp.pincode:
                     # Register/verify pickup location with Shiprocket using actual seller company details
                     sr_res = register_shiprocket_pickup_location({
-                        "pickup_location": comp.pickup_location_name,
-                        "name": comp.owner_name or comp.name,
-                        "email": comp.email,
-                        "phone": comp.mobile,
-                        "address": comp.address,
-                        "city": comp.city,
-                        "state": comp.state,
-                        "pin_code": comp.pincode,
-                        "gstin": comp.gst or ""
+                        "pickup_location": seller_comp.pickup_location_name,
+                        "name": seller_comp.owner_name or seller_comp.name,
+                        "email": seller_comp.email,
+                        "phone": seller_comp.mobile,
+                        "address": seller_comp.address,
+                        "city": seller_comp.city,
+                        "state": seller_comp.state,
+                        "pin_code": seller_comp.pincode,
+                        "gstin": seller_comp.gst or ""
                     })
                     if sr_res.get("ok"):
-                        pickup_location = sr_res.get("pickup_location")
+                        reg_nick = sr_res.get("pickup_location")
                         is_ver = bool(sr_res.get("phone_verified", False))
                         warn = sr_res.get("phone_warning")
-                        await db.execute(update(Company).where(Company.id == comp.id).values(
-                            pickup_location_name=pickup_location,
+                        await db.execute(update(Company).where(Company.id == seller_comp.id).values(
+                            pickup_location_name=reg_nick,
                             shiprocket_phone_verified=is_ver,
                             shiprocket_warning=warn
                         ))
                         await db.commit()
-                        if not is_ver:
-                            logger.warning(f"Order sync note: Seller pickup location '{pickup_location}' for company '{comp.name}' is unverified on Shiprocket.")
-                    else:
-                        logger.error(f"Cannot sync order to Shiprocket: Seller pickup location registration failed for company '{comp.name}': {sr_res.get('error')}")
-                        return {"ok": False, "error": f"Seller pickup location error: {sr_res.get('error')}"}
+                        if is_ver:
+                            pickup_location = reg_nick
 
+        # Fallback to master account verified warehouse if custom location is unverified or missing
         if not pickup_location:
-            logger.error(f"Cannot sync order to Shiprocket: No valid seller company pickup location found for Order {order.id}")
-            return {"ok": False, "error": "No valid seller company pickup location registered for order."}
+            locations = get_shiprocket_pickup_locations()
+            verified_locs = [loc.get("pickup_location") for loc in locations if loc.get("phone_verified") == 1 or str(loc.get("phone_verified")) == "1"]
+            if verified_locs:
+                pickup_location = verified_locs[0]
+            elif locations:
+                pickup_location = locations[0].get("pickup_location", "Primary")
+            else:
+                pickup_location = "Primary"
+            logger.info(f"Using master verified pickup location '{pickup_location}' for Order {order.id}")
 
         billing_phone = sanitize_shiprocket_phone(user.get("mobile"))
         if not billing_phone:
             logger.error(f"Cannot sync order to Shiprocket: Invalid buyer phone number for Order {order.id}")
             return {"ok": False, "error": "Invalid buyer phone number for order sync."}
 
+        comment_text = "Paid order on IIP Marketplace"
+        if seller_comp:
+            comment_text += f" | Seller Origin: {seller_comp.name}, {seller_comp.address or ''}, {seller_comp.city or ''} ({seller_comp.pincode or ''}), Phone: {seller_comp.mobile or ''}"
+
         sr_payload = {
             "order_id": order.id[:30],
             "order_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "pickup_location": pickup_location,
             "channel_id": "",
-            "comment": "Paid order on IIP Marketplace",
+            "comment": comment_text[:250],
             "billing_customer_name": user.get("name", "Buyer"),
             "billing_last_name": "",
             "billing_address": order.address or "Factory Address",
@@ -2284,6 +2418,85 @@ async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSessi
         logger.error(f"Error syncing order to Shiprocket: {str(e)}")
         return None
 
+async def credit_seller_wallet_for_order(order: Order, db: AsyncSession):
+    """
+    Automatically credit net sales revenue to the seller's wallet upon order payment.
+    """
+    try:
+        if not order.items or not isinstance(order.items, list):
+            return
+        
+        for item in order.items:
+            if not isinstance(item, dict):
+                continue
+            
+            comp_id = (item.get("company_id") or "").strip()
+            if not comp_id:
+                prod_id = item.get("product_id") or item.get("id")
+                if prod_id:
+                    stmt_p = select(Product).where(Product.id == prod_id)
+                    prod = (await db.execute(stmt_p)).scalar_one_or_none()
+                    if prod:
+                        comp_id = prod.company_id
+            
+            if not comp_id:
+                continue
+
+            item_price = 0.0
+            try:
+                raw_p = str(item.get("price", "0")).replace("₹", "").replace("/kg", "").replace("/unit", "").strip()
+                item_price = float(raw_p)
+            except Exception:
+                item_price = 0.0
+
+            qty = int(item.get("qty", 1) or 1)
+            item_total = round(item_price * qty, 2)
+            if item_total <= 0:
+                continue
+
+            # Deduct platform commission (e.g. 2%)
+            commission = round(item_total * 0.02, 2)
+            net_seller_amount = round(item_total - commission, 2)
+
+            # Ensure SellerWallet exists
+            stmt_w = select(SellerWallet).where(SellerWallet.company_id == comp_id)
+            wallet = (await db.execute(stmt_w)).scalar_one_or_none()
+            if not wallet:
+                wallet = SellerWallet(
+                    id=str(uuid.uuid4()),
+                    company_id=comp_id,
+                    available_balance=0.0,
+                    pending_balance=0.0,
+                    total_settled=0.0,
+                    settlement_policy="weekly",
+                    created_at=now_iso(),
+                    updated_at=now_iso()
+                )
+                db.add(wallet)
+                await db.commit()
+                await db.refresh(wallet)
+
+            wallet.available_balance = round(wallet.available_balance + net_seller_amount, 2)
+            wallet.updated_at = now_iso()
+            
+            tx = WalletTransaction(
+                id=str(uuid.uuid4()),
+                wallet_id=wallet.id,
+                company_id=comp_id,
+                order_id=order.id,
+                type="CREDIT_SALE",
+                amount=net_seller_amount,
+                balance_after=wallet.available_balance,
+                description=f"Net Sale Credit for '{item.get('name', 'Product')}' (Order #{order.id[:8]})",
+                created_at=now_iso()
+            )
+            db.add(tx)
+            await db.commit()
+            logger.info(f"Credited ₹{net_seller_amount} to Seller Wallet ({comp_id}) for Order {order.id}")
+    except Exception as e:
+        logger.error(f"Failed crediting seller wallet for Order {order.id}: {str(e)}")
+
+
 # -------------------- Orders --------------------
 @api.post("/orders", response_model=OrderOut)
 async def create_order(payload: OrderCreate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -2309,6 +2522,10 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
     db.add(order)
     await db.commit()
     await db.refresh(order)
+
+    # Credit seller wallet if order is paid
+    if status == "paid" or payload.payment_method != "cod":
+        await credit_seller_wallet_for_order(order, db)
 
     # Automatically push order to live Shiprocket panel
     sr_res = await auto_sync_order_to_shiprocket(order, user, db)
@@ -3933,11 +4150,12 @@ async def create_industrial_group(
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Only admins can create industrial groups")
         
-    slug = payload.name.lower().replace(" ", "-").replace(",", "")
+    raw_slug = payload.slug.strip() if payload.slug and payload.slug.strip() else payload.name
+    slug = re.sub(r'[^a-z0-9]+', '-', raw_slug.lower()).strip('-')
     gid = str(uuid.uuid4())
     doc = IndustrialGroup(
         id=gid, name=payload.name, slug=slug, location=payload.location,
-        description=payload.description, image_url=clean_media_url(payload.image_url),
+        description=payload.description, image_url=clean_media_url(payload.image_url) or "",
         cover_url=clean_media_url(payload.cover_url), members_count=payload.members_count or 1,
         companies_count=payload.companies_count or 1, posts_count=0,
         leads_count=0, jobs_count=0, reels_count=0, created_at=now_iso()
@@ -4829,6 +5047,422 @@ async def admin_delete_contact_enquiry(
         await db.delete(doc)
         await db.commit()
     return {"status": "ok"}
+
+
+# -------------------- Seller Bank & Wallet Settlement System --------------------
+
+@api.get("/companies/me/bank-account", response_model=Optional[BankAccountOut])
+async def get_my_bank_account(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not user.get("company_id"):
+        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
+    
+    stmt = select(SellerBankAccount).where(SellerBankAccount.company_id == user["company_id"])
+    account = (await db.execute(stmt)).scalar_one_or_none()
+    if not account:
+        return None
+
+    decrypted_num = decrypt_bank_field(account.encrypted_account_number) or "XXXX"
+    return BankAccountOut(
+        id=account.id,
+        company_id=account.company_id,
+        bank_name=account.bank_name,
+        account_holder_name=account.account_holder_name,
+        masked_account_number=mask_account_number(decrypted_num),
+        account_type=account.account_type,
+        verification_status=account.verification_status,
+        updated_at=account.updated_at
+    )
+
+
+@api.put("/companies/me/bank-account", response_model=BankAccountOut)
+async def update_my_bank_account(payload: BankAccountIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not user.get("company_id"):
+        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
+    
+    if not payload.account_number or len(payload.account_number.strip()) < 8:
+        raise HTTPException(status_code=400, detail="Valid bank account number (min 8 digits) is required.")
+    
+    if not payload.ifsc_code or len(payload.ifsc_code.strip()) != 11:
+        raise HTTPException(status_code=400, detail="Valid 11-character bank IFSC code is required.")
+
+    stmt = select(SellerBankAccount).where(SellerBankAccount.company_id == user["company_id"])
+    account = (await db.execute(stmt)).scalar_one_or_none()
+
+    enc_acc = encrypt_bank_field(payload.account_number.strip())
+    enc_ifsc = encrypt_bank_field(payload.ifsc_code.strip().upper())
+
+    if not account:
+        account = SellerBankAccount(
+            id=str(uuid.uuid4()),
+            company_id=user["company_id"],
+            bank_name=payload.bank_name.strip(),
+            account_holder_name=payload.account_holder_name.strip(),
+            encrypted_account_number=enc_acc,
+            encrypted_ifsc_code=enc_ifsc,
+            account_type=payload.account_type or "current",
+            verification_status="verified",
+            created_at=now_iso(),
+            updated_at=now_iso()
+        )
+        db.add(account)
+    else:
+        account.bank_name = payload.bank_name.strip()
+        account.account_holder_name = payload.account_holder_name.strip()
+        account.encrypted_account_number = enc_acc
+        account.encrypted_ifsc_code = enc_ifsc
+        account.account_type = payload.account_type or "current"
+        account.verification_status = "verified"
+        account.updated_at = now_iso()
+
+    await db.commit()
+    await db.refresh(account)
+
+    decrypted_num = payload.account_number.strip()
+    return BankAccountOut(
+        id=account.id,
+        company_id=account.company_id,
+        bank_name=account.bank_name,
+        account_holder_name=account.account_holder_name,
+        masked_account_number=mask_account_number(decrypted_num),
+        account_type=account.account_type,
+        verification_status=account.verification_status,
+        updated_at=account.updated_at
+    )
+
+
+@api.get("/companies/me/wallet", response_model=WalletOut)
+async def get_my_wallet(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not user.get("company_id"):
+        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
+    
+    comp_id = user["company_id"]
+    stmt_w = select(SellerWallet).where(SellerWallet.company_id == comp_id)
+    wallet = (await db.execute(stmt_w)).scalar_one_or_none()
+
+    if not wallet:
+        wallet = SellerWallet(
+            id=str(uuid.uuid4()),
+            company_id=comp_id,
+            available_balance=0.0,
+            pending_balance=0.0,
+            total_settled=0.0,
+            settlement_policy="weekly",
+            created_at=now_iso(),
+            updated_at=now_iso()
+        )
+        db.add(wallet)
+        await db.commit()
+        await db.refresh(wallet)
+
+    stmt_b = select(SellerBankAccount).where(SellerBankAccount.company_id == comp_id)
+    bank_acc = (await db.execute(stmt_b)).scalar_one_or_none()
+    bank_out = None
+    if bank_acc:
+        dec_num = decrypt_bank_field(bank_acc.encrypted_account_number) or "XXXX"
+        bank_out = BankAccountOut(
+            id=bank_acc.id,
+            company_id=bank_acc.company_id,
+            bank_name=bank_acc.bank_name,
+            account_holder_name=bank_acc.account_holder_name,
+            masked_account_number=mask_account_number(dec_num),
+            account_type=bank_acc.account_type,
+            verification_status=bank_acc.verification_status,
+            updated_at=bank_acc.updated_at
+        )
+
+    return WalletOut(
+        id=wallet.id,
+        company_id=wallet.company_id,
+        available_balance=wallet.available_balance,
+        pending_balance=wallet.pending_balance,
+        total_settled=wallet.total_settled,
+        settlement_policy=wallet.settlement_policy,
+        bank_account=bank_out
+    )
+
+
+@api.get("/companies/me/wallet/transactions", response_model=List[WalletTransactionOut])
+async def get_my_wallet_transactions(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not user.get("company_id"):
+        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
+    
+    stmt_w = select(SellerWallet).where(SellerWallet.company_id == user["company_id"])
+    wallet = (await db.execute(stmt_w)).scalar_one_or_none()
+    if not wallet:
+        return []
+
+    stmt_t = select(WalletTransaction).where(WalletTransaction.wallet_id == wallet.id).order_by(desc(WalletTransaction.created_at)).limit(100)
+    txs = (await db.execute(stmt_t)).scalars().all()
+    return [WalletTransactionOut(
+        id=t.id,
+        wallet_id=t.wallet_id,
+        order_id=t.order_id,
+        type=t.type,
+        amount=t.amount,
+        balance_after=t.balance_after,
+        description=t.description,
+        created_at=t.created_at
+    ) for t in txs]
+
+
+@api.patch("/companies/me/settlement-policy", response_model=WalletOut)
+async def update_settlement_policy(payload: SettlementPolicyIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not user.get("company_id"):
+        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
+    
+    stmt_w = select(SellerWallet).where(SellerWallet.company_id == user["company_id"])
+    wallet = (await db.execute(stmt_w)).scalar_one_or_none()
+    if not wallet:
+        wallet = SellerWallet(
+            id=str(uuid.uuid4()),
+            company_id=user["company_id"],
+            available_balance=0.0,
+            pending_balance=0.0,
+            total_settled=0.0,
+            settlement_policy=payload.settlement_policy,
+            created_at=now_iso(),
+            updated_at=now_iso()
+        )
+        db.add(wallet)
+    else:
+        wallet.settlement_policy = payload.settlement_policy
+        wallet.updated_at = now_iso()
+
+    await db.commit()
+    await db.refresh(wallet)
+    return await get_my_wallet(user=user, db=db)
+
+
+@api.post("/companies/me/wallet/redeem", response_model=PayoutSettlementOut)
+async def redeem_wallet_balance(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not user.get("company_id"):
+        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
+    
+    comp_id = user["company_id"]
+    stmt_b = select(SellerBankAccount).where(SellerBankAccount.company_id == comp_id)
+    bank_acc = (await db.execute(stmt_b)).scalar_one_or_none()
+    if not bank_acc or bank_acc.verification_status != "verified":
+        raise HTTPException(status_code=400, detail="Please save your verified bank account details in settings before requesting payout redemption.")
+
+    stmt_w = select(SellerWallet).where(SellerWallet.company_id == comp_id)
+    wallet = (await db.execute(stmt_w)).scalar_one_or_none()
+    if not wallet or wallet.available_balance <= 0:
+        raise HTTPException(status_code=400, detail="No available balance to redeem.")
+
+    # Check if there is already a PENDING settlement
+    stmt_p = select(PayoutSettlement).where(and_(PayoutSettlement.company_id == comp_id, PayoutSettlement.status == "PENDING"))
+    existing_p = (await db.execute(stmt_p)).scalar_one_or_none()
+    if existing_p:
+        raise HTTPException(status_code=400, detail=f"You already have a pending payout redemption of ₹{existing_p.amount}. Please wait for admin processing.")
+
+    redeem_amount = wallet.available_balance
+    wallet.available_balance = 0.0
+    wallet.updated_at = now_iso()
+
+    settlement = PayoutSettlement(
+        id=str(uuid.uuid4()),
+        wallet_id=wallet.id,
+        company_id=comp_id,
+        amount=redeem_amount,
+        settlement_policy=wallet.settlement_policy,
+        status="PENDING",
+        transfer_mode="IMPS",
+        created_at=now_iso()
+    )
+    db.add(settlement)
+
+    tx = WalletTransaction(
+        id=str(uuid.uuid4()),
+        wallet_id=wallet.id,
+        company_id=comp_id,
+        type="DEBIT_SETTLEMENT",
+        amount=redeem_amount,
+        balance_after=0.0,
+        description=f"Withdrawal Payout Request (Settlement #{settlement.id[:8]})",
+        created_at=now_iso()
+    )
+    db.add(tx)
+
+    await db.commit()
+    await db.refresh(settlement)
+
+    stmt_c = select(Company).where(Company.id == comp_id)
+    comp = (await db.execute(stmt_c)).scalar_one_or_none()
+    comp_name = comp.name if comp else "Seller Company"
+
+    dec_num = decrypt_bank_field(bank_acc.encrypted_account_number) or "XXXX"
+    bank_out = BankAccountOut(
+        id=bank_acc.id,
+        company_id=bank_acc.company_id,
+        bank_name=bank_acc.bank_name,
+        account_holder_name=bank_acc.account_holder_name,
+        masked_account_number=mask_account_number(dec_num),
+        account_type=bank_acc.account_type,
+        verification_status=bank_acc.verification_status,
+        updated_at=bank_acc.updated_at
+    )
+
+    return PayoutSettlementOut(
+        id=settlement.id,
+        company_id=settlement.company_id,
+        company_name=comp_name,
+        amount=settlement.amount,
+        settlement_policy=settlement.settlement_policy,
+        status=settlement.status,
+        utr_reference_number=settlement.utr_reference_number,
+        transfer_mode=settlement.transfer_mode,
+        bank_account=bank_out,
+        created_at=settlement.created_at
+    )
+
+
+@api.get("/admin/settlements", response_model=List[PayoutSettlementOut])
+async def admin_list_settlements(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    stmt = select(PayoutSettlement).order_by(desc(PayoutSettlement.created_at)).limit(500)
+    settlements = (await db.execute(stmt)).scalars().all()
+    out = []
+
+    for s in settlements:
+        stmt_c = select(Company).where(Company.id == s.company_id)
+        comp = (await db.execute(stmt_c)).scalar_one_or_none()
+        comp_name = comp.name if comp else "Seller Company"
+
+        stmt_b = select(SellerBankAccount).where(SellerBankAccount.company_id == s.company_id)
+        bank_acc = (await db.execute(stmt_b)).scalar_one_or_none()
+        bank_out = None
+        dec_num = None
+        dec_ifsc = None
+        if bank_acc:
+            dec_num = decrypt_bank_field(bank_acc.encrypted_account_number)
+            dec_ifsc = decrypt_bank_field(bank_acc.encrypted_ifsc_code)
+            bank_out = BankAccountOut(
+                id=bank_acc.id,
+                company_id=bank_acc.company_id,
+                bank_name=bank_acc.bank_name,
+                account_holder_name=bank_acc.account_holder_name,
+                masked_account_number=mask_account_number(dec_num),
+                account_type=bank_acc.account_type,
+                verification_status=bank_acc.verification_status,
+                updated_at=bank_acc.updated_at
+            )
+
+        out.append(PayoutSettlementOut(
+            id=s.id,
+            company_id=s.company_id,
+            company_name=comp_name,
+            amount=s.amount,
+            settlement_policy=s.settlement_policy,
+            status=s.status,
+            utr_reference_number=s.utr_reference_number,
+            transfer_mode=s.transfer_mode,
+            bank_account=bank_out,
+            decrypted_account_number=dec_num,
+            decrypted_ifsc_code=dec_ifsc,
+            rejection_reason=s.rejection_reason,
+            settled_at=s.settled_at,
+            created_at=s.created_at
+        ))
+
+    return out
+
+
+@api.patch("/admin/settlements/{id}/process", response_model=PayoutSettlementOut)
+async def admin_process_settlement(
+    id: str,
+    payload: ProcessSettlementIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    stmt = select(PayoutSettlement).where(PayoutSettlement.id == id)
+    s = (await db.execute(stmt)).scalar_one_or_none()
+    if not s:
+        raise HTTPException(status_code=404, detail="Settlement request not found.")
+
+    if s.status in ["SETTLED", "REJECTED"]:
+        raise HTTPException(status_code=400, detail=f"Settlement is already marked as {s.status}.")
+
+    if payload.status == "SETTLED":
+        if not payload.utr_reference_number or len(payload.utr_reference_number.strip()) < 4:
+            raise HTTPException(status_code=400, detail="Bank UTR / Transaction Reference Number is required to confirm settlement.")
+        s.status = "SETTLED"
+        s.utr_reference_number = payload.utr_reference_number.strip()
+        s.settled_at = now_iso()
+
+        # Update total_settled on wallet
+        stmt_w = select(SellerWallet).where(SellerWallet.id == s.wallet_id)
+        wallet = (await db.execute(stmt_w)).scalar_one_or_none()
+        if wallet:
+            wallet.total_settled = round(wallet.total_settled + s.amount, 2)
+            wallet.updated_at = now_iso()
+    else:
+        s.status = "REJECTED"
+        s.rejection_reason = payload.rejection_reason or "Admin rejected payout request."
+        # Return balance to wallet
+        stmt_w = select(SellerWallet).where(SellerWallet.id == s.wallet_id)
+        wallet = (await db.execute(stmt_w)).scalar_one_or_none()
+        if wallet:
+            wallet.available_balance = round(wallet.available_balance + s.amount, 2)
+            wallet.updated_at = now_iso()
+            tx = WalletTransaction(
+                id=str(uuid.uuid4()),
+                wallet_id=wallet.id,
+                company_id=wallet.company_id,
+                type="CREDIT_SALE",
+                amount=s.amount,
+                balance_after=wallet.available_balance,
+                description=f"Refund from Rejected Payout #{s.id[:8]}",
+                created_at=now_iso()
+            )
+            db.add(tx)
+
+    await db.commit()
+    await db.refresh(s)
+
+    stmt_c = select(Company).where(Company.id == s.company_id)
+    comp = (await db.execute(stmt_c)).scalar_one_or_none()
+    comp_name = comp.name if comp else "Seller Company"
+
+    stmt_b = select(SellerBankAccount).where(SellerBankAccount.company_id == s.company_id)
+    bank_acc = (await db.execute(stmt_b)).scalar_one_or_none()
+    bank_out = None
+    dec_num = None
+    dec_ifsc = None
+    if bank_acc:
+        dec_num = decrypt_bank_field(bank_acc.encrypted_account_number)
+        dec_ifsc = decrypt_bank_field(bank_acc.encrypted_ifsc_code)
+        bank_out = BankAccountOut(
+            id=bank_acc.id,
+            company_id=bank_acc.company_id,
+            bank_name=bank_acc.bank_name,
+            account_holder_name=bank_acc.account_holder_name,
+            masked_account_number=mask_account_number(dec_num),
+            account_type=bank_acc.account_type,
+            verification_status=bank_acc.verification_status,
+            updated_at=bank_acc.updated_at
+        )
+
+    return PayoutSettlementOut(
+        id=s.id,
+        company_id=s.company_id,
+        company_name=comp_name,
+        amount=s.amount,
+        settlement_policy=s.settlement_policy,
+        status=s.status,
+        utr_reference_number=s.utr_reference_number,
+        transfer_mode=s.transfer_mode,
+        bank_account=bank_out,
+        decrypted_account_number=dec_num,
+        decrypted_ifsc_code=dec_ifsc,
+        rejection_reason=s.rejection_reason,
+        settled_at=s.settled_at,
+        created_at=s.created_at
+    )
 
 
 # -------------------- Cloudinary Mock Signature Endpoint --------------------
