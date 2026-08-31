@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown } from "lucide-react";
 import { Logo } from "./Logo";
@@ -11,7 +11,25 @@ export const TopHeader = () => {
   const { user, logout } = useAuth();
   const { cartCount } = useCart();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setDropdownOpen(false);
+      }
+    };
+
+    if (dropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("touchstart", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, [dropdownOpen]);
 
   const handleProfileClick = () => {
     if (!user) {
@@ -35,7 +53,7 @@ export const TopHeader = () => {
             <Logo />
           </div>
         </Link>
-<div className="relative">
+        <div ref={dropdownRef} className="relative">
             <button
               onClick={handleProfileClick}
               className="ml-1 inline-flex items-center justify-center w-9 h-9 lg:w-11 lg:h-11 rounded-full bg-blue-800 text-white hover:bg-blue-900 transition-colors overflow-hidden ring-2 ring-blue-50"

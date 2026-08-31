@@ -4,7 +4,7 @@ import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import {
   Phone, MapPin, Tag, Clock, MessageSquare, Play, Lock, Sparkles, X,
-  ShieldCheck, Loader2, CheckCircle, Mail, AlertTriangle, Search, ChevronDown, CheckCircle2, Image
+  ShieldCheck, Loader2, CheckCircle, Mail, AlertTriangle, Search, ChevronDown, CheckCircle2, Image, Zap
 } from "lucide-react";
 import { Navigate, useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -682,20 +682,34 @@ export default function LeadsPage() {
           </div>
 
           {/* Bottom Upgrade Banner */}
-          <div className="fixed bottom-[72px] left-4 right-4 max-w-md md:max-w-lg mx-auto bg-gradient-to-r from-blue-950 to-blue-900 text-white rounded-2xl p-4 shadow-lg border border-slate-800 flex items-center justify-between gap-4 z-20">
-            <div>
-              <h4 className="font-display font-black text-sm">Unlock Unlimited Leads</h4>
-              <p className="text-[10px] text-white/70 mt-0.5">Upgrade to premium and unlock all buyer contact details instantly.</p>
-            </div>
+          <div className="fixed bottom-[72px] right-4 z-20 md:left-4 md:right-4 md:max-w-lg md:mx-auto">
+            {/* Mobile Compact Floating Button */}
             <button
               onClick={() => {
                 toast.info("Opening subscription plans...");
                 navigate("/pricing");
               }}
-              className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-extrabold text-[10px] uppercase rounded-xl transition-all shadow-sm active:scale-95"
+              className="md:hidden px-4 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-extrabold text-xs uppercase tracking-wider rounded-full shadow-xl border border-orange-400/30 flex items-center gap-1.5 active:scale-95 transition-all"
             >
-              Upgrade Now
+              <Zap size={14} className="text-yellow-200 fill-yellow-200" /> Upgrade Plan
             </button>
+
+            {/* Desktop Banner Card */}
+            <div className="hidden md:flex bg-gradient-to-r from-blue-950 to-blue-900 text-white rounded-2xl p-4 shadow-lg border border-slate-800 items-center justify-between gap-4">
+              <div>
+                <h4 className="font-display font-black text-sm">Unlock Unlimited Leads</h4>
+                <p className="text-[10px] text-white/70 mt-0.5">Upgrade to premium and unlock all buyer contact details instantly.</p>
+              </div>
+              <button
+                onClick={() => {
+                  toast.info("Opening subscription plans...");
+                  navigate("/pricing");
+                }}
+                className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-extrabold text-[10px] uppercase rounded-xl transition-all shadow-sm active:scale-95"
+              >
+                Upgrade Plan
+              </button>
+            </div>
           </div>
         </>
       )}

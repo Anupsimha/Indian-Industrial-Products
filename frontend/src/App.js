@@ -53,6 +53,14 @@ const Layout = ({ children }) => {
   const { user } = useAuth();
   const location = useLocation();
   const [adminSetupClosed, setAdminSetupClosed] = React.useState(false);
+  const mainRef = React.useRef(null);
+
+  React.useEffect(() => {
+    window.scrollTo(0, 0);
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+    }
+  }, [location.pathname, location.search]);
 
   const isAdmin = user?.role === "admin";
   const fullscreen = location.pathname.startsWith("/reels")
@@ -69,7 +77,7 @@ const Layout = ({ children }) => {
   return (
     <div className={fullscreen ? "App" : "flex flex-col h-[100dvh] overflow-hidden bg-slate-50"}>
       {!fullscreen && <TopHeader />}
-      <main className={fullscreen ? "" : "flex-1 overflow-y-auto w-full max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto pb-24"}>
+      <main ref={mainRef} className={fullscreen ? "" : "flex-1 overflow-y-auto w-full max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto pb-24"}>
         {children}
         {!fullscreen && <Footer />}
       </main>
