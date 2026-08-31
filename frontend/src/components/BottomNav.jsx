@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { Home, Film, PlusSquare, Package, Inbox, FileText, X, Briefcase, ListTodo, User } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
@@ -9,6 +9,7 @@ import { ProductDialog } from "./ProductDialog";
 export const BottomNav = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [promptOpen, setPromptOpen] = useState(false);
   const [postOpen, setPostOpen] = useState(false);
   const [reelOpen, setReelOpen] = useState(false);
@@ -78,6 +79,17 @@ export const BottomNav = () => {
                     to={requiresAuth ? "/login" : to}
                     end={to === "/"}
                     data-testid={testid}
+                    onClick={(e) => {
+                      if (!requiresAuth) {
+                        const isCurrent = to === "/"
+                          ? location.pathname === "/"
+                          : location.pathname === to || location.pathname.startsWith(to + "/");
+                        if (isCurrent) {
+                          e.preventDefault();
+                          window.location.href = to;
+                        }
+                      }
+                    }}
                     className={({ isActive }) =>
                       `flex flex-col items-center justify-center py-2.5 lg:py-3 gap-1 transition-all ${isActive && !requiresAuth ? "text-blue-800" : "text-slate-500 hover:text-blue-800"
                       }`
