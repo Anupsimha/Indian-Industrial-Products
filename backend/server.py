@@ -6,7 +6,14 @@ load_dotenv(ROOT_DIR / '.env')
 
 # Email utility (imported after load_dotenv so env vars are available)
 from email_utils import send_email, build_otp_email
-from shiprocket_utils import fetch_shipping_rates, create_shiprocket_adhoc_order, register_shiprocket_pickup_location, check_shiprocket_pickup_verification
+from shiprocket_utils import (
+    fetch_shipping_rates,
+    create_shiprocket_adhoc_order,
+    register_shiprocket_pickup_location,
+    check_shiprocket_pickup_verification,
+    get_shiprocket_pickup_locations,
+    sanitize_shiprocket_phone,
+)
 from payout_crypto import encrypt_bank_field, decrypt_bank_field, mask_account_number
 
 import os
