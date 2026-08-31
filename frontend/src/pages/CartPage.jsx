@@ -141,7 +141,8 @@ export default function CartPage() {
         delivery_option: selectedDelivery,
         payment_method: method,
         payment_id: paymentId,
-        address: user ? `${user.name}, India` : "India",
+        address: user ? `${user.name}, Pincode: ${pincode}, India` : `Pincode: ${pincode}, India`,
+        pincode: pincode,
       };
 
       let orderId = `IIP${Date.now().toString().slice(-8)}`;
@@ -534,7 +535,7 @@ export default function CartPage() {
               <div>
                 <div className="font-bold text-sm text-slate-900">{user?.name || "Guest User"}</div>
                 <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  Industrial Area, India
+                  Pincode: <span className="font-bold text-slate-800">{pincode}</span>, India
                 </div>
               </div>
             </div>

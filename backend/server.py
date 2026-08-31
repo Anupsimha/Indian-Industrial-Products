@@ -25,7 +25,7 @@ import time
 import shutil
 import json
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Tuple
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
@@ -361,6 +361,7 @@ class Order(Base):
     razorpay_order_id = Column(String(255), nullable=True)
     status = Column(String(50), default="pending", nullable=False)  # pending, paid, processing, shipped, delivered, cancelled
     address = Column(Text, nullable=True)
+    pincode = Column(String(20), nullable=True)
     created_at = Column(String(255), nullable=False)
 
 
@@ -799,6 +800,7 @@ class OrderCreate(BaseModel):
     payment_id: Optional[str] = None
     razorpay_order_id: Optional[str] = None
     address: Optional[str] = None
+    pincode: Optional[str] = None
 
 
 class OrderOut(BaseModel):
@@ -815,6 +817,7 @@ class OrderOut(BaseModel):
     razorpay_order_id: Optional[str] = None
     status: str
     address: Optional[str] = None
+    pincode: Optional[str] = None
     created_at: str
     shiprocket_status: Optional[str] = "SUCCESS"
     shiprocket_warning: Optional[str] = None
@@ -2311,6 +2314,78 @@ async def delete_product(product_id: str, user: dict = Depends(get_current_user)
     return {"ok": True}
 
 
+def resolve_pincode_city_state(pincode: str, user_city: Optional[str] = None, user_state: Optional[str] = None) -> Tuple[str, str]:
+    clean_pin = str(pincode or "").strip()
+    if user_city and user_state and user_city.lower() != "new delhi" and user_state.lower() != "delhi":
+        return user_city, user_state
+
+    if len(clean_pin) == 6 and clean_pin.isdigit():
+        prefix2 = int(clean_pin[:2])
+        prefix3 = int(clean_pin[:3])
+        if prefix2 == 56:
+            return "Bengaluru", "Karnataka"
+        elif prefix2 == 57:
+            return "Mysuru", "Karnataka"
+        elif prefix2 == 58:
+            return "Hubballi", "Karnataka"
+        elif prefix2 == 59:
+            return "Belagavi", "Karnataka"
+        elif prefix2 == 60:
+            return "Chennai", "Tamil Nadu"
+        elif prefix2 == 64:
+            return "Coimbatore", "Tamil Nadu"
+        elif 61 <= prefix2 <= 63:
+            return "Tamil Nadu City", "Tamil Nadu"
+        elif prefix2 == 68:
+            return "Kochi", "Kerala"
+        elif prefix2 == 69:
+            return "Thiruvananthapuram", "Kerala"
+        elif prefix2 == 67:
+            return "Kozhikode", "Kerala"
+        elif prefix2 == 50:
+            return "Hyderabad", "Telangana"
+        elif 51 <= prefix2 <= 53:
+            return "Visakhapatnam", "Andhra Pradesh"
+        elif prefix2 == 40:
+            return "Mumbai", "Maharashtra"
+        elif prefix2 == 41:
+            return "Pune", "Maharashtra"
+        elif prefix2 == 44:
+            return "Nagpur", "Maharashtra"
+        elif 42 <= prefix2 <= 43:
+            return "Maharashtra City", "Maharashtra"
+        elif prefix2 == 38:
+            return "Ahmedabad", "Gujarat"
+        elif prefix2 == 39:
+            return "Surat", "Gujarat"
+        elif prefix2 == 11:
+            return "New Delhi", "Delhi"
+        elif prefix3 == 122:
+            return "Gurugram", "Haryana"
+        elif prefix3 == 121:
+            return "Faridabad", "Haryana"
+        elif 12 <= prefix2 <= 13:
+            return "Haryana City", "Haryana"
+        elif prefix3 in [201, 203]:
+            return "Noida", "Uttar Pradesh"
+        elif prefix2 == 22:
+            return "Lucknow", "Uttar Pradesh"
+        elif prefix2 == 20 or 21 <= prefix2 <= 28:
+            return "Uttar Pradesh City", "Uttar Pradesh"
+        elif prefix2 == 70:
+            return "Kolkata", "West Bengal"
+        elif 71 <= prefix2 <= 74:
+            return "West Bengal City", "West Bengal"
+        elif prefix2 == 30:
+            return "Jaipur", "Rajasthan"
+        elif 31 <= prefix2 <= 34:
+            return "Rajasthan City", "Rajasthan"
+            
+    city = user_city or "Industrial City"
+    state = user_state or "India"
+    return city, state
+
+
 async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSession):
     """
     Automatically push paid/created orders directly to live Shiprocket panel using seller company pickup location.
@@ -2378,6 +2453,24 @@ async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSessi
             logger.error(f"Cannot sync order to Shiprocket: Invalid buyer phone number for Order {order.id}")
             return {"ok": False, "error": "Invalid buyer phone number for order sync."}
 
+        # Extract destination pincode from order or address or user profile
+        dest_pincode = (getattr(order, "pincode", None) or "").strip()
+        if not dest_pincode and order.address:
+            import re
+            m = re.search(r'\b[1-9][0-9]{5}\b', order.address)
+            if m:
+                dest_pincode = m.group(0)
+        if not dest_pincode:
+            dest_pincode = (user.get("pincode") or "").strip()
+        if not dest_pincode or len(dest_pincode) != 6:
+            dest_pincode = "110001"
+
+        dest_city, dest_state = resolve_pincode_city_state(
+            dest_pincode,
+            user_city=user.get("city"),
+            user_state=user.get("state")
+        )
+
         comment_text = "Paid order on IIP Marketplace"
         if seller_comp:
             comment_text += f" | Seller Origin: {seller_comp.name}, {seller_comp.address or ''}, {seller_comp.city or ''} ({seller_comp.pincode or ''}), Phone: {seller_comp.mobile or ''}"
@@ -2390,10 +2483,10 @@ async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSessi
             "comment": comment_text[:250],
             "billing_customer_name": user.get("name", "Buyer"),
             "billing_last_name": "",
-            "billing_address": order.address or "Factory Address",
-            "billing_city": user.get("city") or "New Delhi",
-            "billing_pincode": user.get("pincode") or "110001",
-            "billing_state": user.get("state") or "Delhi",
+            "billing_address": order.address or f"Delivery Pincode {dest_pincode}, India",
+            "billing_city": dest_city,
+            "billing_pincode": dest_pincode,
+            "billing_state": dest_state,
             "billing_country": "India",
             "billing_email": user.get("email"),
             "billing_phone": billing_phone,
@@ -2524,6 +2617,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
         razorpay_order_id=payload.razorpay_order_id,
         status=status,
         address=payload.address,
+        pincode=payload.pincode,
         created_at=now_iso()
     )
     db.add(order)
@@ -2548,7 +2642,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
         gst=order.gst, total=order.total, delivery_option=order.delivery_option,
         payment_method=order.payment_method, payment_id=order.payment_id,
         razorpay_order_id=order.razorpay_order_id,
-        status=order.status, address=order.address, created_at=order.created_at,
+        status=order.status, address=order.address, pincode=order.pincode, created_at=order.created_at,
         shiprocket_status=shiprocket_status, shiprocket_warning=shiprocket_warning
     )
 
@@ -6142,6 +6236,7 @@ async def startup():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_unlocks JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS cover_url VARCHAR(1024)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS owner_name VARCHAR(255)",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS pincode VARCHAR(20)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS gst VARCHAR(50)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS pan VARCHAR(50)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS business_type VARCHAR(1024)",
