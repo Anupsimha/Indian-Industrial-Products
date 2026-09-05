@@ -17,6 +17,7 @@ from shiprocket_utils import (
 from payout_crypto import encrypt_bank_field, decrypt_bank_field, mask_account_number
 
 import os
+import asyncio
 import uuid
 import logging
 import bcrypt
@@ -127,8 +128,17 @@ class User(Base):
     secondary_email = Column(String(255), nullable=True)
     security_question = Column(String(255), nullable=True)
     security_answer_hash = Column(String(255), nullable=True)
-    admin_setup_completed = Column(Boolean, default=False, nullable=False)
+    admin_setup_completed = Column(Boolean, default=False, nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+    deletion_requested_at = Column(String(255), nullable=True)
+    scheduled_deletion_at = Column(String(255), nullable=True)
     created_at = Column(String(255), nullable=False)
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False)
 
 class Company(Base):
     __tablename__ = "companies"
@@ -465,6 +475,9 @@ class UserPublic(BaseModel):
     secondary_email: Optional[str] = None
     security_question: Optional[str] = None
     admin_setup_completed: bool = False
+    is_deleted: bool = False
+    deletion_requested_at: Optional[str] = None
+    scheduled_deletion_at: Optional[str] = None
 
 
 class RegisterIn(BaseModel):
@@ -925,17 +938,21 @@ def user_to_dict(user: User) -> dict:
         "secondary_email": getattr(user, "secondary_email", None),
         "security_question": getattr(user, "security_question", None),
         "admin_setup_completed": bool(getattr(user, "admin_setup_completed", False)),
+        "is_deleted": bool(getattr(user, "is_deleted", False)),
+        "deletion_requested_at": getattr(user, "deletion_requested_at", None),
+        "scheduled_deletion_at": getattr(user, "scheduled_deletion_at", None),
         "unlocked_enquiries": user.unlocked_enquiries or [],
         "created_at": user.created_at,
     }
 
 
 async def get_current_user(request: Request) -> dict:
-    token = request.cookies.get("access_token")
-    if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
+    token = None
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+    else:
+        token = request.cookies.get("access_token")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
@@ -961,6 +978,25 @@ async def get_optional_user(request: Request) -> Optional[dict]:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+async def get_system_setting(db: AsyncSession, key: str, default: str) -> str:
+    try:
+        stmt = select(SystemSetting).where(SystemSetting.key == key)
+        row = (await db.execute(stmt)).scalar_one_or_none()
+        return row.value if row else default
+    except Exception:
+        return default
+
+
+async def set_system_setting(db: AsyncSession, key: str, value: str):
+    stmt = select(SystemSetting).where(SystemSetting.key == key)
+    row = (await db.execute(stmt)).scalar_one_or_none()
+    if row:
+        row.value = value
+    else:
+        db.add(SystemSetting(key=key, value=value))
+    await db.commit()
 
 
 async def notify_user(
@@ -1246,6 +1282,7 @@ async def register(payload: RegisterIn, response: Response, db: AsyncSession = D
         role=payload.role, company_id=company_id,
         avatar_url="https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=200",
         is_verified=False,
+        admin_setup_completed=False,
         verification_code=otp,
         verification_expires_at=expires,
         created_at=now_iso(),
@@ -1579,6 +1616,40 @@ async def login(payload: LoginIn, response: Response, db: AsyncSession = Depends
     if not user or not verify_password(payload.password, user.password_hash):
         logger.warning(f"Login failed for identifier={payload.identifier}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # If user was soft-deleted, check if grace period is active to restore account automatically
+    if getattr(user, "is_deleted", False):
+        now = datetime.now(timezone.utc)
+        restored = False
+        if user.scheduled_deletion_at:
+            try:
+                sch_dt = datetime.fromisoformat(user.scheduled_deletion_at)
+                if now <= sch_dt:
+                    user.is_deleted = False
+                    user.deletion_requested_at = None
+                    user.scheduled_deletion_at = None
+                    restored = True
+                    await notify_user(
+                        db=db,
+                        user_id=user.id,
+                        title="Account Restored!",
+                        body="Welcome back! Your pending account deletion request has been automatically cancelled.",
+                        notif_type="account_restored",
+                        link_url="/settings",
+                        send_email_flag=True,
+                        email_to=user.email,
+                        email_subject="Welcome Back! Your IIP Account Has Been Restored",
+                    )
+                    await db.commit()
+            except Exception as err:
+                logger.error(f"Error restoring soft-deleted user on login: {err}")
+
+        if not restored:
+            raise HTTPException(
+                status_code=403,
+                detail="This account has been permanently deleted after the grace period expired."
+            )
+
     token = create_token(user.id)
     set_auth_cookie(response, token)
     logger.info(f"User logged in: {user.email} (role={user.role})")
@@ -1592,6 +1663,190 @@ async def login(payload: LoginIn, response: Response, db: AsyncSession = Depends
 async def logout(response: Response):
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
+
+
+# -------------------- Account Deletion & System Settings --------------------
+class AdminSettingsIn(BaseModel):
+    account_deletion_grace_days: Optional[int] = Field(None, ge=1, le=365)
+
+
+@api.post("/user/delete-account")
+async def request_account_deletion(
+    response: Response,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(User).where(User.id == user["id"])
+    u = (await db.execute(stmt)).scalar_one_or_none()
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    grace_str = await get_system_setting(db, "account_deletion_grace_days", "30")
+    try:
+        grace_days = int(grace_str)
+    except ValueError:
+        grace_days = 30
+
+    now = datetime.now(timezone.utc)
+    scheduled_dt = now + timedelta(days=grace_days)
+
+    u.is_deleted = True
+    u.deletion_requested_at = now.isoformat()
+    u.scheduled_deletion_at = scheduled_dt.isoformat()
+
+    await notify_user(
+        db=db,
+        user_id=u.id,
+        title="Account Deletion Scheduled",
+        body=f"Your account deletion request has been received. Your account is scheduled for permanent deletion in {grace_days} days on {scheduled_dt.strftime('%Y-%m-%d')}. Logging in before this date will cancel the deletion.",
+        notif_type="account_deletion",
+        link_url="/settings",
+        send_email_flag=True,
+        email_to=u.email,
+        email_subject="Notice: IIP Account Deletion Scheduled",
+    )
+    await db.commit()
+
+    response.delete_cookie("access_token", path="/")
+    return {
+        "ok": True,
+        "message": f"Account soft deleted. Scheduled for purge in {grace_days} days.",
+        "scheduled_deletion_at": u.scheduled_deletion_at,
+        "grace_days": grace_days,
+    }
+
+
+@api.post("/user/cancel-deletion")
+async def cancel_account_deletion(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(User).where(User.id == user["id"])
+    u = (await db.execute(stmt)).scalar_one_or_none()
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not u.is_deleted:
+        return {"ok": True, "message": "Account is not marked for deletion"}
+
+    u.is_deleted = False
+    u.deletion_requested_at = None
+    u.scheduled_deletion_at = None
+
+    await notify_user(
+        db=db,
+        user_id=u.id,
+        title="Account Deletion Cancelled",
+        body="Welcome back! Your account deletion request has been successfully cancelled.",
+        notif_type="account_restored",
+        link_url="/settings",
+        send_email_flag=True,
+        email_to=u.email,
+        email_subject="Welcome Back! Your IIP Account Deletion Has Been Cancelled",
+    )
+    await db.commit()
+    return {"ok": True, "message": "Account deletion successfully cancelled."}
+
+
+@api.get("/admin/settings")
+async def get_admin_settings(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    grace_str = await get_system_setting(db, "account_deletion_grace_days", "30")
+    return {
+        "account_deletion_grace_days": int(grace_str) if grace_str.isdigit() else 30
+    }
+
+
+@api.patch("/admin/settings")
+async def update_admin_settings(
+    payload: AdminSettingsIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    if payload.account_deletion_grace_days is not None:
+        await set_system_setting(db, "account_deletion_grace_days", str(payload.account_deletion_grace_days))
+
+    grace_str = await get_system_setting(db, "account_deletion_grace_days", "30")
+    return {
+        "ok": True,
+        "account_deletion_grace_days": int(grace_str) if grace_str.isdigit() else 30
+    }
+
+
+@api.get("/admin/expired-users")
+async def get_expired_deleted_users(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    now = datetime.now(timezone.utc)
+    stmt = select(User).where(User.is_deleted == True)
+    soft_deleted_users = (await db.execute(stmt)).scalars().all()
+
+    expired = []
+    for u in soft_deleted_users:
+        if u.scheduled_deletion_at:
+            try:
+                dt = datetime.fromisoformat(u.scheduled_deletion_at)
+                if now >= dt:
+                    expired.append({
+                        "id": u.id,
+                        "name": u.name,
+                        "email": u.email,
+                        "role": u.role,
+                        "company_id": u.company_id,
+                        "deletion_requested_at": u.deletion_requested_at,
+                        "scheduled_deletion_at": u.scheduled_deletion_at
+                    })
+            except Exception as err:
+                logger.error(f"Error checking soft deleted user {u.id}: {err}")
+
+    return {"ok": True, "count": len(expired), "users": expired}
+
+
+@api.post("/admin/purge-deleted-users")
+async def purge_expired_deleted_users(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    now = datetime.now(timezone.utc)
+    stmt = select(User).where(User.is_deleted == True)
+    expired_users = (await db.execute(stmt)).scalars().all()
+
+    purged_count = 0
+    for u in expired_users:
+        if u.scheduled_deletion_at:
+            try:
+                dt = datetime.fromisoformat(u.scheduled_deletion_at)
+                if now >= dt:
+                    if u.company_id:
+                        await db.execute(delete(Post).where(Post.company_id == u.company_id))
+                        await db.execute(delete(Reel).where(Reel.company_id == u.company_id))
+                        await db.execute(delete(Product).where(Product.company_id == u.company_id))
+                        await db.execute(delete(Company).where(Company.id == u.company_id))
+
+                    await db.execute(delete(Like).where(Like.user_id == u.id))
+                    await db.execute(delete(Bookmark).where(Bookmark.user_id == u.id))
+                    await db.execute(delete(Comment).where(Comment.user_id == u.id))
+                    await db.execute(delete(Notification).where(Notification.user_id == u.id))
+                    await db.execute(delete(User).where(User.id == u.id))
+                    purged_count += 1
+            except Exception as err:
+                logger.error(f"Error purging soft deleted user {u.id}: {err}")
+
+    await db.commit()
+    return {"ok": True, "purged_count": purged_count}
 
 
 class UserUpdate(BaseModel):
@@ -6083,6 +6338,7 @@ async def seed_data(db: AsyncSession):
             role="admin", company_id=None,
             avatar_url="https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=200",
             is_verified=True,
+            admin_setup_completed=False,
             created_at=now_iso(),
         ))
         await db.commit()
@@ -6482,6 +6738,9 @@ async def startup():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_setup_completed BOOLEAN DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_enquiries JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_unlocks JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_requested_at VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS scheduled_deletion_at VARCHAR(255)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS cover_url VARCHAR(1024)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS owner_name VARCHAR(255)",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS pincode VARCHAR(20)",

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { Navigate, Link } from "react-router-dom";
-import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone } from "lucide-react";
+import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone, Settings as SettingsIcon } from "lucide-react";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 import { SingleImageUploader } from "../components/MediaUploader";
@@ -51,6 +51,7 @@ export default function AdminPage() {
     { id: "areas", label: "Areas", icon: MapPin },
     { id: "companies", label: "Companies", icon: Building2 },
     { id: "users", label: "Users", icon: Users },
+    { id: "settings", label: "Settings", icon: SettingsIcon },
   ];
 
   return (
@@ -81,6 +82,7 @@ export default function AdminPage() {
       {tab === "areas" && <AreasTab />}
       {tab === "companies" && <CompaniesTab companies={companies} reload={reload} />}
       {tab === "users" && <UsersTab users={users} plans={plans} reload={reload} />}
+      {tab === "settings" && <AdminSettingsTab />}
     </div>
   );
 }
@@ -986,6 +988,208 @@ const ContactEnquiriesTab = () => {
           </div>
         ))}
       </div>
+    </div>
+  );
+};
+
+const AdminSettingsTab = () => {
+  const [graceDays, setGraceDays] = useState(30);
+  const [saving, setSaving] = useState(false);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [purging, setPurging] = useState(false);
+  const [purgeModal, setPurgeModal] = useState({ open: false, users: [], count: 0 });
+
+  useEffect(() => {
+    api.get("/admin/settings").then((r) => {
+      if (r.data?.account_deletion_grace_days) {
+        setGraceDays(r.data.account_deletion_grace_days);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.patch("/admin/settings", { account_deletion_grace_days: Number(graceDays) });
+      toast.success("Platform settings updated!");
+    } catch {
+      toast.error("Failed to update settings");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleOpenPurgeModal = async () => {
+    setLoadingPreview(true);
+    try {
+      const res = await api.get("/admin/expired-users");
+      setPurgeModal({
+        open: true,
+        users: res.data?.users || [],
+        count: res.data?.count || 0
+      });
+    } catch {
+      toast.error("Failed to fetch expired accounts preview");
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const handleConfirmPurge = async () => {
+    setPurging(true);
+    try {
+      const r = await api.post("/admin/purge-deleted-users");
+      toast.success(`Purge completed! Removed ${r.data.purged_count} expired accounts.`);
+      setPurgeModal({ open: false, users: [], count: 0 });
+    } catch {
+      toast.error("Failed to run purge worker");
+    } finally {
+      setPurging(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-6 max-w-xl" data-testid="admin-settings-tab">
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+          <SettingsIcon className="w-5 h-5 text-blue-800" /> Account Deletion Policy Settings
+        </h3>
+        <p className="text-xs text-slate-500">
+          Configure the soft deletion grace period. When a user requests deletion, their account is soft-deleted for this duration before permanent hard purge.
+        </p>
+
+        <form onSubmit={handleSave} className="space-y-4 pt-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Soft Deletion Grace Period (Days)
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={graceDays}
+                onChange={(e) => setGraceDays(e.target.value)}
+                className="w-32 px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                data-testid="admin-grace-days-input"
+              />
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-4 py-2 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs transition-all shadow-sm"
+                data-testid="admin-save-grace-days-btn"
+              >
+                {saving ? "Saving..." : "Save Policy"}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div className="bg-rose-50/60 border border-rose-200 rounded-2xl p-5 shadow-sm space-y-3">
+        <h3 className="font-bold text-base text-rose-950 flex items-center gap-2">
+          <Trash2 className="w-5 h-5 text-rose-600" /> Expired Account Purge Worker
+        </h3>
+        <p className="text-xs text-rose-800 leading-relaxed">
+          Manually trigger the database hard-delete worker to permanently purge soft-deleted users whose grace period has expired. Clicking will open a preview modal listing all accounts ready for deletion.
+        </p>
+        <button
+          onClick={handleOpenPurgeModal}
+          disabled={loadingPreview}
+          className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-sm"
+          data-testid="admin-run-purge-btn"
+        >
+          {loadingPreview ? "Checking Accounts..." : "Preview & Run Expired Accounts Purge"}
+        </button>
+      </div>
+
+      {purgeModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn" data-testid="purge-modal-overlay">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-scaleUp">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                  <Trash2 className="w-5 h-5 text-rose-600" /> Confirm Expired Accounts Purge
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Review accounts whose soft deletion grace period has passed before initiating permanent hard purge.
+                </p>
+              </div>
+              <button
+                onClick={() => setPurgeModal({ open: false, users: [], count: 0 })}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg transition-colors"
+                data-testid="close-purge-modal-btn"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {purgeModal.count === 0 ? (
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-center space-y-2">
+                <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
+                  <Users className="w-5 h-5" />
+                </div>
+                <p className="text-sm font-semibold text-slate-700">No Expired Accounts Found</p>
+                <p className="text-xs text-slate-500">
+                  There are currently no soft-deleted user accounts whose grace period has expired.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3.5 flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">!</div>
+                  <p className="text-xs text-rose-900 leading-relaxed">
+                    <span className="font-bold text-rose-950">Warning:</span> You are about to permanently hard-delete <strong className="underline">{purgeModal.count} account(s)</strong>. This action will cascade delete all associated company listings, products, reels, posts, likes, bookmarks, and comments from the database. <strong>This action cannot be undone.</strong>
+                  </p>
+                </div>
+
+                <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-2xl divide-y divide-slate-100">
+                  {purgeModal.users.map((u) => (
+                    <div key={u.id} className="p-3.5 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-slate-900">{u.name}</span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 capitalize">{u.role}</span>
+                        </div>
+                        <p className="text-xs text-slate-500">{u.email}</p>
+                      </div>
+                      <div className="text-right space-y-0.5">
+                        <p className="text-[10px] text-slate-400">Scheduled Purge Date:</p>
+                        <p className="text-xs font-semibold text-rose-600">
+                          {u.scheduled_deletion_at ? new Date(u.scheduled_deletion_at).toLocaleString() : "N/A"}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setPurgeModal({ open: false, users: [], count: 0 })}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                data-testid="cancel-purge-btn"
+              >
+                {purgeModal.count === 0 ? "Close" : "Cancel"}
+              </button>
+              {purgeModal.count > 0 && (
+                <button
+                  type="button"
+                  onClick={handleConfirmPurge}
+                  disabled={purging}
+                  className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition-all"
+                  data-testid="confirm-purge-btn"
+                >
+                  {purging ? "Purging..." : `Confirm & Hard Delete (${purgeModal.count})`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

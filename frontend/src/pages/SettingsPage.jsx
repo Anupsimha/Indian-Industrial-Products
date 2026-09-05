@@ -49,25 +49,69 @@ export default function SettingsPage() {
 
   const handleDeactivate = async () => {
     setShowDeactivateModal(false);
-    toast.success("Account deactivated successfully. Logging out...");
-    setTimeout(async () => {
-      await logout();
-      navigate("/");
-    }, 1200);
+    try {
+      const r = await api.post("/user/delete-account");
+      toast.success(r.data.message || "Account deactivated.");
+      setTimeout(async () => {
+        await logout();
+        navigate("/");
+      }, 1200);
+    } catch {
+      toast.error("Failed to deactivate account");
+    }
   };
 
   const handleDelete = async () => {
     setShowDeleteModal(false);
-    toast.error("Account deletion request submitted. Data purge scheduled.");
-    setTimeout(async () => {
-      await logout();
-      navigate("/");
-    }, 1500);
+    try {
+      const r = await api.post("/user/delete-account");
+      toast.success(r.data.message || "Account deletion request submitted.");
+      setTimeout(async () => {
+        await logout();
+        navigate("/");
+      }, 1500);
+    } catch {
+      toast.error("Failed to schedule account deletion");
+    }
+  };
+
+  const handleCancelDeletion = async () => {
+    try {
+      await api.post("/user/cancel-deletion");
+      toast.success("Account deletion request cancelled! Your account is active.");
+      window.location.reload();
+    } catch {
+      toast.error("Failed to cancel deletion");
+    }
   };
 
   return (
     <div className="pb-28 px-4 pt-4 max-w-3xl mx-auto" data-testid="settings-page">
       <BackButton className="mb-3" />
+
+      {/* Soft Delete Warning Banner */}
+      {user.is_deleted && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-3xl p-5 mb-6 text-amber-950 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm" data-testid="pending-deletion-banner">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-bold text-base text-amber-900">Account Scheduled for Deletion</h3>
+              <p className="text-xs text-amber-800 mt-1">
+                Your account is currently soft-deleted and scheduled for permanent purge on{" "}
+                <strong>{user.scheduled_deletion_at ? new Date(user.scheduled_deletion_at).toLocaleDateString() : "30 days"}</strong>.
+                Logging in or clicking below cancels this deletion.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleCancelDeletion}
+            data-testid="cancel-deletion-btn"
+            className="px-4 py-2.5 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-colors shrink-0 shadow-sm"
+          >
+            Cancel Account Deletion
+          </button>
+        </div>
+      )}
 
       {/* Header Banner */}
       <div className="flex items-center justify-between bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 rounded-3xl p-6 text-white shadow-md mb-6">
