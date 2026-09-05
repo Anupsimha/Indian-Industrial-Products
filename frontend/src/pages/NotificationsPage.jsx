@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
-import { Bell, UserPlus, Heart, MessageSquare, Package, FileText, CheckCheck, ArrowRight } from "lucide-react";
+import { Bell, UserPlus, Heart, MessageSquare, Package, FileText, CheckCheck, Crown, ShoppingBag, Users, Headphones, Building2, ArrowRight } from "lucide-react";
 import { BackButton } from "../components/BackButton";
 import { toast } from "sonner";
 
@@ -42,7 +42,6 @@ export default function NotificationsPage() {
   };
 
   const handleNotificationClick = async (n) => {
-    // 1. Mark as read on backend & state if unread
     if (!n.read) {
       try {
         await api.patch(`/notifications/${n.id}/read`);
@@ -52,7 +51,6 @@ export default function NotificationsPage() {
       }
     }
 
-    // 2. Determine target route
     let targetRoute = n.link_url;
 
     if (!targetRoute) {
@@ -60,14 +58,20 @@ export default function NotificationsPage() {
       const title = (n.title || "").toLowerCase();
       const body = (n.body || "").toLowerCase();
 
-      if (type === "follower" || title.includes("follower") || body.includes("following")) {
+      if (type.includes("plan") || title.includes("plan")) {
+        targetRoute = "/settings";
+      } else if (type.includes("order") || title.includes("order")) {
+        targetRoute = "/orders";
+      } else if (type === "follower" || title.includes("follower") || body.includes("following")) {
         targetRoute = n.target_id ? `/company/${n.target_id}` : "/profile";
       } else if (type === "like" || title.includes("like")) {
         targetRoute = n.target_id ? `/?post_id=${n.target_id}` : "/";
       } else if (type === "comment" || title.includes("comment")) {
         targetRoute = n.target_id ? `/?post_id=${n.target_id}&comments=true` : "/";
-      } else if (type === "product_enquiry" || title.includes("product") || body.includes("product")) {
-        targetRoute = n.target_id ? `/product/${n.target_id}` : "/products";
+      } else if (type === "chat_message" || title.includes("message")) {
+        targetRoute = "/chat";
+      } else if (type === "group_joined" || title.includes("group")) {
+        targetRoute = n.target_id ? `/industrial-groups/${n.target_id}` : "/industrial-groups";
       } else if (type === "lead_enquiry" || title.includes("lead") || title.includes("enquiry") || body.includes("enquiry")) {
         targetRoute = "/leads";
       } else {
@@ -84,6 +88,12 @@ export default function NotificationsPage() {
     const type = (n.type || "").toLowerCase();
     const title = (n.title || "").toLowerCase();
 
+    if (type.includes("plan") || title.includes("plan")) {
+      return <Crown size={18} className="text-amber-500" />;
+    }
+    if (type.includes("order") || title.includes("order")) {
+      return <ShoppingBag size={18} className="text-emerald-600" />;
+    }
     if (type === "follower" || title.includes("follower")) {
       return <UserPlus size={18} className="text-purple-600" />;
     }
@@ -92,6 +102,18 @@ export default function NotificationsPage() {
     }
     if (type === "comment" || title.includes("comment")) {
       return <MessageSquare size={18} className="text-blue-600" />;
+    }
+    if (type === "chat_message" || title.includes("message")) {
+      return <MessageSquare size={18} className="text-blue-600" />;
+    }
+    if (type === "group_joined" || title.includes("group")) {
+      return <Users size={18} className="text-indigo-600" />;
+    }
+    if (type === "support_received" || title.includes("support") || title.includes("inquiry")) {
+      return <Headphones size={18} className="text-cyan-600" />;
+    }
+    if (type === "company_status" || title.includes("company")) {
+      return <Building2 size={18} className="text-orange-600" />;
     }
     if (type === "product_enquiry" || title.includes("product")) {
       return <Package size={18} className="text-emerald-600" />;

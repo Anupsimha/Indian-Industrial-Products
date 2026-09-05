@@ -25,7 +25,8 @@ export default function AdminPage() {
       } else if (tab === "companies") {
         const r = await api.get("/admin/companies"); setCompanies(r.data);
       } else if (tab === "users") {
-        const r = await api.get("/admin/users"); setUsers(r.data);
+        const [uRes, pRes] = await Promise.all([api.get("/admin/users"), api.get("/admin/plans")]);
+        setUsers(uRes.data); setPlans(pRes.data);
       } else if (tab === "plans") {
         const r = await api.get("/admin/plans"); setPlans(r.data);
       }
@@ -156,11 +157,138 @@ const CompaniesTab = ({ companies, reload }) => {
   );
 };
 
-const UsersTab = ({ users, plans, reload }) => {
-  const assign = async (uid, planId) => {
-    try { await api.post(`/admin/users/${uid}/plan/${planId}`); toast.success("Plan assigned"); reload(); }
-    catch { toast.error("Failed"); }
+const AssignPlanModal = ({ targetUser, newPlan, currentPlan, onClose, onConfirm }) => {
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const currentPrice = currentPlan ? (currentPlan.monthly_price ?? 0) : 0;
+  const newPrice = newPlan ? (newPlan.monthly_price ?? 0) : 0;
+  const priceDiff = newPrice - currentPrice;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    await onConfirm(reason);
+    setSubmitting(false);
   };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-100 space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <Crown className="w-5 h-5 text-amber-500" />
+            <h3 className="font-display font-bold text-base text-slate-900">Assign Plan Confirmation</h3>
+          </div>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* User Card */}
+        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex items-center gap-3">
+          <img src={targetUser.avatar_url || "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80"} className="w-10 h-10 rounded-full object-cover shrink-0" alt="" />
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-sm text-slate-900 truncate">{targetUser.name}</div>
+            <div className="text-xs text-slate-500 truncate">{targetUser.email} • <span className="capitalize">{targetUser.role}</span></div>
+          </div>
+        </div>
+
+        {/* Current Plan vs New Plan Comparison Grid */}
+        <div className="grid grid-cols-2 gap-3">
+          {/* Current Plan */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Current Plan</div>
+            <div className="font-bold text-sm text-slate-800">{currentPlan?.name || targetUser.plan_name || "Free Tier"}</div>
+            <div className="text-xs font-semibold text-slate-600">₹{currentPrice.toLocaleString()}<span className="text-[10px] text-slate-400 font-normal">/mo</span></div>
+            {targetUser.plan_expires_at && (
+              <div className="text-[10px] text-slate-400 truncate">Exp: {new Date(targetUser.plan_expires_at).toLocaleDateString()}</div>
+            )}
+          </div>
+
+          {/* New Plan */}
+          <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 space-y-1">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600">New Plan</div>
+            <div className="font-bold text-sm text-blue-950">{newPlan.name}</div>
+            <div className="text-xs font-semibold text-blue-800">₹{newPrice.toLocaleString()}<span className="text-[10px] text-blue-600/70 font-normal">/mo</span></div>
+            <div className="text-[10px] text-blue-600/80">Valid: {newPlan.duration_days || 30} days</div>
+          </div>
+        </div>
+
+        {/* Price Difference Indicator */}
+        <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-medium ${
+          priceDiff > 0 ? "bg-emerald-50 text-emerald-800 border-emerald-200" :
+          priceDiff < 0 ? "bg-amber-50 text-amber-800 border-amber-200" :
+          "bg-slate-50 text-slate-700 border-slate-200"
+        }`}>
+          <span>Price Difference:</span>
+          <span className="font-bold font-mono">
+            {priceDiff > 0 ? `+₹${priceDiff.toLocaleString()}/mo (Upgrade)` :
+             priceDiff < 0 ? `-₹${Math.abs(priceDiff).toLocaleString()}/mo (Downgrade)` :
+             `₹0 / mo (Same tier)`}
+          </span>
+        </div>
+
+        {/* Reason Input */}
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Reason for Assignment</label>
+            <textarea
+              required
+              rows={2}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g., VIP customer request, promotional override, support resolution..."
+              className="w-full text-xs rounded-xl border border-slate-300 p-2.5 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none"
+            />
+          </div>
+
+          <div className="flex gap-2 justify-end pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm inline-flex items-center gap-1.5"
+            >
+              {submitting ? "Assigning..." : "Confirm & Assign Plan"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const UsersTab = ({ users, plans, reload }) => {
+  const [selectedAssignment, setSelectedAssignment] = useState(null);
+
+  const handleSelectPlan = (user, planId) => {
+    if (!planId) return;
+    const targetPlan = plans.find((p) => p.id === planId);
+    if (!targetPlan) return;
+    const currentPlan = plans.find((p) => p.id === user.plan_id || p.name === user.plan_name);
+    setSelectedAssignment({ user, targetPlan, currentPlan });
+  };
+
+  const confirmAssign = async (reason) => {
+    if (!selectedAssignment) return;
+    const { user, targetPlan } = selectedAssignment;
+    try {
+      await api.post(`/admin/users/${user.id}/plan/${targetPlan.id}`, { reason });
+      toast.success(`Assigned ${targetPlan.name} to ${user.name}`);
+      setSelectedAssignment(null);
+      reload();
+    } catch {
+      toast.error("Failed to assign plan");
+    }
+  };
+
   return (
     <div className="mt-2 space-y-2">
       {users.map((u) => (
@@ -168,15 +296,31 @@ const UsersTab = ({ users, plans, reload }) => {
           <img src={u.avatar_url || "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80"} className="w-10 h-10 rounded-full object-cover" alt="" />
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-sm text-slate-900 truncate">{u.name}</div>
-            <div className="text-[11px] text-slate-500 truncate">{u.email} • {u.role}</div>
+            <div className="text-[11px] text-slate-500 truncate">
+              {u.email} • {u.role} {u.plan_name ? `• Plan: ${u.plan_name}` : ""}
+            </div>
           </div>
-          <select onChange={(e) => assign(u.id, e.target.value)} defaultValue="" data-testid={`admin-user-plan-${u.id}`}
-            className="text-xs rounded-full border border-slate-300 px-2 py-1.5 bg-white">
+          <select
+            onChange={(e) => handleSelectPlan(u, e.target.value)}
+            value={u.plan_id || ""}
+            data-testid={`admin-user-plan-${u.id}`}
+            className="text-xs rounded-full border border-slate-300 px-2 py-1.5 bg-white font-medium text-slate-700 hover:border-blue-400 transition-colors"
+          >
             <option value="" disabled>Assign plan</option>
             {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
       ))}
+
+      {selectedAssignment && (
+        <AssignPlanModal
+          targetUser={selectedAssignment.user}
+          newPlan={selectedAssignment.targetPlan}
+          currentPlan={selectedAssignment.currentPlan}
+          onClose={() => setSelectedAssignment(null)}
+          onConfirm={confirmAssign}
+        />
+      )}
     </div>
   );
 };

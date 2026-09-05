@@ -458,6 +458,7 @@ class UserPublic(BaseModel):
     role: RoleType
     company_id: Optional[str] = None
     avatar_url: Optional[str] = None
+    plan_id: Optional[str] = None
     plan_name: Optional[str] = None
     plan_expires_at: Optional[str] = None
     is_verified: bool = False
@@ -917,6 +918,7 @@ def user_to_dict(user: User) -> dict:
         "role": user.role,
         "company_id": user.company_id,
         "avatar_url": user.avatar_url,
+        "plan_id": user.plan_id,
         "plan_name": user.plan_name,
         "plan_expires_at": user.plan_expires_at,
         "is_verified": True if user.role == "admin" else bool(getattr(user, "is_verified", False)),
@@ -959,6 +961,56 @@ async def get_optional_user(request: Request) -> Optional[dict]:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+async def notify_user(
+    db: AsyncSession,
+    user_id: str,
+    title: str,
+    body: str,
+    notif_type: str = "general",
+    target_id: Optional[str] = None,
+    link_url: Optional[str] = None,
+    send_email_flag: bool = False,
+    email_to: Optional[str] = None,
+    email_subject: Optional[str] = None,
+    email_html: Optional[str] = None,
+) -> Notification:
+    notif = Notification(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        title=title,
+        body=body,
+        read=False,
+        type=notif_type,
+        target_id=target_id,
+        link_url=link_url,
+        created_at=now_iso(),
+    )
+    db.add(notif)
+    
+    if send_email_flag and email_to:
+        subj = email_subject or title
+        html = email_html or f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+            <div style="background-color: #1e3a8a; padding: 16px; text-align: center; border-radius: 8px 8px 0 0;">
+                <h2 style="color: #ffffff; margin: 0;">Indian Industrial Products</h2>
+            </div>
+            <div style="padding: 24px; color: #1e293b; background-color: #ffffff;">
+                <h3 style="color: #0f172a; margin-top: 0;">{title}</h3>
+                <p style="font-size: 15px; line-height: 1.6; color: #334155;">{body}</p>
+                <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #64748b;">
+                    Thank you for choosing Indian Industrial Products (IIP).
+                </div>
+            </div>
+        </div>
+        """
+        try:
+            asyncio.create_task(send_email(to=email_to, subject=subj, html_body=html))
+        except Exception as err:
+            logger.error(f"Failed to dispatch notification email to {email_to}: {err}")
+
+    return notif
 
 
 def set_auth_cookie(response: Response, token: str):
@@ -1989,6 +2041,24 @@ async def toggle_like(post_id: str, user: dict = Depends(get_current_user), db: 
         user_id=user["id"], created_at=now_iso(),
     )
     db.add(new_like)
+
+    # Notify Post Owner
+    stmt_p = select(Post).where(Post.id == post_id)
+    post_obj = (await db.execute(stmt_p)).scalar_one_or_none()
+    if post_obj:
+        stmt_c = select(Company).where(Company.id == post_obj.company_id)
+        comp_obj = (await db.execute(stmt_c)).scalar_one_or_none()
+        if comp_obj and comp_obj.owner_id and comp_obj.owner_id != user["id"]:
+            await notify_user(
+                db=db,
+                user_id=comp_obj.owner_id,
+                title="New Like",
+                body=f"{user.get('name', 'Someone')} liked your post.",
+                notif_type="like",
+                target_id=post_id,
+                link_url=f"/company/{comp_obj.id}",
+            )
+
     await db.commit()
     return {"liked": True}
 
@@ -2623,6 +2693,51 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
         created_at=now_iso()
     )
     db.add(order)
+
+    # Notify Buyer (In-App + Email)
+    await notify_user(
+        db=db,
+        user_id=user["id"],
+        title="Order Placed Successfully",
+        body=f"Your order #{order_id[:8]} for ₹{payload.total:,.2f} has been placed.",
+        notif_type="order_placed",
+        target_id=order_id,
+        link_url="/orders",
+        send_email_flag=True,
+        email_to=user.get("email"),
+        email_subject=f"Order Confirmation #{order_id[:8]} - IIP Marketplace",
+    )
+
+    # Notify Sellers (In-App + Email)
+    seller_ids = set()
+    for item in items_data:
+        pid = item.get("product_id")
+        if pid:
+            stmt_pr = select(Product).where(Product.id == pid)
+            pr_obj = (await db.execute(stmt_pr)).scalar_one_or_none()
+            if pr_obj and pr_obj.company_id:
+                stmt_cp = select(Company).where(Company.id == pr_obj.company_id)
+                cp_obj = (await db.execute(stmt_cp)).scalar_one_or_none()
+                if cp_obj and cp_obj.owner_id and cp_obj.owner_id != user["id"]:
+                    seller_ids.add((cp_obj.owner_id, cp_obj.id))
+
+    for s_owner_id, s_comp_id in seller_ids:
+        stmt_su = select(User).where(User.id == s_owner_id)
+        s_user = (await db.execute(stmt_su)).scalar_one_or_none()
+        if s_user:
+            await notify_user(
+                db=db,
+                user_id=s_owner_id,
+                title="New Order Received!",
+                body=f"You received a new order #{order_id[:8]} worth ₹{payload.total:,.2f}.",
+                notif_type="order_received",
+                target_id=order_id,
+                link_url="/admin",
+                send_email_flag=True,
+                email_to=s_user.email,
+                email_subject=f"New Order Received #{order_id[:8]} on IIP",
+            )
+
     await db.commit()
     await db.refresh(order)
 
@@ -3701,10 +3816,25 @@ async def admin_delete_plan(plan_id: str, user: dict = Depends(get_current_user)
     return {"ok": True}
 
 
+class AdminAssignPlanIn(BaseModel):
+    reason: Optional[str] = None
+
+
 @api.post("/admin/users/{user_id}/plan/{plan_id}")
-async def admin_assign_plan(user_id: str, plan_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def admin_assign_plan(
+    user_id: str,
+    plan_id: str,
+    payload: Optional[AdminAssignPlanIn] = None,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
+    stmt_usr = select(User).where(User.id == user_id)
+    usr = (await db.execute(stmt_usr)).scalar_one_or_none()
+    if not usr:
+        raise HTTPException(status_code=404, detail="User not found")
+
     stmt_plan = select(Plan).where(Plan.id == plan_id)
     plan = (await db.execute(stmt_plan)).scalar_one_or_none()
     if not plan:
@@ -3715,8 +3845,24 @@ async def admin_assign_plan(user_id: str, plan_id: str, user: dict = Depends(get
         plan_id=plan_id, plan_name=plan.name, plan_expires_at=expiry
     )
     await db.execute(stmt_upd)
+
+    await notify_user(
+        db=db,
+        user_id=user_id,
+        title="Plan Assigned - Welcome to IIP!",
+        body=f"Thank you for choosing IIP! You have been assigned the {plan.name} plan (Valid until {expiry[:10]}).",
+        notif_type="plan_assigned",
+        target_id=plan_id,
+        link_url="/settings",
+        send_email_flag=True,
+        email_to=usr.email,
+        email_subject=f"Plan Assigned: Welcome to IIP {plan.name}!",
+    )
+
     await db.commit()
-    return {"ok": True, "expires_at": expiry}
+    reason_str = payload.reason if payload and payload.reason else "Admin manual assignment"
+    logger.info(f"Admin {user.get('id')} assigned plan {plan.name} ({plan_id}) to user {user_id}. Reason: {reason_str}")
+    return {"ok": True, "expires_at": expiry, "reason": reason_str}
 
 
 # -------------------- Public Lead / Requirement Feed --------------------
@@ -4076,6 +4222,35 @@ async def confirm_unlock(
         monthly[month_key] = month_list
         u.monthly_unlocks = monthly
 
+        # Notify Supplier (In-App)
+        await notify_user(
+            db=db,
+            user_id=user["id"],
+            title="Lead Contact Unlocked",
+            body=f"You unlocked buyer contact info for requirement '{enq.category}'.",
+            notif_type="lead_purchased",
+            target_id=enq_id,
+            link_url="/requirements",
+        )
+
+        # Notify Lead Creator (In-App + Email)
+        if enq.user_id:
+            stmt_creator = select(User).where(User.id == enq.user_id)
+            creator = (await db.execute(stmt_creator)).scalar_one_or_none()
+            if creator:
+                await notify_user(
+                    db=db,
+                    user_id=creator.id,
+                    title="Supplier Unlocked Your Lead!",
+                    body=f"A verified supplier on IIP unlocked your contact details for requirement '{enq.category}'.",
+                    notif_type="lead_unlocked",
+                    target_id=enq_id,
+                    link_url="/requirements",
+                    send_email_flag=True,
+                    email_to=creator.email,
+                    email_subject=f"A Verified Supplier Contacted Your IIP Requirement ({enq.category})",
+                )
+
         await db.commit()
 
     return {"ok": True, "mobile": enq.mobile, "name": enq.name}
@@ -4361,6 +4536,15 @@ async def join_industrial_group(
     )
     db.add(new_m)
     g.members_count += 1
+    await notify_user(
+        db=db,
+        user_id=user["id"],
+        title="Group Membership Confirmed",
+        body=f"You joined the '{g.name}' industrial group.",
+        notif_type="group_joined",
+        target_id=g.id,
+        link_url=f"/industrial-groups/{g.id}",
+    )
     await db.commit()
     return {"joined": True, "members_count": g.members_count}
 
@@ -4727,6 +4911,23 @@ async def verify_payment(payload: VerifyPaymentIn, user: dict = Depends(get_curr
         plan_id=plan.id, plan_name=plan.name, plan_expires_at=expiry
     )
     await db.execute(stmt_upd)
+
+    stmt_usr = select(User).where(User.id == user["id"])
+    usr_obj = (await db.execute(stmt_usr)).scalar_one_or_none()
+    user_email = usr_obj.email if usr_obj else user.get("email")
+
+    await notify_user(
+        db=db,
+        user_id=user["id"],
+        title="Thank you for choosing IIP!",
+        body=f"Your purchase of the {plan.name} plan is confirmed. Expiry: {expiry[:10]}.",
+        notif_type="plan_purchase",
+        target_id=plan.id,
+        link_url="/settings",
+        send_email_flag=True,
+        email_to=user_email,
+        email_subject=f"Thank you for choosing IIP! Purchase Confirmation - {plan.name}",
+    )
     await db.commit()
     return {"ok": True}
 
@@ -4942,6 +5143,15 @@ async def send_chat_message(payload: ChatMessageIn, user: dict = Depends(get_cur
         created_at=now_iso()
     )
     db.add(msg)
+    await notify_user(
+        db=db,
+        user_id=payload.receiver_id,
+        title=f"New Message from {user.get('name', 'User')}",
+        body=f"{user.get('name', 'User')}: {moderated[:60]}",
+        notif_type="chat_message",
+        target_id=user["id"],
+        link_url="/chat",
+    )
     await db.commit()
     return ChatMessageOut(
         id=msg.id,
@@ -5022,6 +5232,16 @@ async def admin_toggle_featured(company_id: str, featured: bool = Query(...), us
         raise HTTPException(status_code=404, detail="Company not found")
         
     c.is_featured = featured
+    if featured and c.owner_id:
+        await notify_user(
+            db=db,
+            user_id=c.owner_id,
+            title="Company Status Updated",
+            body=f"Your company '{c.name}' is now featured on Indian Industrial Products!",
+            notif_type="company_status",
+            target_id=company_id,
+            link_url=f"/company/{company_id}",
+        )
     await db.commit()
     return {"ok": True, "is_featured": featured}
 
@@ -5102,6 +5322,32 @@ async def create_contact_enquiry(payload: ContactEnquiryCreate, db: AsyncSession
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
+
+    # Dispatch dual notification (In-App + Email) if user account exists
+    stmt_usr = select(User).where(User.email == payload.email.strip())
+    usr_obj = (await db.execute(stmt_usr)).scalar_one_or_none()
+    if usr_obj:
+        await notify_user(
+            db=db,
+            user_id=usr_obj.id,
+            title="Support Inquiry Received",
+            body=f"Thank you for contacting IIP. Our team received your inquiry regarding '{doc.subject}' and will respond shortly.",
+            notif_type="support_received",
+            link_url="/settings",
+            send_email_flag=True,
+            email_to=usr_obj.email,
+            email_subject="We Received Your Inquiry - IIP Support",
+        )
+        await db.commit()
+    else:
+        # User not registered — send email directly
+        subj = "We Received Your Inquiry - IIP Support"
+        html = f"<h3>Support Inquiry Received</h3><p>Thank you for contacting IIP. Our team received your inquiry regarding '{doc.subject}' and will respond shortly.</p><p>Thank you for choosing Indian Industrial Products (IIP).</p>"
+        try:
+            asyncio.create_task(send_email(to=payload.email.strip(), subject=subj, html_body=html))
+        except Exception as exc:
+            logger.error(f"Failed sending support email to {payload.email}: {exc}")
+
     return doc
 
 
