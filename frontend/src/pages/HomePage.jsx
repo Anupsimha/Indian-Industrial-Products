@@ -6,6 +6,7 @@ import { HeroSlider } from "../components/HeroSlider";
 import { CategoryDrawer } from "../components/CategoryDrawer";
 import { ApplyJobDialog } from "../components/ApplyJobDialog";
 import { JobDialog } from "../components/CreateDialogs";
+import { IndustrialNewsTicker } from "../components/IndustrialNewsTicker";
 import {
   Loader2, Verified, Search, Package, Target, Bookmark, BarChart3,
   Lock, Phone, MapPin, Tag, Clock, Boxes, ShieldCheck, Mail, CheckCircle, X, AlertTriangle,
@@ -533,6 +534,9 @@ export default function HomePage() {
           <div className="rounded-2xl overflow-hidden shadow-sm">
             <HeroSlider onCta={() => navigate("/post-enquiry")} />
           </div>
+
+          {/* Industrial News Ticker */}
+          <IndustrialNewsTicker />
 
           {/* 2. Key Metrics Bar */}
           <div className="grid grid-cols-4 gap-1.5 bg-gradient-to-r from-blue-900 via-slate-900 to-blue-950 p-2.5 rounded-2xl text-white shadow-sm text-center">

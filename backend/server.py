@@ -50,6 +50,8 @@ engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 Base = declarative_base()
 
+from news import news_router, start_news_scheduler
+
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
@@ -6769,6 +6771,31 @@ async def startup():
         "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS type VARCHAR(100)",
         "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_id VARCHAR(255)",
         "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link_url VARCHAR(1024)",
+        """CREATE TABLE IF NOT EXISTS news_items (
+            id VARCHAR(64) PRIMARY KEY,
+            title VARCHAR(512) NOT NULL,
+            snippet TEXT,
+            url VARCHAR(1024) NOT NULL,
+            image_url VARCHAR(1024),
+            source VARCHAR(100) NOT NULL,
+            category VARCHAR(100) NOT NULL,
+            published_at TIMESTAMP NOT NULL,
+            fetched_at TIMESTAMP,
+            dedup_hash VARCHAR(64) NOT NULL UNIQUE,
+            view_count INTEGER DEFAULT 0,
+            is_active BOOLEAN DEFAULT TRUE,
+            moderated_by VARCHAR(36),
+            moderated_at VARCHAR(255)
+        )""",
+        """CREATE TABLE IF NOT EXISTS feed_health_logs (
+            source_key VARCHAR(100) PRIMARY KEY,
+            display_name VARCHAR(100) NOT NULL,
+            last_success_at VARCHAR(255),
+            last_error_at VARCHAR(255),
+            consecutive_failures INTEGER DEFAULT 0,
+            item_count INTEGER DEFAULT 0,
+            last_error_message TEXT
+        )""",
     ]
 
     for q in migrations:
@@ -6789,6 +6816,12 @@ async def startup():
     except Exception as e:
         logger.error(f"Error during startup data seeding: {e}")
         
+    # Start news aggregator scheduler background worker
+    try:
+        start_news_scheduler()
+    except Exception as err:
+        logger.error(f"Failed starting news scheduler: {err}")
+
     logger.info("IIP started, seed data ensured (PostgreSQL)")
 
 
@@ -6798,6 +6831,7 @@ async def shutdown():
 
 
 app.include_router(api)
+app.include_router(news_router)
 
 _cors_origins = os.environ.get("CORS_ORIGINS", "*")
 default_origins = [

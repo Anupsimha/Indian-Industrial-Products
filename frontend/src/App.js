@@ -27,6 +27,7 @@ import CompanyDetailPage from "@/pages/CompanyDetailPage";
 import PricingPage from "@/pages/PricingPage";
 import NotificationsPage from "@/pages/NotificationsPage";
 import BookmarksPage from "@/pages/BookmarksPage";
+import NewsPage from "@/pages/NewsPage";
 import SearchPage from "@/pages/SearchPage";
 import CompaniesPage from "@/pages/CompaniesPage";
 import ProductsPage from "@/pages/ProductsPage";
@@ -119,6 +120,7 @@ function App() {
               <Route path="/pricing" element={<PricingPage />} />
               <Route path="/membership" element={<MembershipPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/news" element={<NewsPage />} />
               <Route path="/bookmarks" element={<BookmarksPage />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/products" element={<ProductsPage />} />

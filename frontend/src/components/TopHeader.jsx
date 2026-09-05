@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown } from "lucide-react";
+import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown, Newspaper } from "lucide-react";
 import { Logo } from "./Logo";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
@@ -278,6 +278,14 @@ export const TopHeader = () => {
             data-testid="header-chats"
           >
             <MessageSquare size={22} />
+          </Link>
+          <Link
+            to="/news"
+            className="p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors block"
+            data-testid="header-news"
+            title="Industrial News Feed"
+          >
+            <Newspaper size={22} />
           </Link>
           <Link
             to="/bookmarks"
