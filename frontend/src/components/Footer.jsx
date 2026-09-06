@@ -2,11 +2,14 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { Phone, Mail, MapPin, ShieldCheck, Scale, FileText, RefreshCw, HelpCircle, Heart } from "lucide-react";
 import { Logo } from "./Logo";
+import { useSupportContact } from "@/context/SupportContactContext";
 
 export const Footer = () => {
-  const phone = process.env.REACT_APP_SUPPORT_PHONE || "+91 9380036328";
-  const email = process.env.REACT_APP_SUPPORT_EMAIL || "support@indianindustrialplatform.com";
-  const address = process.env.REACT_APP_SUPPORT_ADDRESS || "No. 35 Suvarna Nagar Doddabidrekallu Nagasandra - 560073";
+  const { supportContact } = useSupportContact();
+  const phone = supportContact.support_phone;
+  const email = supportContact.support_email;
+  const address = supportContact.support_address;
+
 
   return (
     <footer className="bg-slate-900 text-slate-300 pt-10 pb-20 md:pb-10 border-t border-slate-800" data-testid="global-footer">

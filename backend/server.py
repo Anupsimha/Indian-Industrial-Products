@@ -52,6 +52,16 @@ Base = declarative_base()
 
 from news import news_router, start_news_scheduler
 
+try:
+    from backend.services.support_contact_service import SupportContactManager, SupportContactUpdateDTO
+    from backend.migrations.support_contact_migration import SupportContactMigration
+    from backend.routers.support_contact_router import support_contact_router
+except ImportError:
+    from services.support_contact_service import SupportContactManager, SupportContactUpdateDTO
+    from migrations.support_contact_migration import SupportContactMigration
+    from routers.support_contact_router import support_contact_router
+
+
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
@@ -1670,6 +1680,19 @@ async def logout(response: Response):
 # -------------------- Account Deletion & System Settings --------------------
 class AdminSettingsIn(BaseModel):
     account_deletion_grace_days: Optional[int] = Field(None, ge=1, le=365)
+    support_phone: Optional[str] = Field(None)
+    support_whatsapp: Optional[str] = Field(None)
+    support_email: Optional[str] = Field(None)
+    support_address: Optional[str] = Field(None)
+
+
+@api.get("/support-contact")
+async def get_public_support_contact_endpoint(
+    db: AsyncSession = Depends(get_db)
+):
+    manager = SupportContactManager(db, SystemSetting)
+    contacts = await manager.get_support_contacts()
+    return contacts.dict()
 
 
 @api.post("/user/delete-account")
@@ -1758,8 +1781,16 @@ async def get_admin_settings(
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     grace_str = await get_system_setting(db, "account_deletion_grace_days", "30")
+
+    manager = SupportContactManager(db, SystemSetting)
+    contacts = await manager.get_support_contacts()
+
     return {
-        "account_deletion_grace_days": int(grace_str) if grace_str.isdigit() else 30
+        "account_deletion_grace_days": int(grace_str) if grace_str.isdigit() else 30,
+        "support_phone": contacts.support_phone,
+        "support_whatsapp": contacts.support_whatsapp,
+        "support_email": contacts.support_email,
+        "support_address": contacts.support_address,
     }
 
 
@@ -1774,11 +1805,26 @@ async def update_admin_settings(
     if payload.account_deletion_grace_days is not None:
         await set_system_setting(db, "account_deletion_grace_days", str(payload.account_deletion_grace_days))
 
+    manager = SupportContactManager(db, SystemSetting)
+    await manager.update_support_contacts(SupportContactUpdateDTO(
+        support_phone=payload.support_phone,
+        support_whatsapp=payload.support_whatsapp,
+        support_email=payload.support_email,
+        support_address=payload.support_address,
+    ))
+
     grace_str = await get_system_setting(db, "account_deletion_grace_days", "30")
+    contacts = await manager.get_support_contacts()
+
     return {
         "ok": True,
-        "account_deletion_grace_days": int(grace_str) if grace_str.isdigit() else 30
+        "account_deletion_grace_days": int(grace_str) if grace_str.isdigit() else 30,
+        "support_phone": contacts.support_phone,
+        "support_whatsapp": contacts.support_whatsapp,
+        "support_email": contacts.support_email,
+        "support_address": contacts.support_address,
     }
+
 
 
 @api.get("/admin/expired-users")
@@ -6813,6 +6859,9 @@ async def startup():
             await _seed_areas_if_empty(session)
             await _seed_slides_if_empty(session)
             await _seed_industrial_groups_if_empty(session)
+            migration = SupportContactMigration(session, SystemSetting)
+            await migration.run()
+
     except Exception as e:
         logger.error(f"Error during startup data seeding: {e}")
         

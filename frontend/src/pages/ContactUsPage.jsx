@@ -3,15 +3,20 @@ import { Link } from "react-router-dom";
 import { Phone, Mail, MapPin, Clock, MessageSquare, ArrowLeft, Send, CheckCircle2, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatApiError, whatsappLink } from "../lib/api";
+import { useSupportContact } from "../context/SupportContactContext";
+
 
 export default function ContactUsPage() {
+  const { supportContact } = useSupportContact();
+  const phone = supportContact.support_phone;
+  const email = supportContact.support_email;
+  const address = supportContact.support_address;
+  const whatsapp = supportContact.support_whatsapp || supportContact.support_phone;
+
   const [form, setForm] = useState({ name: "", email: "", mobile: "", subject: "", message: "" });
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const phone = process.env.REACT_APP_SUPPORT_PHONE || "+91 9380036328";
-  const email = process.env.REACT_APP_SUPPORT_EMAIL || "support@indianindustrialplatform.com";
-  const address = process.env.REACT_APP_SUPPORT_ADDRESS || "No. 35 Suvarna Nagar Doddabidrekallu Nagasandra - 560073";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -92,7 +97,7 @@ export default function ContactUsPage() {
             </div>
 
             <a
-              href={whatsappLink(phone, "Hi IIP Support, I need assistance regarding industrial products.")}
+              href={whatsappLink(whatsapp, "Hi IIP Support, I need assistance regarding industrial products.")}
               target="_blank"
               rel="noreferrer"
               className="w-full py-2.5 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"

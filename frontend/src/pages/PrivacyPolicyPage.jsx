@@ -1,8 +1,12 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, ShieldCheck, Lock, Eye } from "lucide-react";
+import { useSupportContact } from "@/context/SupportContactContext";
 
 export default function PrivacyPolicyPage() {
+  const { supportContact } = useSupportContact();
+  const email = supportContact.support_email;
+
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
       {/* Header */}
@@ -73,7 +77,7 @@ export default function PrivacyPolicyPage() {
             <p>
               For privacy queries or data deletion requests, please contact our Data Protection Officer at:
               <br />
-              <strong className="text-slate-900">Email:</strong> {process.env.REACT_APP_SUPPORT_EMAIL || "support@iipmarketplace.com"}
+              <strong className="text-slate-900">Email:</strong> {email}
             </p>
           </section>
 

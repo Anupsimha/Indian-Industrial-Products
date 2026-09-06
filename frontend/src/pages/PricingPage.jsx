@@ -2,8 +2,10 @@ import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { Check, Crown, Zap, Sparkles, Building2 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { useSupportContact } from "../context/SupportContactContext";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
+
 
 const ICONS = {
   slate: Building2,
@@ -25,7 +27,9 @@ const COLOR_MAP = {
 
 export default function PricingPage() {
   const { user } = useAuth();
+  const { supportContact } = useSupportContact();
   const [plans, setPlans] = useState([]);
+
   const [billing, setBilling] = useState("monthly");
 
   useEffect(() => {
@@ -114,7 +118,7 @@ export default function PricingPage() {
         prefill: {
           name: user?.name || "Subscriber",
           email: user?.email || "",
-          contact: user?.mobile || process.env.REACT_APP_SUPPORT_PHONE || "",
+          contact: user?.mobile || supportContact.support_phone || "",
         },
         modal: {
           ondismiss: () => {

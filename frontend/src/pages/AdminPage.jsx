@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { useSupportContact } from "../context/SupportContactContext";
 import { Navigate, Link } from "react-router-dom";
+
 import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone, Settings as SettingsIcon } from "lucide-react";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
@@ -993,8 +995,15 @@ const ContactEnquiriesTab = () => {
 };
 
 const AdminSettingsTab = () => {
+  const { refreshSupportContact } = useSupportContact();
   const [graceDays, setGraceDays] = useState(30);
-  const [saving, setSaving] = useState(false);
+  const [supportPhone, setSupportPhone] = useState("");
+  const [supportWhatsapp, setSupportWhatsapp] = useState("");
+  const [supportEmail, setSupportEmail] = useState("");
+  const [supportAddress, setSupportAddress] = useState("");
+
+  const [savingGrace, setSavingGrace] = useState(false);
+  const [savingSupport, setSavingSupport] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [purging, setPurging] = useState(false);
   const [purgeModal, setPurgeModal] = useState({ open: false, users: [], count: 0 });
@@ -1004,19 +1013,42 @@ const AdminSettingsTab = () => {
       if (r.data?.account_deletion_grace_days) {
         setGraceDays(r.data.account_deletion_grace_days);
       }
+      if (r.data?.support_phone) setSupportPhone(r.data.support_phone);
+      if (r.data?.support_whatsapp) setSupportWhatsapp(r.data.support_whatsapp);
+      if (r.data?.support_email) setSupportEmail(r.data.support_email);
+      if (r.data?.support_address) setSupportAddress(r.data.support_address);
     }).catch(() => {});
   }, []);
 
-  const handleSave = async (e) => {
+  const handleSaveGraceDays = async (e) => {
     e.preventDefault();
-    setSaving(true);
+    setSavingGrace(true);
     try {
       await api.patch("/admin/settings", { account_deletion_grace_days: Number(graceDays) });
-      toast.success("Platform settings updated!");
+      toast.success("Account deletion policy updated!");
     } catch {
-      toast.error("Failed to update settings");
+      toast.error("Failed to update grace period");
     } finally {
-      setSaving(false);
+      setSavingGrace(false);
+    }
+  };
+
+  const handleSaveSupportContact = async (e) => {
+    e.preventDefault();
+    setSavingSupport(true);
+    try {
+      await api.patch("/admin/settings", {
+        support_phone: supportPhone,
+        support_whatsapp: supportWhatsapp,
+        support_email: supportEmail,
+        support_address: supportAddress,
+      });
+      await refreshSupportContact();
+      toast.success("Support contact details updated successfully!");
+    } catch {
+      toast.error("Failed to update support contact details");
+    } finally {
+      setSavingSupport(false);
     }
   };
 
@@ -1051,6 +1083,86 @@ const AdminSettingsTab = () => {
 
   return (
     <div className="mt-4 space-y-6 max-w-xl" data-testid="admin-settings-tab">
+      {/* Support Contact Details Settings */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+          <Phone className="w-5 h-5 text-blue-800" /> Support Contact Details Settings
+        </h3>
+        <p className="text-xs text-slate-500">
+          Update the platform support phone number, WhatsApp, email, and physical address displayed across the website and mobile views.
+        </p>
+
+        <form onSubmit={handleSaveSupportContact} className="space-y-3 pt-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Support Phone Number
+            </label>
+            <input
+              type="text"
+              value={supportPhone}
+              onChange={(e) => setSupportPhone(e.target.value)}
+              placeholder="+91 9380036328"
+              className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              data-testid="admin-support-phone-input"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Support WhatsApp Number
+            </label>
+            <input
+              type="text"
+              value={supportWhatsapp}
+              onChange={(e) => setSupportWhatsapp(e.target.value)}
+              placeholder="9380036328"
+              className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              data-testid="admin-support-whatsapp-input"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Support Email Address
+            </label>
+            <input
+              type="email"
+              value={supportEmail}
+              onChange={(e) => setSupportEmail(e.target.value)}
+              placeholder="support@indianindustrialplatform.com"
+              className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              data-testid="admin-support-email-input"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Support Physical Address
+            </label>
+            <textarea
+              rows={2}
+              value={supportAddress}
+              onChange={(e) => setSupportAddress(e.target.value)}
+              placeholder="No. 35 Suvarna Nagar Doddabidrekallu Nagasandra - 560073"
+              className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              data-testid="admin-support-address-input"
+            />
+          </div>
+
+          <div className="pt-1">
+            <button
+              type="submit"
+              disabled={savingSupport}
+              className="px-4 py-2 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs transition-all shadow-sm"
+              data-testid="admin-save-support-contact-btn"
+            >
+              {savingSupport ? "Saving..." : "Save Support Contact Details"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Account Deletion Policy Settings */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
         <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
           <SettingsIcon className="w-5 h-5 text-blue-800" /> Account Deletion Policy Settings
@@ -1059,7 +1171,7 @@ const AdminSettingsTab = () => {
           Configure the soft deletion grace period. When a user requests deletion, their account is soft-deleted for this duration before permanent hard purge.
         </p>
 
-        <form onSubmit={handleSave} className="space-y-4 pt-2">
+        <form onSubmit={handleSaveGraceDays} className="space-y-4 pt-2">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               Soft Deletion Grace Period (Days)
@@ -1076,16 +1188,17 @@ const AdminSettingsTab = () => {
               />
               <button
                 type="submit"
-                disabled={saving}
+                disabled={savingGrace}
                 className="px-4 py-2 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs transition-all shadow-sm"
                 data-testid="admin-save-grace-days-btn"
               >
-                {saving ? "Saving..." : "Save Policy"}
+                {savingGrace ? "Saving..." : "Save Policy"}
               </button>
             </div>
           </div>
         </form>
       </div>
+
 
       <div className="bg-rose-50/60 border border-rose-200 rounded-2xl p-5 shadow-sm space-y-3">
         <h3 className="font-bold text-base text-rose-950 flex items-center gap-2">

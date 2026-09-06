@@ -8,6 +8,7 @@ import {
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
+import { useSupportContact } from "../context/SupportContactContext";
 import api from "../lib/api";
 
 const STEPS = [
@@ -20,7 +21,9 @@ const STEPS = [
 export default function CartPage() {
   const { cart, updateQty, removeFromCart, clearCart, cartSubtotal, cartCount } = useCart();
   const { user } = useAuth();
+  const { supportContact } = useSupportContact();
   const navigate = useNavigate();
+
 
   const [step, setStep] = useState("cart");
   const [selectedDelivery, setSelectedDelivery] = useState("shiprocket_express");
@@ -273,7 +276,7 @@ export default function CartPage() {
         prefill: {
           name: user?.name || "Customer",
           email: user?.email || "",
-          contact: user?.mobile || process.env.REACT_APP_SUPPORT_PHONE || "",
+          contact: user?.mobile || supportContact.support_phone || "",
         },
         notes: { address: "IIP Industrial Marketplace" },
         theme: { color: "#1e3a5f" },

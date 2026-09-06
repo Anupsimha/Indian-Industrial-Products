@@ -28,9 +28,10 @@ export function formatApiError(detail) {
 }
 
 export function whatsappLink(number, message = "") {
-  const envNumber = process.env.REACT_APP_SUPPORT_WHATSAPP || process.env.REACT_APP_SUPPORT_PHONE;
-  const targetNumber = envNumber || number || "919876543210";
+  const targetNumber = number || process.env.REACT_APP_SUPPORT_WHATSAPP || process.env.REACT_APP_SUPPORT_PHONE || "";
   const clean = String(targetNumber).replace(/\D/g, "");
+  if (!clean) return "#";
   const text = message ? `?text=${encodeURIComponent(message)}` : "";
   return `https://wa.me/${clean}${text}`;
 }
+

@@ -5,7 +5,9 @@ import "@/App.css";
 
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
+import { SupportContactProvider } from "@/context/SupportContactContext";
 import { InstallAppBanner } from "@/components/InstallAppBanner";
+
 import { TopHeader } from "@/components/TopHeader";
 import { BottomNav } from "@/components/BottomNav";
 import { Footer } from "@/components/Footer";
@@ -96,55 +98,58 @@ const Layout = ({ children }) => {
 function App() {
   return (
     <AuthProvider>
-      <CartProvider>
-        <BrowserRouter>
-          <Toaster position="top-center" richColors />
-          <InstallAppBanner />
-          <Layout>
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/reels" element={<ReelsPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
-              <Route path="/verify-otp" element={<VerifyOtpPage />} />
-              <Route path="/complete-profile" element={<CompleteProfilePage />} />
-              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-              <Route path="/account-security" element={<AccountSecurityPage />} />
-              <Route path="/post-enquiry" element={<PostEnquiryPage />} />
-              <Route path="/leads" element={<LeadsPage />} />
-              <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/company/:id" element={<CompanyDetailPage />} />
-              <Route path="/companies" element={<CompaniesPage />} />
-              <Route path="/industrial-groups" element={<IndustrialGroupsPage />} />
-              <Route path="/industrial-groups/:id" element={<IndustrialGroupDetailPage />} />
-              <Route path="/pricing" element={<PricingPage />} />
-              <Route path="/membership" element={<MembershipPage />} />
-              <Route path="/notifications" element={<NotificationsPage />} />
-              <Route path="/news" element={<NewsPage />} />
-              <Route path="/bookmarks" element={<BookmarksPage />} />
-              <Route path="/search" element={<SearchPage />} />
-              <Route path="/products" element={<ProductsPage />} />
-              <Route path="/product/:id" element={<ProductDetailPage />} />
-              <Route path="/jobs" element={<JobsPage />} />
-              <Route path="/admin" element={<AdminPage />} />
-              <Route path="/requirements" element={<RequirementsPage />} />
-              <Route path="/my-vacancies" element={<MyVacanciesPage />} />
-              <Route path="/manage-vacancies" element={<ManageVacanciesPage />} />
-              <Route path="/chats" element={<ChatsPage />} />
-              <Route path="/chat/:id" element={<ChatWindowPage />} />
-              <Route path="/cart" element={<CartPage />} />
-              <Route path="/orders" element={<OrdersPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/contact" element={<ContactUsPage />} />
-              <Route path="/terms" element={<TermsAndConditionsPage />} />
-              <Route path="/privacy" element={<PrivacyPolicyPage />} />
-              <Route path="/refund-policy" element={<RefundPolicyPage />} />
-            </Routes>
-          </Layout>
-        </BrowserRouter>
-      </CartProvider>
+      <SupportContactProvider>
+        <CartProvider>
+          <BrowserRouter>
+            <Toaster position="top-center" richColors />
+            <InstallAppBanner />
+            <Layout>
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/reels" element={<ReelsPage />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
+                <Route path="/verify-otp" element={<VerifyOtpPage />} />
+                <Route path="/complete-profile" element={<CompleteProfilePage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/account-security" element={<AccountSecurityPage />} />
+                <Route path="/post-enquiry" element={<PostEnquiryPage />} />
+                <Route path="/leads" element={<LeadsPage />} />
+                <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/company/:id" element={<CompanyDetailPage />} />
+                <Route path="/companies" element={<CompaniesPage />} />
+                <Route path="/industrial-groups" element={<IndustrialGroupsPage />} />
+                <Route path="/industrial-groups/:id" element={<IndustrialGroupDetailPage />} />
+                <Route path="/pricing" element={<PricingPage />} />
+                <Route path="/membership" element={<MembershipPage />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
+                <Route path="/news" element={<NewsPage />} />
+                <Route path="/bookmarks" element={<BookmarksPage />} />
+                <Route path="/search" element={<SearchPage />} />
+                <Route path="/products" element={<ProductsPage />} />
+                <Route path="/product/:id" element={<ProductDetailPage />} />
+                <Route path="/jobs" element={<JobsPage />} />
+                <Route path="/admin" element={<AdminPage />} />
+                <Route path="/requirements" element={<RequirementsPage />} />
+                <Route path="/my-vacancies" element={<MyVacanciesPage />} />
+                <Route path="/manage-vacancies" element={<ManageVacanciesPage />} />
+                <Route path="/chats" element={<ChatsPage />} />
+                <Route path="/chat/:id" element={<ChatWindowPage />} />
+                <Route path="/cart" element={<CartPage />} />
+                <Route path="/orders" element={<OrdersPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/contact" element={<ContactUsPage />} />
+                <Route path="/terms" element={<TermsAndConditionsPage />} />
+                <Route path="/privacy" element={<PrivacyPolicyPage />} />
+                <Route path="/refund-policy" element={<RefundPolicyPage />} />
+              </Routes>
+            </Layout>
+          </BrowserRouter>
+        </CartProvider>
+      </SupportContactProvider>
     </AuthProvider>
   );
 }
+
 
 export default App;
