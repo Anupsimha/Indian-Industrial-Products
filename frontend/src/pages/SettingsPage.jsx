@@ -3,12 +3,13 @@ import { useNavigate, Link } from "react-router-dom";
 import {
   UserCheck, ShieldAlert, CreditCard, ChevronDown, ChevronUp,
   UserX, Trash2, Crown, Zap, AlertTriangle, ArrowRight, CheckCircle2,
-  Lock, Settings as SettingsIcon, LogOut, KeyRound, ShieldCheck, Mail
+  Lock, Settings as SettingsIcon, LogOut, KeyRound, ShieldCheck, Mail, Wallet
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { BackButton } from "../components/BackButton";
 import { toast } from "sonner";
 import { AdminSetupModal } from "../components/AdminSetupModal";
+import { SellerWalletTab } from "../components/SellerWalletTab";
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
@@ -17,6 +18,7 @@ export default function SettingsPage() {
   // Accordion states
   const [accountOpen, setAccountOpen] = useState(true);
   const [securityOpen, setSecurityOpen] = useState(true);
+  const [walletOpen, setWalletOpen] = useState(true);
   const [accountAction, setAccountAction] = useState(null); // 'deactivate' | 'delete' | null
 
   // Security Modal
@@ -162,6 +164,33 @@ export default function SettingsPage() {
 
       <div className="space-y-5">
         
+        {/* SECTION 0: Bank Account & Wallet Settlement Ledger */}
+        {user?.company_id && (
+          <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden" data-testid="section-wallet-ledger">
+            <button
+              onClick={() => setWalletOpen(!walletOpen)}
+              className="w-full px-6 py-5 flex items-center justify-between bg-white hover:bg-slate-50/80 transition-colors text-left border-b border-slate-100"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                  <Wallet size={20} />
+                </div>
+                <div>
+                  <h2 className="font-display text-lg font-bold text-slate-900">Bank Account &amp; Wallet Ledger</h2>
+                  <p className="text-xs text-slate-500">Manage encrypted bank payout details, wallet balance, and settlement policy</p>
+                </div>
+              </div>
+              {walletOpen ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
+            </button>
+
+            {walletOpen && (
+              <div className="p-6 bg-slate-50/50">
+                <SellerWalletTab />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* SECTION 1: Account Security & Password Recovery */}
         <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden" data-testid="section-account-security">
           <button

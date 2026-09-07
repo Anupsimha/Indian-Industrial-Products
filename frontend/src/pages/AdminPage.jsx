@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSupportContact } from "../context/SupportContactContext";
 import { Navigate, Link } from "react-router-dom";
 
-import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone, Settings as SettingsIcon } from "lucide-react";
+import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone, Settings as SettingsIcon, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 import { SingleImageUploader } from "../components/MediaUploader";
@@ -18,6 +18,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState([]);
   const [plans, setPlans] = useState([]);
   const [planEdit, setPlanEdit] = useState(null);
+  const [settlements, setSettlements] = useState([]);
 
   const reload = async () => {
     try {
@@ -31,6 +32,8 @@ export default function AdminPage() {
         setUsers(uRes.data); setPlans(pRes.data);
       } else if (tab === "plans") {
         const r = await api.get("/admin/plans"); setPlans(r.data);
+      } else if (tab === "settlements") {
+        const r = await api.get("/admin/settlements"); setSettlements(r.data || []);
       }
     } catch {}
   };
@@ -45,6 +48,7 @@ export default function AdminPage() {
 
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
+    { id: "settlements", label: "Payout Settlements", icon: Landmark },
     { id: "contact-enquiries", label: "Contact Inquiries", icon: Inbox },
     { id: "industrial-groups", label: "Industrial Groups", icon: Building2 },
     { id: "plans", label: "Plans", icon: Crown },
@@ -79,6 +83,7 @@ export default function AdminPage() {
       {tab === "contact-enquiries" && <ContactEnquiriesTab />}
       {tab === "industrial-groups" && <IndustrialGroupsTab />}
       {tab === "plans" && <PlansTab plans={plans} reload={reload} setPlanEdit={setPlanEdit} planEdit={planEdit} />}
+      {tab === "settlements" && <AdminSettlementsTab settlements={settlements} reload={reload} />}
       {tab === "slides" && <SlidesTab />}
       {tab === "categories" && <CategoriesTab />}
       {tab === "areas" && <AreasTab />}
@@ -1299,6 +1304,172 @@ const AdminSettingsTab = () => {
                   {purging ? "Purging..." : `Confirm & Hard Delete (${purgeModal.count})`}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+const AdminSettlementsTab = ({ settlements = [], reload }) => {
+  const [modal, setModal] = useState(null);
+  const [utr, setUtr] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const processSettlement = async (status) => {
+    if (!modal) return;
+    setSubmitting(true);
+    try {
+      await api.patch(`/admin/settlements/${modal.id}/process`, {
+        status,
+        utr_reference_number: utr.trim(),
+        rejection_reason: rejectReason.trim(),
+      });
+      toast.success(status === "SETTLED" ? "Settlement processed & marked as SETTLED!" : "Settlement request rejected.");
+      setModal(null);
+      setUtr("");
+      setRejectReason("");
+      reload();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to process settlement");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-4" data-testid="admin-settlements-tab">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-display font-bold text-lg text-slate-900">Payout Settlements Ledger</h2>
+          <p className="text-xs text-slate-500">Approve seller payout requests and record Bank UTR reference numbers.</p>
+        </div>
+        <button onClick={reload} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200">
+          Refresh List
+        </button>
+      </div>
+
+      {settlements.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 text-sm">
+          No settlement requests submitted yet.
+        </div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200">
+                <tr>
+                  <th className="p-3">Seller Company</th>
+                  <th className="p-3">Policy</th>
+                  <th className="p-3">Amount</th>
+                  <th className="p-3">Bank Account</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">UTR / Ref No</th>
+                  <th className="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {settlements.map((s) => (
+                  <tr key={s.id} className="hover:bg-slate-50">
+                    <td className="p-3 font-bold text-slate-900">{s.company_name}</td>
+                    <td className="p-3 font-semibold uppercase text-slate-600">{s.settlement_policy}</td>
+                    <td className="p-3 font-extrabold text-slate-900 text-sm">₹{s.amount.toLocaleString("en-IN")}</td>
+                    <td className="p-3 text-slate-600">
+                      {s.bank_account ? (
+                        <div>
+                          <div className="font-semibold text-slate-800">{s.bank_account.bank_name}</div>
+                          <div className="text-[11px] font-mono text-slate-500">{s.bank_account.masked_account_number}</div>
+                        </div>
+                      ) : (
+                        <span className="text-rose-500 font-semibold">Missing Bank</span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                        s.status === "SETTLED" ? "bg-emerald-100 text-emerald-800" :
+                        s.status === "REJECTED" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800 animate-pulse"
+                      }`}>
+                        {s.status}
+                      </span>
+                    </td>
+                    <td className="p-3 font-mono text-slate-700">{s.utr_reference_number || "—"}</td>
+                    <td className="p-3 text-right">
+                      {s.status === "PENDING" ? (
+                        <button
+                          onClick={() => { setModal(s); setUtr(""); setRejectReason(""); }}
+                          className="px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-bold text-xs shadow-xs"
+                        >
+                          Process Payout
+                        </button>
+                      ) : (
+                        <span className="text-slate-400 font-medium">Completed</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Process Payout Modal */}
+      {modal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                <Landmark size={20} className="text-orange-600" /> Process Bank Settlement
+              </h3>
+              <button onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+            </div>
+
+            <div className="bg-orange-50 border border-orange-200/80 rounded-xl p-3 text-xs space-y-1">
+              <div className="font-bold text-slate-900">Payout Amount: ₹{modal.amount.toLocaleString("en-IN")}</div>
+              <div className="text-slate-600">Company: <span className="font-semibold">{modal.company_name}</span></div>
+            </div>
+
+            {/* Decrypted Bank Transfer Details */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-xs">
+              <div className="font-bold text-slate-900 uppercase tracking-wider text-[11px] text-slate-500 mb-1">
+                Decrypted Transfer Beneficiary (Bank Details)
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><span className="text-slate-500">Bank Name:</span> <strong className="block text-slate-900">{modal.bank_account?.bank_name || "N/A"}</strong></div>
+                <div><span className="text-slate-500">Holder Name:</span> <strong className="block text-slate-900">{modal.bank_account?.account_holder_name || "N/A"}</strong></div>
+                <div><span className="text-slate-500">Account Number:</span> <strong className="block text-slate-900 font-mono">{modal.decrypted_account_number || modal.bank_account?.masked_account_number}</strong></div>
+                <div><span className="text-slate-500">IFSC Code:</span> <strong className="block text-slate-900 font-mono">{modal.decrypted_ifsc_code || "N/A"}</strong></div>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">Bank UTR / Transaction Reference Number *</label>
+              <input
+                value={utr}
+                onChange={(e) => setUtr(e.target.value)}
+                placeholder="e.g. UTR123456789098"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-orange-300 outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                disabled={submitting}
+                onClick={() => processSettlement("REJECTED")}
+                className="px-4 py-2 rounded-lg bg-rose-50 text-rose-700 font-bold text-xs hover:bg-rose-100"
+              >
+                Reject Payout
+              </button>
+              <button
+                disabled={submitting || !utr.trim()}
+                onClick={() => processSettlement("SETTLED")}
+                className="px-5 py-2 rounded-lg bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 disabled:opacity-50 shadow-xs"
+              >
+                {submitting ? "Confirming..." : "Confirm & Mark SETTLED"}
+              </button>
             </div>
           </div>
         </div>
