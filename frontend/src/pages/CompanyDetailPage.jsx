@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import api from "../lib/api";
-import { whatsappLink } from "../lib/api";
+import api, { whatsappLink, supportPhoneLink, supportEmailLink } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { useSupportContact } from "../context/SupportContactContext";
 import { optimizedUrl } from "../lib/cloudinary";
 import {
   MapPin, Globe, Phone, Mail, Verified, UserPlus, UserCheck, Tag,
@@ -21,6 +21,7 @@ import { toast } from "sonner";
 export default function CompanyDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { supportContact } = useSupportContact();
   const [c, setC] = useState(null);
   const [posts, setPosts] = useState([]);
   const [products, setProducts] = useState([]);
@@ -165,7 +166,7 @@ export default function CompanyDetailPage() {
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19.05 4.91A9.82 9.82 0 0 0 12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 0 0 4.74 1.21h.01c5.46 0 9.91-4.45 9.91-9.91a9.84 9.84 0 0 0-2.91-7z"/></svg>
             WhatsApp
           </a>
-          <a href={`tel:${c.mobile}`} onClick={handleContactClick} className={`px-4 py-2 rounded-full bg-blue-50 text-blue-800 text-sm font-semibold inline-flex items-center gap-2 hover:bg-blue-100 transition-colors ${!canContact ? 'blur-[1.5px] opacity-70' : ''}`}
+          <a href={supportPhoneLink()} onClick={handleContactClick} className={`px-4 py-2 rounded-full bg-blue-50 text-blue-800 text-sm font-semibold inline-flex items-center gap-2 hover:bg-blue-100 transition-colors ${!canContact ? 'blur-[1.5px] opacity-70' : ''}`}
             data-testid="company-call-btn">
             <Phone size={14} /> Call
           </a>
@@ -326,11 +327,11 @@ export default function CompanyDetailPage() {
               )}
             </Card>
             <Card title="Contact" icon={Briefcase}>
-              <KV k="Phone" v={c.mobile} icon={Phone} link={`tel:${c.mobile}`} />
-              <KV k="WhatsApp" v={c.whatsapp} link={whatsappLink(c.whatsapp)} />
-              <KV k="Email" v={c.email} icon={Mail} link={`mailto:${c.email}`} />
+              <KV k="Phone" v={supportContact.support_phone || c.mobile} icon={Phone} link={supportPhoneLink()} />
+              <KV k="WhatsApp" v={supportContact.support_whatsapp || c.whatsapp} link={whatsappLink(c.whatsapp)} />
+              <KV k="Email" v={supportContact.support_email || c.email} icon={Mail} link={supportEmailLink(`Inquiry regarding ${c.name}`)} />
               <KV k="Website" v={c.website} icon={Globe} link={c.website} />
-              <KV k="Address" v={c.address} icon={MapPin} />
+              <KV k="Address" v={supportContact.support_address || c.address} icon={MapPin} />
             </Card>
             {c.address && (
               <a

@@ -96,10 +96,10 @@ class SupportContactManager:
         seeded_any = False
 
         seed_mapping = {
-            self.SETTING_KEYS["phone"]: env_vals.get("REACT_APP_SUPPORT_PHONE") or os.getenv("REACT_APP_SUPPORT_PHONE") or self.DEFAULT_DEFAULTS["support_phone"],
-            self.SETTING_KEYS["whatsapp"]: env_vals.get("REACT_APP_SUPPORT_WHATSAPP") or os.getenv("REACT_APP_SUPPORT_WHATSAPP") or self.DEFAULT_DEFAULTS["support_whatsapp"],
-            self.SETTING_KEYS["email"]: env_vals.get("REACT_APP_SUPPORT_EMAIL") or os.getenv("REACT_APP_SUPPORT_EMAIL") or self.DEFAULT_DEFAULTS["support_email"],
-            self.SETTING_KEYS["address"]: env_vals.get("REACT_APP_SUPPORT_ADDRESS") or os.getenv("REACT_APP_SUPPORT_ADDRESS") or self.DEFAULT_DEFAULTS["support_address"],
+            self.SETTING_KEYS["phone"]: self.DEFAULT_DEFAULTS["support_phone"],
+            self.SETTING_KEYS["whatsapp"]: self.DEFAULT_DEFAULTS["support_whatsapp"],
+            self.SETTING_KEYS["email"]: self.DEFAULT_DEFAULTS["support_email"],
+            self.SETTING_KEYS["address"]: self.DEFAULT_DEFAULTS["support_address"],
         }
 
         for key, initial_val in seed_mapping.items():

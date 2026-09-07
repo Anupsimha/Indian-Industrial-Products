@@ -27,11 +27,25 @@ export function formatApiError(detail) {
   return String(detail);
 }
 
-export function whatsappLink(number, message = "") {
-  const targetNumber = number || process.env.REACT_APP_SUPPORT_WHATSAPP || process.env.REACT_APP_SUPPORT_PHONE || "";
+export function whatsappLink(_number, message = "") {
+  const supportObj = (typeof window !== "undefined" && window.__IIP_SUPPORT_CONTACT) || {};
+  const targetNumber = supportObj.support_whatsapp || supportObj.support_phone || "9380036328";
   const clean = String(targetNumber).replace(/\D/g, "");
   if (!clean) return "#";
   const text = message ? `?text=${encodeURIComponent(message)}` : "";
   return `https://wa.me/${clean}${text}`;
+}
+
+export function supportPhoneLink() {
+  const supportObj = (typeof window !== "undefined" && window.__IIP_SUPPORT_CONTACT) || {};
+  const targetNumber = supportObj.support_phone || "+91 9380036328";
+  const clean = String(targetNumber).replace(/[^\d+]/g, "");
+  return `tel:${clean}`;
+}
+
+export function supportEmailLink(subject = "") {
+  const supportObj = (typeof window !== "undefined" && window.__IIP_SUPPORT_CONTACT) || {};
+  const email = supportObj.support_email || "support@indianindustrialplatform.com";
+  return `mailto:${email}${subject ? `?subject=${encodeURIComponent(subject)}` : ""}`;
 }
 
