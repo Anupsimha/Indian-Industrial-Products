@@ -29,6 +29,7 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import parseaddr
 
 logger = logging.getLogger("iip.email")
 
@@ -87,17 +88,20 @@ def _send_email_sync(
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     password = cfg["password"].replace(" ", "")
+    _, sender_email = parseaddr(cfg["from_addr"])
+    sender_email = sender_email or cfg["user"]
+
     if int(cfg["port"]) == 465:
         with smtplib.SMTP_SSL(cfg["host"], int(cfg["port"])) as server:
             server.login(cfg["user"], password)
-            server.sendmail(cfg["from_addr"], recipients, msg.as_string())
+            server.sendmail(sender_email, recipients, msg.as_string())
     else:
         with smtplib.SMTP(cfg["host"], int(cfg["port"])) as server:
             server.ehlo()
             server.starttls()
             server.ehlo()
             server.login(cfg["user"], password)
-            server.sendmail(cfg["from_addr"], recipients, msg.as_string())
+            server.sendmail(sender_email, recipients, msg.as_string())
 
     logger.info("Email sent to %s — subject: %s", recipients, subject)
 

@@ -1539,6 +1539,7 @@ async def forgot_request_primary(payload: ForgotPrimaryIn, db: AsyncSession = De
         await send_email(user.email, "Password Reset Code - IIP", html_body)
     except Exception as e:
         logger.error(f"Failed sending password reset OTP to primary email {user.email}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send reset code email. Please verify SMTP server settings.")
 
     return {"ok": True, "message": f"Password reset OTP sent to primary email ({user.email[:3]}***@{user.email.split('@')[-1]})", "email": user.email}
 
@@ -1563,6 +1564,7 @@ async def forgot_request_secondary(payload: ForgotSecondaryIn, db: AsyncSession 
         await send_email(user.secondary_email, "Password Reset Code (Secondary Email) - IIP", html_body)
     except Exception as e:
         logger.error(f"Failed sending reset OTP to secondary email {user.secondary_email}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send reset code email to secondary address. Please verify SMTP server settings.")
 
     sec_masked = f"{user.secondary_email[:3]}***@{user.secondary_email.split('@')[-1]}"
     return {"ok": True, "message": f"Reset code sent to secondary email ({sec_masked})", "email": user.email}
