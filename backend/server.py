@@ -4329,7 +4329,7 @@ async def _get_plan_monthly_limit(plan_name: str, db: AsyncSession) -> int:
     if not plan_name or plan_name.lower() in ("free", ""):
         return 0
     stmt = select(Plan).where(Plan.name.ilike(plan_name))
-    plan_row = (await db.execute(stmt)).scalar_one_or_none()
+    plan_row = (await db.execute(stmt)).scalars().first()
     if plan_row and plan_row.unlocks_per_month is not None:
         return plan_row.unlocks_per_month
     # Fallback hardcoded map
@@ -4363,7 +4363,9 @@ async def unlock_stats(
     """Return current-month unlock quota usage for the logged-in user."""
     plan_name = user.get("plan_name") or "Free"
     stmt_user = select(User).where(User.id == user["id"])
-    u = (await db.execute(stmt_user)).scalar_one()
+    u = (await db.execute(stmt_user)).scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
 
     used_this_month = _get_monthly_used(u)
     limit = await _get_plan_monthly_limit(plan_name, db)
@@ -4395,7 +4397,7 @@ async def request_unlock(
     - Otherwise generates OTP, stores it, sends email, returns a token.
     """
     stmt_enq = select(Enquiry).where(Enquiry.id == enq_id)
-    enq = (await db.execute(stmt_enq)).scalar_one_or_none()
+    enq = (await db.execute(stmt_enq)).scalars().first()
     if not enq:
         raise HTTPException(status_code=404, detail="Not found")
 
@@ -4422,7 +4424,9 @@ async def request_unlock(
             pass
 
     stmt_user = select(User).where(User.id == user["id"])
-    u = (await db.execute(stmt_user)).scalar_one()
+    u = (await db.execute(stmt_user)).scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
 
     current_unlocked = list(u.unlocked_enquiries or [])
 
@@ -4521,13 +4525,15 @@ async def confirm_unlock(
 
     # Fetch enquiry
     stmt_enq = select(Enquiry).where(Enquiry.id == enq_id)
-    enq = (await db.execute(stmt_enq)).scalar_one_or_none()
+    enq = (await db.execute(stmt_enq)).scalars().first()
     if not enq:
         raise HTTPException(status_code=404, detail="Not found")
 
     # Record unlock
     stmt_user = select(User).where(User.id == user["id"])
-    u = (await db.execute(stmt_user)).scalar_one()
+    u = (await db.execute(stmt_user)).scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
 
     current_unlocked = list(u.unlocked_enquiries or [])
     if enq_id not in current_unlocked:
@@ -4560,7 +4566,7 @@ async def confirm_unlock(
             creator = None
             if creator_id:
                 stmt_creator = select(User).where(User.id == creator_id)
-                creator = (await db.execute(stmt_creator)).scalar_one_or_none()
+                creator = (await db.execute(stmt_creator)).scalars().first()
 
             if not creator and enq.mobile:
                 clean_mob = enq.mobile.strip()
@@ -4572,10 +4578,10 @@ async def confirm_unlock(
 
             if not creator and enq.company_id:
                 stmt_comp = select(Company).where(Company.id == enq.company_id)
-                comp_obj = (await db.execute(stmt_comp)).scalar_one_or_none()
+                comp_obj = (await db.execute(stmt_comp)).scalars().first()
                 if comp_obj and comp_obj.owner_id:
                     stmt_creator = select(User).where(User.id == comp_obj.owner_id)
-                    creator = (await db.execute(stmt_creator)).scalar_one_or_none()
+                    creator = (await db.execute(stmt_creator)).scalars().first()
                     if creator:
                         enq.user_id = creator.id
                         await db.execute(update(Enquiry).where(Enquiry.id == enq.id).values(user_id=creator.id))
@@ -4609,7 +4615,7 @@ async def confirm_unlock(
 @api.post("/requirements/{enq_id}/unlock")
 async def unlock_requirement(enq_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     stmt_enq = select(Enquiry).where(Enquiry.id == enq_id)
-    enq = (await db.execute(stmt_enq)).scalar_one_or_none()
+    enq = (await db.execute(stmt_enq)).scalars().first()
     if not enq:
         raise HTTPException(status_code=404, detail="Not found")
 
@@ -4632,7 +4638,9 @@ async def unlock_requirement(enq_id: str, user: dict = Depends(get_current_user)
             pass
 
     stmt_user = select(User).where(User.id == user["id"])
-    u = (await db.execute(stmt_user)).scalar_one()
+    u = (await db.execute(stmt_user)).scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
 
     current_unlocked = list(u.unlocked_enquiries or [])
     if enq_id not in current_unlocked:
