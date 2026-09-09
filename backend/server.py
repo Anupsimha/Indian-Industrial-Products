@@ -238,6 +238,7 @@ class Job(Base):
 class Enquiry(Base):
     __tablename__ = "enquiries"
     id = Column(String(36), primary_key=True)
+    user_id = Column(String(36), nullable=True)
     group_id = Column(String(36), nullable=True)
     name = Column(String(255), nullable=False)
     mobile = Column(String(50), nullable=False)
@@ -757,6 +758,7 @@ class EnquiryCreate(BaseModel):
 
 class EnquiryOut(BaseModel):
     id: str
+    user_id: Optional[str] = None
     name: str
     mobile: str
     requirement: str
@@ -772,6 +774,29 @@ class EnquiryOut(BaseModel):
     status: Literal["new", "in_progress", "closed", "completed", "pending"]
     media_urls: Optional[List[str]] = None
     created_at: str
+
+
+def hydrate_enquiry_out(d: Enquiry) -> EnquiryOut:
+    status_val = d.status if d.status in ["new", "in_progress", "closed", "completed", "pending"] else "new"
+    return EnquiryOut(
+        id=d.id,
+        user_id=getattr(d, "user_id", None),
+        name=d.name,
+        mobile=d.mobile,
+        requirement=d.requirement,
+        category=d.category,
+        location=d.location,
+        product_name=d.product_name,
+        quantity=d.quantity,
+        state=d.state,
+        city=d.city,
+        industrial_area=d.industrial_area,
+        company_id=d.company_id,
+        post_id=d.post_id,
+        status=status_val,
+        media_urls=getattr(d, "media_urls", None),
+        created_at=d.created_at,
+    )
 
 
 class ContactEnquiryCreate(BaseModel):
@@ -3533,9 +3558,14 @@ async def create_enquiry(
         if post:
             company_id = post.company_id
 
+    creator_user_id = data.get("user_id") if "application/json" in content_type else form.get("user_id")
+    if not creator_user_id and mobile:
+        stmt_u = select(User.id).where(User.mobile == mobile)
+        creator_user_id = (await db.execute(stmt_u)).scalar_one_or_none()
+
     eid = str(uuid.uuid4())
     doc = Enquiry(
-        id=eid, name=name, mobile=mobile,
+        id=eid, user_id=creator_user_id, name=name, mobile=mobile,
         requirement=requirement, category=category,
         location=location, company_id=company_id,
         post_id=post_id, status="new", created_at=now_iso(),
@@ -3566,17 +3596,7 @@ async def create_enquiry(
 
     stmt_reload = select(Enquiry).where(Enquiry.id == eid)
     doc_loaded = (await db.execute(stmt_reload)).scalar_one()
-    return EnquiryOut(
-        id=doc_loaded.id, name=doc_loaded.name, mobile=doc_loaded.mobile,
-        requirement=doc_loaded.requirement, category=doc_loaded.category,
-        location=doc_loaded.location, company_id=doc_loaded.company_id,
-        post_id=doc_loaded.post_id, status=doc_loaded.status,
-        created_at=doc_loaded.created_at,
-        product_name=doc_loaded.product_name, quantity=doc_loaded.quantity,
-        state=doc_loaded.state, city=doc_loaded.city,
-        industrial_area=doc_loaded.industrial_area,
-        media_urls=doc_loaded.media_urls,
-    )
+    return hydrate_enquiry_out(doc_loaded)
 
 
 @api.get("/enquiries", response_model=List[EnquiryOut])
@@ -3597,14 +3617,7 @@ async def list_enquiries(
     stmt = stmt.order_by(desc(Enquiry.created_at))
     docs = (await db.execute(stmt)).scalars().all()
     
-    return [EnquiryOut(
-        id=d.id, name=d.name, mobile=d.mobile, requirement=d.requirement,
-        category=d.category, location=d.location, product_name=d.product_name,
-        quantity=d.quantity, state=d.state, city=d.city,
-        industrial_area=d.industrial_area, company_id=d.company_id,
-        post_id=d.post_id, status=d.status, created_at=d.created_at,
-        media_urls=d.media_urls,
-    ) for d in docs]
+    return [hydrate_enquiry_out(d) for d in docs]
 
 
 @api.patch("/enquiries/{enquiry_id}/status")
@@ -3622,6 +3635,7 @@ async def update_enquiry_status(
     is_allowed = (
         user.get("role") == "admin" or
         (enq.company_id and enq.company_id == user.get("company_id")) or
+        (getattr(enq, "user_id", None) and enq.user_id == user.get("id")) or
         (enq.mobile == user.get("mobile"))
     )
     if not is_allowed:
@@ -3637,15 +3651,11 @@ async def list_my_requirements(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(Enquiry).where(Enquiry.mobile == user["mobile"]).order_by(desc(Enquiry.created_at))
+    stmt = select(Enquiry).where(
+        or_(Enquiry.user_id == user["id"], Enquiry.mobile == user["mobile"])
+    ).order_by(desc(Enquiry.created_at))
     docs = (await db.execute(stmt)).scalars().all()
-    return [EnquiryOut(
-        id=d.id, name=d.name, mobile=d.mobile, requirement=d.requirement,
-        category=d.category, location=d.location, product_name=d.product_name,
-        quantity=d.quantity, state=d.state, city=d.city,
-        industrial_area=d.industrial_area, company_id=d.company_id,
-        post_id=d.post_id, status=d.status, created_at=d.created_at
-    ) for d in docs]
+    return [hydrate_enquiry_out(d) for d in docs]
 
 
 @api.delete("/enquiries/{enquiry_id}")

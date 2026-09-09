@@ -17,6 +17,21 @@ def test_unlock_otp_store_structure():
     assert _unlock_otp_store[token]["otp"] == "123456"
     del _unlock_otp_store[token]
 
+def test_enquiry_model_has_user_id_column():
+    fake_enq = Enquiry(
+        id="enq_test_123",
+        user_id="user_buyer_999",
+        name="Test Buyer",
+        mobile="9876543210",
+        requirement="500 HP Motor",
+        category="Machinery",
+        location="Pune",
+        status="new",
+        created_at="2026-09-09T00:00:00Z"
+    )
+    assert hasattr(fake_enq, "user_id")
+    assert fake_enq.user_id == "user_buyer_999"
+
 def test_confirm_unlock_handles_enquiry_without_user_id():
     fake_enq = Enquiry(
         id="enq_test_123",
@@ -28,7 +43,6 @@ def test_confirm_unlock_handles_enquiry_without_user_id():
         status="new",
         created_at="2026-09-09T00:00:00Z"
     )
-    # Ensure fake_enq has no user_id attribute or user_id is None safely
     creator_id = getattr(fake_enq, "user_id", None)
     assert creator_id is None
 
