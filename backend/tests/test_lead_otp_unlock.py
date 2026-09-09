@@ -67,3 +67,10 @@ def test_confirm_unlock_handles_enquiry_without_user_id():
 
     assert _unlock_otp_store[token]["enq_id"] == fake_enq.id
     del _unlock_otp_store[token]
+
+def test_auto_migration_includes_enquiries_user_id():
+    import server
+    import inspect
+    source = inspect.getsource(server)
+    assert "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS user_id VARCHAR(255)" in source
+
