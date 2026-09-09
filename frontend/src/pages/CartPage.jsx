@@ -59,7 +59,7 @@ export default function CartPage() {
         setShiprocketOptions(res.data.options);
         setSelectedDelivery(res.data.options[0].id);
         setRateError(null);
-        toast.success(`Fetched live Shiprocket rates (From ${res.data.pickup_pincode || "Vendor"} to ${targetPincode})`);
+        toast.success(`Fetched live iThink Logistics rates (From ${res.data.pickup_pincode || "Vendor"} to ${targetPincode})`);
       } else {
         setShiprocketOptions([]);
         const msg = res.data?.detail || res.data?.error || "No serviceable couriers found for this pincode.";
@@ -170,7 +170,7 @@ export default function CartPage() {
     const cleanDigits = raw.replace(/\D/g, "").replace(/^91/, "");
     const clean10 = cleanDigits.length > 10 ? cleanDigits.slice(-10) : cleanDigits;
     if (!clean10 || clean10.length !== 10 || !/^[6-9]\d{9}$/.test(clean10)) {
-      toast.error(`Invalid mobile number '${raw || "missing"}' in your profile. Shiprocket requires a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.`);
+      toast.error(`Invalid mobile number '${raw || "missing"}' in your profile. Logistics API requires a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.`);
       return false;
     }
     return true;
@@ -209,9 +209,9 @@ export default function CartPage() {
           orderId = `IIP${data.id.slice(0, 8).toUpperCase()}`;
           setConfirmedOrder(data);
           if (data.shiprocket_warning) {
-            toast.warning(`Order created, but Shiprocket notice: ${data.shiprocket_warning}`, { duration: 7000 });
+            toast.warning(`Order created: ${data.shiprocket_warning}`, { duration: 7000 });
           } else {
-            toast.success("Order created & synced with Shiprocket!");
+            toast.success("Order created & synced with iThink Logistics!");
           }
         } catch (err) {
           toast.error(err.response?.data?.detail || "Failed to place order.");
@@ -457,12 +457,12 @@ export default function CartPage() {
             <h1 className="font-display text-xl font-black text-slate-900">Delivery & Logistics</h1>
           </div>
 
-          {/* Shiprocket Pincode Serviceability Lookup */}
+          {/* iThink Logistics Pincode Serviceability Lookup */}
           <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-900 rounded-2xl text-white space-y-3 shadow-md">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 font-bold text-sm">
                 <Truck size={18} className="text-purple-300" />
-                <span>Shiprocket Express Delivery</span>
+                <span>iThink Logistics Express Delivery</span>
               </div>
               <span className="text-[10px] bg-purple-500/30 text-purple-200 px-2 py-0.5 rounded-full font-bold">Pan-India</span>
             </div>
@@ -503,8 +503,8 @@ export default function CartPage() {
             {loadingRates ? (
               <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-2">
                 <Loader2 size={24} className="mx-auto text-purple-700 animate-spin" />
-                <div className="text-xs font-bold text-slate-700">Fetching Live Shiprocket Courier Rates...</div>
-                <p className="text-[11px] text-slate-500">Connecting to Shiprocket API for Pincode {pincode}...</p>
+                <div className="text-xs font-bold text-slate-700">Fetching Live iThink Courier Rates...</div>
+                <p className="text-[11px] text-slate-500">Connecting to iThink Logistics API for Pincode {pincode}...</p>
               </div>
             ) : rateError ? (
               <div className="p-5 bg-rose-50 border border-rose-200 rounded-2xl space-y-3">
@@ -513,7 +513,7 @@ export default function CartPage() {
                     <AlertTriangle size={18} />
                   </div>
                   <div>
-                    <div className="text-xs font-extrabold text-rose-900">Shiprocket Serviceability Failed</div>
+                    <div className="text-xs font-extrabold text-rose-900">iThink Serviceability Failed</div>
                     <p className="text-[11px] text-rose-700 mt-0.5 leading-relaxed">{rateError}</p>
                   </div>
                 </div>
@@ -558,7 +558,7 @@ export default function CartPage() {
               <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-2">
                 <Truck size={24} className="mx-auto text-slate-400" />
                 <div className="text-xs font-bold text-slate-700">Enter Destination Pincode</div>
-                <p className="text-[11px] text-slate-500">Please enter your 6-digit Pincode above and click "Check Rates" to load real-time Shiprocket courier options.</p>
+                <p className="text-[11px] text-slate-500">Please enter your 6-digit Pincode above and click "Check Rates" to load real-time courier options.</p>
               </div>
             )}
 
@@ -573,7 +573,7 @@ export default function CartPage() {
           </button>
           {shiprocketOptions.length === 0 && (
             <p className="text-[11px] text-center text-amber-700 font-semibold mt-1">
-              * Valid Shiprocket shipping rate selection required before checkout.
+              * Valid shipping rate selection required before checkout.
             </p>
           )}
         </div>
