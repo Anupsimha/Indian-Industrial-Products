@@ -255,6 +255,8 @@ class Enquiry(Base):
     location = Column(String(255), nullable=False)
     product_name = Column(String(255), nullable=True)
     quantity = Column(String(255), nullable=True)
+    budget = Column(String(255), nullable=True)
+    required_by = Column(String(255), nullable=True)
     state = Column(String(255), nullable=True)
     city = Column(String(255), nullable=True)
     industrial_area = Column(String(255), nullable=True)
@@ -764,6 +766,8 @@ class EnquiryCreate(BaseModel):
     location: str
     product_name: Optional[str] = None
     quantity: Optional[str] = None
+    budget: Optional[str] = None
+    required_by: Optional[str] = None
     state: Optional[str] = None
     city: Optional[str] = None
     industrial_area: Optional[str] = None
@@ -781,6 +785,8 @@ class EnquiryOut(BaseModel):
     location: str
     product_name: Optional[str] = None
     quantity: Optional[str] = None
+    budget: Optional[str] = None
+    required_by: Optional[str] = None
     state: Optional[str] = None
     city: Optional[str] = None
     industrial_area: Optional[str] = None
@@ -803,6 +809,8 @@ def hydrate_enquiry_out(d: Enquiry) -> EnquiryOut:
         location=d.location,
         product_name=d.product_name,
         quantity=d.quantity,
+        budget=getattr(d, "budget", None),
+        required_by=getattr(d, "required_by", None),
         state=d.state,
         city=d.city,
         industrial_area=d.industrial_area,
@@ -3502,7 +3510,7 @@ async def create_enquiry(
     content_type = request.headers.get("content-type", "").lower()
     
     name, mobile, requirement, category, location = "", "", "", "", ""
-    product_name, quantity, state, city, industrial_area = None, None, None, None, None
+    product_name, quantity, budget, required_by, state, city, industrial_area = None, None, None, None, None, None, None
     company_id, post_id = None, None
     saved_media_urls: List[str] = []
 
@@ -3518,6 +3526,8 @@ async def create_enquiry(
         location = data.get("location", "")
         product_name = data.get("product_name")
         quantity = data.get("quantity")
+        budget = data.get("budget")
+        required_by = data.get("required_by")
         state = data.get("state")
         city = data.get("city")
         industrial_area = data.get("industrial_area")
@@ -3532,6 +3542,8 @@ async def create_enquiry(
         location = form.get("location", "")
         product_name = form.get("product_name")
         quantity = form.get("quantity")
+        budget = form.get("budget")
+        required_by = form.get("required_by")
         state = form.get("state")
         city = form.get("city")
         industrial_area = form.get("industrial_area")
@@ -3593,6 +3605,7 @@ async def create_enquiry(
         location=location, company_id=company_id,
         post_id=post_id, status="new", created_at=now_iso(),
         product_name=product_name, quantity=quantity,
+        budget=budget, required_by=required_by,
         state=state, city=city,
         industrial_area=industrial_area,
         media_urls=saved_media_urls if saved_media_urls else None,
@@ -6918,6 +6931,8 @@ async def startup():
         "ALTER TABLE reels ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS user_id VARCHAR(255)",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS budget VARCHAR(255)",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS required_by VARCHAR(255)",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb",
         "UPDATE enquiries SET user_id = users.id FROM users WHERE enquiries.user_id IS NULL AND (users.mobile = enquiries.mobile OR users.mobile = '+91' || enquiries.mobile OR enquiries.mobile = REPLACE(users.mobile, '+91', ''))",
         "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
