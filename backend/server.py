@@ -4539,10 +4539,25 @@ async def confirm_unlock(
         )
 
         # Notify Lead Creator (In-App + Email)
-        if enq.user_id:
-            stmt_creator = select(User).where(User.id == enq.user_id)
-            creator = (await db.execute(stmt_creator)).scalar_one_or_none()
-            if creator:
+        try:
+            creator_id = getattr(enq, "user_id", None)
+            creator = None
+            if creator_id:
+                stmt_creator = select(User).where(User.id == creator_id)
+                creator = (await db.execute(stmt_creator)).scalar_one_or_none()
+
+            if not creator and enq.mobile:
+                stmt_creator = select(User).where(User.mobile == enq.mobile)
+                creator = (await db.execute(stmt_creator)).scalar_one_or_none()
+
+            if not creator and enq.company_id:
+                stmt_comp = select(Company).where(Company.id == enq.company_id)
+                comp_obj = (await db.execute(stmt_comp)).scalar_one_or_none()
+                if comp_obj and comp_obj.owner_id:
+                    stmt_creator = select(User).where(User.id == comp_obj.owner_id)
+                    creator = (await db.execute(stmt_creator)).scalar_one_or_none()
+
+            if creator and creator.id != user["id"]:
                 await notify_user(
                     db=db,
                     user_id=creator.id,
@@ -4555,6 +4570,8 @@ async def confirm_unlock(
                     email_to=creator.email,
                     email_subject=f"A Verified Supplier Contacted Your IIP Requirement ({enq.category})",
                 )
+        except Exception as exc:
+            logger.error("Failed to send lead creator notification for enq %s: %s", enq_id, exc)
 
         await db.commit()
 
