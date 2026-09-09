@@ -3558,10 +3558,16 @@ async def create_enquiry(
         if post:
             company_id = post.company_id
 
-    creator_user_id = data.get("user_id") if "application/json" in content_type else form.get("user_id")
+    opt_user = await get_optional_user(request)
+    creator_user_id = opt_user.get("id") if opt_user else None
+
+    if not creator_user_id:
+        creator_user_id = data.get("user_id") if "application/json" in content_type else form.get("user_id")
+
     if not creator_user_id and mobile:
-        stmt_u = select(User.id).where(User.mobile == mobile)
-        creator_user_id = (await db.execute(stmt_u)).scalar_one_or_none()
+        clean_mob = mobile.strip()
+        stmt_u = select(User.id).where(or_(User.mobile == clean_mob, User.mobile == f"+91{clean_mob}", User.mobile == clean_mob.replace("+91", "")))
+        creator_user_id = (await db.execute(stmt_u)).scalars().first()
 
     eid = str(uuid.uuid4())
     doc = Enquiry(
@@ -4548,7 +4554,7 @@ async def confirm_unlock(
             link_url="/requirements",
         )
 
-        # Notify Lead Creator (In-App + Email)
+        # Notify Lead Creator (In-App + Email) and backfill user_id on existing record if missing
         try:
             creator_id = getattr(enq, "user_id", None)
             creator = None
@@ -4557,8 +4563,12 @@ async def confirm_unlock(
                 creator = (await db.execute(stmt_creator)).scalar_one_or_none()
 
             if not creator and enq.mobile:
-                stmt_creator = select(User).where(User.mobile == enq.mobile)
-                creator = (await db.execute(stmt_creator)).scalar_one_or_none()
+                clean_mob = enq.mobile.strip()
+                stmt_creator = select(User).where(or_(User.mobile == clean_mob, User.mobile == f"+91{clean_mob}", User.mobile == clean_mob.replace("+91", "")))
+                creator = (await db.execute(stmt_creator)).scalars().first()
+                if creator:
+                    enq.user_id = creator.id
+                    await db.execute(update(Enquiry).where(Enquiry.id == enq.id).values(user_id=creator.id))
 
             if not creator and enq.company_id:
                 stmt_comp = select(Company).where(Company.id == enq.company_id)
@@ -4566,6 +4576,9 @@ async def confirm_unlock(
                 if comp_obj and comp_obj.owner_id:
                     stmt_creator = select(User).where(User.id == comp_obj.owner_id)
                     creator = (await db.execute(stmt_creator)).scalar_one_or_none()
+                    if creator:
+                        enq.user_id = creator.id
+                        await db.execute(update(Enquiry).where(Enquiry.id == enq.id).values(user_id=creator.id))
 
             if creator and creator.id != user["id"]:
                 await notify_user(
