@@ -74,3 +74,24 @@ def test_auto_migration_includes_enquiries_user_id():
     source = inspect.getsource(server)
     assert "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS user_id VARCHAR(255)" in source
 
+@pytest.mark.anyio
+async def test_get_plan_monthly_limit_handles_multiple_matching_plans():
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from server import Base, Plan, _get_plan_monthly_limit
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    async with Session() as session:
+        plan1 = Plan(id="p1", name="Basic", unlocks_per_month=30, color="#000000", is_active=True, created_at="2026-09-09T00:00:00Z")
+        plan2 = Plan(id="p2", name="BASIC", unlocks_per_month=30, color="#000000", is_active=True, created_at="2026-09-09T00:00:00Z")
+        session.add(plan1)
+        session.add(plan2)
+        await session.commit()
+
+        limit = await _get_plan_monthly_limit("Basic", session)
+        assert limit == 30
+
+
+
+
