@@ -25,8 +25,7 @@ export default function CartPage() {
   const navigate = useNavigate();
 
 
-  const [step, setStep] = useState("cart");
-  const [selectedDelivery, setSelectedDelivery] = useState("shiprocket_express");
+  const [selectedDelivery, setSelectedDelivery] = useState("ithink_express");
   const [selectedPayment, setSelectedPayment] = useState("razorpay");
   const [upiId, setUpiId] = useState("");
   const [confirmedOrder, setConfirmedOrder] = useState(null);
@@ -34,12 +33,12 @@ export default function CartPage() {
   const [rzpLoaded, setRzpLoaded] = useState(false);
 
   const [pincode, setPincode] = useState(user?.pincode || "");
-  const [shiprocketOptions, setShiprocketOptions] = useState([]);
+  const [shippingOptions, setShippingOptions] = useState([]);
   const [loadingRates, setLoadingRates] = useState(false);
   const [rateError, setRateError] = useState(null);
   const [detectingLocation, setDetectingLocation] = useState(false);
 
-  const fetchShiprocketRates = useCallback(async (targetPincode) => {
+  const fetchShippingRates = useCallback(async (targetPincode) => {
     if (!targetPincode || targetPincode.length < 6) {
       toast.error("Please enter a valid 6-digit Pincode");
       return;
@@ -56,19 +55,19 @@ export default function CartPage() {
         company_id: companyId || undefined
       });
       if (res.data?.ok && res.data?.options?.length > 0) {
-        setShiprocketOptions(res.data.options);
+        setShippingOptions(res.data.options);
         setSelectedDelivery(res.data.options[0].id);
         setRateError(null);
         toast.success(`Fetched live iThink Logistics rates (From ${res.data.pickup_pincode || "Vendor"} to ${targetPincode})`);
       } else {
-        setShiprocketOptions([]);
+        setShippingOptions([]);
         const msg = res.data?.detail || res.data?.error || "No serviceable couriers found for this pincode.";
         setRateError(msg);
         toast.error(msg);
       }
     } catch (e) {
-      setShiprocketOptions([]);
-      const msg = e.response?.data?.detail || e.response?.data?.error || e.message || "Failed to calculate live rates from Shiprocket.";
+      setShippingOptions([]);
+      const msg = e.response?.data?.detail || e.response?.data?.error || e.message || "Failed to calculate live rates.";
       setRateError(msg);
       toast.error(msg);
     } finally {
@@ -79,7 +78,7 @@ export default function CartPage() {
   const detectUserLocationPincode = useCallback(async () => {
     if (user?.pincode && user.pincode.length === 6) {
       setPincode(user.pincode);
-      fetchShiprocketRates(user.pincode);
+      fetchShippingRates(user.pincode);
       return;
     }
 
@@ -102,7 +101,7 @@ export default function CartPage() {
           if (detectedPin && detectedPin.length === 6) {
             setPincode(detectedPin);
             toast.success(`Current location detected: Pincode ${detectedPin}`);
-            fetchShiprocketRates(detectedPin);
+            fetchShippingRates(detectedPin);
           } else {
             toast.info("Could not resolve PIN code from current location. Please enter Pincode manually.");
             setLoadingRates(false);
@@ -123,24 +122,24 @@ export default function CartPage() {
       },
       { timeout: 8000 }
     );
-  }, [user, fetchShiprocketRates]);
+  }, [user, fetchShippingRates]);
 
-  // Auto-detect location & fetch Shiprocket rates when entering delivery step
+  // Auto-detect location & fetch rates when entering delivery step
   useEffect(() => {
-    if (step === "delivery" && shiprocketOptions.length === 0 && !loadingRates && !rateError && !detectingLocation) {
+    if (step === "delivery" && shippingOptions.length === 0 && !loadingRates && !rateError && !detectingLocation) {
       if (pincode && pincode.length === 6) {
-        fetchShiprocketRates(pincode);
+        fetchShippingRates(pincode);
       } else {
         detectUserLocationPincode();
       }
     }
-  }, [step, shiprocketOptions.length, loadingRates, rateError, pincode, detectingLocation, fetchShiprocketRates, detectUserLocationPincode]);
+  }, [step, shippingOptions.length, loadingRates, rateError, pincode, detectingLocation, fetchShippingRates, detectUserLocationPincode]);
 
 
   const getSelectedDeliveryDetails = () => {
     if (cart.length === 0) return { label: "Standard Delivery", cost: 0 };
-    if (shiprocketOptions.length > 0) {
-      const found = shiprocketOptions.find(o => o.id === selectedDelivery) || shiprocketOptions[0];
+    if (shippingOptions.length > 0) {
+      const found = shippingOptions.find(o => o.id === selectedDelivery) || shippingOptions[0];
       if (found) return { label: found.courier_name, cost: found.rate };
     }
     return { label: "Shipping Rate Pending", cost: 0 };
@@ -165,7 +164,7 @@ export default function CartPage() {
     document.body.appendChild(script);
   }, []);
 
-  const validatePhoneForShiprocket = () => {
+  const validatePhoneForLogistics = () => {
     const raw = user?.mobile || "";
     const cleanDigits = raw.replace(/\D/g, "").replace(/^91/, "");
     const clean10 = cleanDigits.length > 10 ? cleanDigits.slice(-10) : cleanDigits;
@@ -177,7 +176,7 @@ export default function CartPage() {
   };
 
   const placeOrder = async (paymentId = null, method = selectedPayment) => {
-    if (!validatePhoneForShiprocket()) return;
+    if (!validatePhoneForLogistics()) return;
     setIsPlacing(true);
     setStep("processing");
     try {
@@ -185,11 +184,9 @@ export default function CartPage() {
         items: cart.map((item) => ({
           product_id: item.id,
           name: item.name,
-          qty: item.qty,
-          price: item.price || "On Request",
-          image_url: item.image_url,
-          company_id: item.company_id || "",
-          company_name: item.company_name || "",
+          price: item.price,
+          qty: item.quantity || 1,
+          company_id: item.company_id || item.seller_id
         })),
         subtotal: cartSubtotal,
         delivery_cost: deliveryCost,
@@ -198,8 +195,8 @@ export default function CartPage() {
         delivery_option: selectedDelivery,
         payment_method: method,
         payment_id: paymentId,
-        address: user ? `${user.name}, Pincode: ${pincode}, India` : `Pincode: ${pincode}, India`,
-        pincode: pincode,
+        address: user?.address || "Address on File",
+        pincode: pincode || user?.pincode || ""
       };
 
       let orderId = `IIP${Date.now().toString().slice(-8)}`;
@@ -208,11 +205,7 @@ export default function CartPage() {
           const { data } = await api.post("/orders", orderPayload);
           orderId = `IIP${data.id.slice(0, 8).toUpperCase()}`;
           setConfirmedOrder(data);
-          if (data.shiprocket_warning) {
-            toast.warning(`Order created: ${data.shiprocket_warning}`, { duration: 7000 });
-          } else {
-            toast.success("Order created & synced with iThink Logistics!");
-          }
+          toast.success("Order created & synced with iThink Logistics!");
         } catch (err) {
           toast.error(err.response?.data?.detail || "Failed to place order.");
           setIsPlacing(false);
@@ -236,7 +229,7 @@ export default function CartPage() {
   };
 
   const handleRazorpayPayment = async () => {
-    if (!validatePhoneForShiprocket()) return;
+    if (!validatePhoneForLogistics()) return;
     if (!rzpLoaded || !window.Razorpay) {
       toast.error("Payment gateway is loading, please wait a moment.");
       return;
@@ -488,7 +481,7 @@ export default function CartPage() {
               </button>
               <button
                 type="button"
-                onClick={() => fetchShiprocketRates(pincode)}
+                onClick={() => fetchShippingRates(pincode)}
                 disabled={loadingRates || !pincode || pincode.length < 6}
                 className="px-4 py-2 bg-white text-blue-900 font-extrabold text-xs rounded-xl hover:bg-blue-50 transition-colors shrink-0 disabled:opacity-50"
               >
@@ -518,14 +511,14 @@ export default function CartPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => fetchShiprocketRates(pincode)}
+                  onClick={() => fetchShippingRates(pincode)}
                   className="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-colors"
                 >
                   Retry Fetching Rates
                 </button>
               </div>
-            ) : shiprocketOptions.length > 0 ? (
-              shiprocketOptions.map((opt) => {
+            ) : shippingOptions.length > 0 ? (
+              shippingOptions.map((opt) => {
                 const isActive = selectedDelivery === opt.id;
                 return (
                   <button
@@ -566,12 +559,12 @@ export default function CartPage() {
 
           <button
             onClick={() => setStep("checkout")}
-            disabled={shiprocketOptions.length === 0}
+            disabled={shippingOptions.length === 0}
             className="w-full py-4 bg-blue-900 text-white font-extrabold rounded-2xl flex items-center justify-center gap-2 hover:bg-blue-950 shadow-lg active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none"
           >
             Proceed to Checkout <ArrowRight size={16} />
           </button>
-          {shiprocketOptions.length === 0 && (
+          {shippingOptions.length === 0 && (
             <p className="text-[11px] text-center text-amber-700 font-semibold mt-1">
               * Valid shipping rate selection required before checkout.
             </p>
@@ -837,19 +830,6 @@ export default function CartPage() {
               Your order has been placed and is being processed.
             </p>
           </div>
-
-          {/* Shiprocket Sync Notice if failed */}
-          {confirmedOrder?.shiprocket_warning && (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left text-xs text-amber-900 space-y-1 shadow-sm">
-              <div className="font-bold flex items-center gap-1.5 text-amber-900">
-                <AlertTriangle size={16} className="text-amber-600 shrink-0" />
-                Shiprocket Shipping Sync Notice
-              </div>
-              <p className="text-amber-800 leading-relaxed">
-                {confirmedOrder.shiprocket_warning}
-              </p>
-            </div>
-          )}
 
           {/* Order Details card */}
           <div className="bg-white border border-slate-100 rounded-2xl p-5 text-left shadow-sm space-y-3">

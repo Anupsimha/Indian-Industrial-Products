@@ -33,7 +33,7 @@ export default function RefundPolicyPage() {
             </p>
             <ul className="list-disc pl-5 space-y-1 text-xs text-slate-600">
               <li><strong>Pre-dispatch Cancellation:</strong> 100% full refund with zero cancellation fees if cancelled prior to courier pickup.</li>
-              <li><strong>Post-dispatch Cancellation:</strong> Once an order is handed over to the courier partner (Shiprocket), dispatch cannot be recalled immediately. You may request a return upon delivery.</li>
+              <li><strong>Post-dispatch Cancellation:</strong> Once an order is handed over to the courier partner (iThink Logistics), dispatch cannot be recalled immediately. You may request a return upon delivery.</li>
             </ul>
           </section>
 
@@ -78,7 +78,7 @@ export default function RefundPolicyPage() {
               <Truck size={18} className="text-purple-700" /> 4. Shipping & Delivery Terms
             </h2>
             <p>
-              Logistics services are operated via integrated courier providers (including <strong>Shiprocket</strong>, Delhivery, Bluedart, Shadowfax, and DTDC).
+              Logistics services are operated via integrated courier providers (including <strong>iThink Logistics</strong>, Delhivery, Bluedart, Shadowfax, and DTDC).
             </p>
             <ul className="list-disc pl-5 space-y-1 text-xs text-slate-600">
               <li><strong>Dispatch Time:</strong> Orders are processed and dispatched within 1–3 business days.</li>

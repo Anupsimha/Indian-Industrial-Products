@@ -13,14 +13,6 @@ from ithink_utils import (
     track_ithink_shipment,
     sanitize_phone as sanitize_ithink_phone,
 )
-from shiprocket_utils import (
-    fetch_shipping_rates,
-    create_shiprocket_adhoc_order,
-    register_shiprocket_pickup_location,
-    check_shiprocket_pickup_verification,
-    get_shiprocket_pickup_locations,
-    sanitize_shiprocket_phone,
-)
 from payout_crypto import encrypt_bank_field, decrypt_bank_field, mask_account_number
 
 import os
@@ -184,9 +176,6 @@ class Company(Base):
     pincode = Column(String(20), nullable=True)
     pickup_location_name = Column(String(100), nullable=True)
     ithink_warehouse_code = Column(String(100), nullable=True)
-    shiprocket_pickup_id = Column(String(100), nullable=True)
-    shiprocket_phone_verified = Column(Boolean, default=True, nullable=True)
-    shiprocket_warning = Column(String(512), nullable=True)
     employees = Column(String(255), nullable=True)
     certifications = Column(JSON, default=list, nullable=True)
     is_featured = Column(Boolean, default=False, nullable=False)
@@ -544,9 +533,6 @@ class CompanyOut(BaseModel):
     pincode: Optional[str] = None
     pickup_location_name: Optional[str] = None
     ithink_warehouse_code: Optional[str] = None
-    shiprocket_pickup_id: Optional[str] = None
-    shiprocket_phone_verified: bool = True
-    shiprocket_warning: Optional[str] = None
     employees: Optional[str] = None
     certifications: Optional[List[str]] = None
     is_featured: bool = False
@@ -866,8 +852,6 @@ class OrderOut(BaseModel):
     courier_name: Optional[str] = None
     label_url: Optional[str] = None
     tracking_url: Optional[str] = None
-    shiprocket_status: Optional[str] = "SUCCESS"
-    shiprocket_warning: Optional[str] = None
 
 
 # -------------------- Bank & Wallet Pydantic Schemas --------------------
@@ -1170,9 +1154,6 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
         pincode=getattr(company, "pincode", None),
         pickup_location_name=getattr(company, "pickup_location_name", None),
         ithink_warehouse_code=getattr(company, "ithink_warehouse_code", None),
-        shiprocket_pickup_id=getattr(company, "shiprocket_pickup_id", None),
-        shiprocket_phone_verified=True,
-        shiprocket_warning=getattr(company, "shiprocket_warning", None),
         employees=company.employees,
         certifications=company.certifications,
         is_featured=company.is_featured,
@@ -2260,14 +2241,10 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
                 warn = it_res.get("warning")
                 upd_vals = {
                     "ithink_warehouse_code": wh_code,
-                    "shiprocket_phone_verified": True,
-                    "shiprocket_warning": warn
                 }
                 await db.execute(update(Company).where(Company.id == company_id).values(**upd_vals))
                 await db.commit()
                 company.ithink_warehouse_code = wh_code
-                company.shiprocket_phone_verified = True
-                company.shiprocket_warning = warn
                 logger.info(f"iThink warehouse registered for company '{company.name}': {wh_code}")
             else:
                 logger.error(f"iThink warehouse registration failed for company '{company.name}': {it_res.get('error')}")
@@ -2307,8 +2284,6 @@ async def sync_company_pickup_status(user: dict = Depends(get_current_user), db:
 
     await db.execute(update(Company).where(Company.id == comp.id).values(
         ithink_warehouse_code=wh_code,
-        shiprocket_phone_verified=True,
-        shiprocket_warning=None
     ))
     await db.commit()
 
@@ -2317,7 +2292,6 @@ async def sync_company_pickup_status(user: dict = Depends(get_current_user), db:
         "company_id": comp.id,
         "pickup_location_name": comp.pickup_location_name,
         "ithink_warehouse_code": wh_code,
-        "shiprocket_phone_verified": True,
         "status": "ACTIVE",
         "warning": None
     }
@@ -2634,14 +2608,6 @@ async def create_product(request: Request, payload: ProductCreate, user: dict = 
             detail="Please complete your company warehouse address and 6-digit Pincode in profile settings before adding products to the marketplace."
         )
 
-    # Live verification status sync (non-blocking)
-    if not getattr(company, "shiprocket_phone_verified", False):
-        live_ver = check_shiprocket_pickup_verification(company.pickup_location_name, company.mobile, company.pincode)
-        if live_ver.get("phone_verified"):
-            await db.execute(update(Company).where(Company.id == company.id).values(shiprocket_phone_verified=True, shiprocket_warning=None))
-            await db.commit()
-            company.shiprocket_phone_verified = True
-
     pid = str(uuid.uuid4())
 
     
@@ -2824,8 +2790,6 @@ async def auto_sync_order_to_ithink(order: Order, user: dict, db: AsyncSession):
                         wh_code = it_wh_res.get("warehouse_code")
                         await db.execute(update(Company).where(Company.id == seller_comp.id).values(
                             ithink_warehouse_code=wh_code,
-                            shiprocket_phone_verified=True,
-                            shiprocket_warning=None
                         ))
                         await db.commit()
 
@@ -2909,8 +2873,7 @@ async def auto_sync_order_to_ithink(order: Order, user: dict, db: AsyncSession):
         logger.error(f"Error syncing order to iThink Logistics: {str(e)}")
         return None
 
-async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSession):
-    return await auto_sync_order_to_ithink(order, user, db)
+
 
 async def credit_seller_wallet_for_order(order: Order, db: AsyncSession):
     """
@@ -3067,13 +3030,9 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
     if status == "paid" or payload.payment_method != "cod":
         await credit_seller_wallet_for_order(order, db)
 
-    # Automatically push order to live Shiprocket panel
-    sr_res = await auto_sync_order_to_shiprocket(order, user, db)
-    shiprocket_status = "SUCCESS"
-    shiprocket_warning = None
-    if isinstance(sr_res, dict) and not sr_res.get("ok"):
-        shiprocket_status = "FAILED"
-        shiprocket_warning = sr_res.get("error") or "Shiprocket order sync failed"
+    # Automatically push order to live iThink panel
+    it_res = await auto_sync_order_to_ithink(order, user, db)
+    ithink_order = (it_res.get("order") or {}) if isinstance(it_res, dict) else {}
 
     return OrderOut(
         id=order.id, user_id=order.user_id, items=order.items or [],
@@ -3082,7 +3041,12 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
         payment_method=order.payment_method, payment_id=order.payment_id,
         razorpay_order_id=order.razorpay_order_id,
         status=order.status, address=order.address, pincode=order.pincode, created_at=order.created_at,
-        shiprocket_status=shiprocket_status, shiprocket_warning=shiprocket_warning
+        ithink_order_id=ithink_order.get("ithink_order_id"),
+        ithink_shipment_id=ithink_order.get("ithink_shipment_id"),
+        awb_number=ithink_order.get("awb_number"),
+        courier_name=ithink_order.get("courier_name"),
+        label_url=ithink_order.get("label_url"),
+        tracking_url=ithink_order.get("tracking_url"),
     )
 
 
@@ -6860,9 +6824,10 @@ async def startup():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS state VARCHAR(100)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS pincode VARCHAR(20)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS pickup_location_name VARCHAR(100)",
-        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS shiprocket_pickup_id VARCHAR(100)",
-        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS shiprocket_phone_verified BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS shiprocket_warning VARCHAR(512)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS ithink_warehouse_code VARCHAR(255)",
+        "ALTER TABLE companies DROP COLUMN IF EXISTS shiprocket_pickup_id",
+        "ALTER TABLE companies DROP COLUMN IF EXISTS shiprocket_phone_verified",
+        "ALTER TABLE companies DROP COLUMN IF EXISTS shiprocket_warning",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS employees VARCHAR(255)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS certifications JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE",

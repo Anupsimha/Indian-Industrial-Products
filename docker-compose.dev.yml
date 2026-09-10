@@ -1,0 +1,87 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    ports:
+      - "127.0.0.1:3005:3000"
+
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+
+    env_file:
+      - ./frontend/.env
+
+    depends_on:
+      - backend
+
+    networks:
+      - iip-dev-network
+
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    ports:
+      - "8005:8000"
+
+    env_file:
+      - ./backend/.env
+
+    volumes:
+      - ./backend:/app
+      - ./uploads:/app/uploads
+      - ./reels-uploaded:/app/reels-uploaded
+      - ./products-images:/app/products-images
+      - ./enquiry-media:/app/enquiry-media
+
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres_dev:5432/indian_industrial_dev
+      - CORS_ORIGINS=*
+
+    depends_on:
+      postgres_dev:
+        condition: service_healthy
+
+    networks:
+      - iip-dev-network
+
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+    restart: unless-stopped
+
+  postgres_dev:
+    image: postgres:15-alpine
+
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=indian_industrial_dev
+
+    volumes:
+      - ./postgres_data_dev:/var/lib/postgresql/data
+
+    networks:
+      - iip-dev-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d indian_industrial_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    restart: unless-stopped
+
+networks:
+  iip-dev-network:
+    driver: bridge
