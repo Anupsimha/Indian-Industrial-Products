@@ -25,6 +25,7 @@ export default function CartPage() {
   const navigate = useNavigate();
 
 
+  const [step, setStep] = useState("cart");
   const [selectedDelivery, setSelectedDelivery] = useState("ithink_express");
   const [selectedPayment, setSelectedPayment] = useState("razorpay");
   const [upiId, setUpiId] = useState("");
