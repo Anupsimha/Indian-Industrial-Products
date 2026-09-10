@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown, Newspaper } from "lucide-react";
+import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown, Newspaper, Receipt, Sparkles, ExternalLink } from "lucide-react";
 import { Logo } from "./Logo";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
@@ -249,7 +249,35 @@ export const TopHeader = () => {
               </div>
             )}
           </div>
-        <div className="flex items-center gap-1 lg:gap-3">
+        <div className="flex items-center gap-1.5 lg:gap-3">
+          {/* Billing Platform Button with Tooltip and Infinite Animated Glow */}
+          <div className="relative group flex items-center">
+            <a
+              href="https://billing.indianindustrialplatform.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative inline-flex items-center gap-1.5 px-2.5 py-1 lg:px-3.5 lg:py-1.5 rounded-full text-xs font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-md hover:shadow-indigo-500/40 transition-all duration-300 transform hover:scale-105"
+              data-testid="header-billing-btn"
+            >
+              <span className="absolute -inset-0.5 rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 opacity-70 blur-sm animate-pulse -z-10" />
+              <Receipt size={15} className="animate-bounce shrink-0 text-amber-300" />
+              <span className="hidden sm:inline-block font-extrabold tracking-wide">Billing</span>
+              <span className="px-1.5 py-0.5 text-[9px] font-black uppercase bg-amber-400 text-slate-950 rounded-full tracking-wider shadow-sm animate-pulse">
+                PRO
+              </span>
+            </a>
+
+            {/* Hover Tooltip */}
+            <div className="absolute top-full right-0 mt-2 hidden group-hover:flex flex-col items-end z-50 animate-in fade-in slide-in-from-top-2 duration-200 pointer-events-none">
+              <div className="w-2.5 h-2.5 bg-slate-900 rotate-45 mr-5 -mb-1 shadow-sm border-t border-l border-slate-700"></div>
+              <div className="bg-slate-900 text-white text-[11px] font-semibold py-1.5 px-3 rounded-xl shadow-2xl border border-slate-700/90 flex items-center gap-2 whitespace-nowrap">
+                <Sparkles size={13} className="text-amber-400 animate-spin shrink-0" />
+                <span>explore our new billing platform</span>
+                <ExternalLink size={11} className="text-slate-400 shrink-0" />
+              </div>
+            </div>
+          </div>
+
           <Link
             to="/search"
             className={`p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${isBuyer ? "hidden md:block" : "block"}`}
