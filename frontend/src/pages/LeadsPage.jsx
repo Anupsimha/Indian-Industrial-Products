@@ -601,8 +601,20 @@ export default function LeadsPage() {
                   <div className="mt-3.5 space-y-2 border-b border-slate-100 pb-3.5 text-xs text-slate-600">
                     {lead.quantity && (
                       <div className="flex items-center gap-2">
-                        <span className="w-8 font-bold text-slate-400 uppercase tracking-wider text-[9px]">Qty</span>
+                        <span className="w-14 font-bold text-slate-400 uppercase tracking-wider text-[9px]">Qty</span>
                         <span className="font-bold text-slate-900">{lead.quantity}</span>
+                      </div>
+                    )}
+                    {lead.budget && (
+                      <div className="flex items-center gap-2">
+                        <span className="w-14 font-bold text-slate-400 uppercase tracking-wider text-[9px]">Budget</span>
+                        <span className="font-bold text-emerald-700">{lead.budget}</span>
+                      </div>
+                    )}
+                    {lead.required_by && (
+                      <div className="flex items-center gap-2">
+                        <span className="w-14 font-bold text-slate-400 uppercase tracking-wider text-[9px]">Timeframe</span>
+                        <span className="font-semibold text-slate-800">{lead.required_by}</span>
                       </div>
                     )}
                     <div className="flex items-center gap-2">
