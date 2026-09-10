@@ -77,7 +77,7 @@ export const TopHeader = () => {
             {/* Dropdown Menu */}
             {user && dropdownOpen && (
               <div
-                className="absolute right-0 mt-2 w-52 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-150 overflow-hidden"
+                className="absolute right-0 mt-2 w-52 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-150 max-h-[75vh] overflow-y-auto custom-scrollbar"
                 data-testid="profile-dropdown"
               >
                 <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/50 mb-1">
