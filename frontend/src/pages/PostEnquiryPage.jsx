@@ -82,6 +82,8 @@ export default function PostEnquiryPage() {
       fd.append("industrial_area", loc.industrial_area);
       if (form.product_name) fd.append("product_name", form.product_name);
       if (form.quantity)     fd.append("quantity", form.quantity);
+      if (form.budget)       fd.append("budget", form.budget);
+      if (form.required_by)  fd.append("required_by", form.required_by);
 
       // Attach each real File object under the "media" key
       attachments.forEach(({ file }) => {
