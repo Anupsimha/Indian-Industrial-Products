@@ -4299,7 +4299,9 @@ async def list_requirements(
         d_dict = {
             "id": d.id, "name": d.name, "mobile": d.mobile, "requirement": d.requirement,
             "category": d.category, "location": d.location, "product_name": d.product_name,
-            "quantity": d.quantity, "state": d.state, "city": d.city,
+            "quantity": d.quantity, "budget": getattr(d, "budget", None) or "₹50,000 - 1 Lakh",
+            "required_by": getattr(d, "required_by", None) or "15 Days",
+            "state": d.state, "city": d.city,
             "industrial_area": d.industrial_area, "status": d.status,
             "created_at": d.created_at, "company_id": d.company_id, "post_id": d.post_id
         }
@@ -4311,6 +4313,8 @@ async def list_requirements(
             "category": d.category, "location": d.location,
             "product_name": d.product_name,
             "quantity": d.quantity,
+            "budget": getattr(d, "budget", None) or "₹50,000 - 1 Lakh",
+            "required_by": getattr(d, "required_by", None) or "15 Days",
             "state": d.state, "city": d.city,
             "industrial_area": d.industrial_area,
             "status": d.status, "created_at": d.created_at,
@@ -6903,6 +6907,8 @@ async def startup():
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS user_id VARCHAR(255)",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS budget VARCHAR(255)",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS required_by VARCHAR(255)",
+        "UPDATE enquiries SET budget = '₹50,000 - 1 Lakh' WHERE budget IS NULL OR budget = ''",
+        "UPDATE enquiries SET required_by = '15 Days' WHERE required_by IS NULL OR required_by = ''",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb",
         "UPDATE enquiries SET user_id = users.id FROM users WHERE enquiries.user_id IS NULL AND (users.mobile = enquiries.mobile OR users.mobile = '+91' || enquiries.mobile OR enquiries.mobile = REPLACE(users.mobile, '+91', ''))",
         "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
