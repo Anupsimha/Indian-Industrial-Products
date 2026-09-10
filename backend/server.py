@@ -212,6 +212,7 @@ class Reel(Base):
     content = Column(Text, nullable=False)
     video_url = Column(String(1024), nullable=False)
     thumbnail_url = Column(String(1024), nullable=True)
+    views_count = Column(Integer, default=0, nullable=False)
     created_at = Column(String(255), nullable=False)
 
 class Product(Base):
@@ -691,6 +692,7 @@ class ReelOut(BaseModel):
     group_name: Optional[str] = None
     likes_count: int
     comments_count: int
+    views_count: int = 0
     is_liked: bool
     is_following: bool
     whatsapp: str
@@ -1292,7 +1294,9 @@ async def hydrate_reel(reel: Reel, current_user: Optional[dict], db: AsyncSessio
         thumbnail_url=clean_media_url(reel.thumbnail_url),
         group_id=getattr(reel, "group_id", None), group_name=group_name,
         likes_count=likes_count,
-        comments_count=comments_count, is_liked=is_liked, is_following=is_following,
+        comments_count=comments_count,
+        views_count=getattr(reel, "views_count", 0) or 0,
+        is_liked=is_liked, is_following=is_following,
         whatsapp=company.whatsapp, created_at=reel.created_at,
     )
 
@@ -2545,6 +2549,17 @@ async def create_reel(
     stmt = select(Reel).where(Reel.id == rid)
     doc_loaded = (await db.execute(stmt)).scalar_one()
     return await hydrate_reel(doc_loaded, user, db)
+
+
+@api.post("/reels/{reel_id}/view")
+async def track_reel_view(reel_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(Reel).where(Reel.id == reel_id)
+    reel = (await db.execute(stmt)).scalar_one_or_none()
+    if not reel:
+        raise HTTPException(status_code=404, detail="Reel not found")
+    reel.views_count = (getattr(reel, "views_count", 0) or 0) + 1
+    await db.commit()
+    return {"status": "ok", "views_count": reel.views_count}
 
 
 @api.post("/reels/{reel_id}/like")
@@ -6916,6 +6931,7 @@ async def startup():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE",
         "ALTER TABLE posts ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
         "ALTER TABLE reels ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
+        "ALTER TABLE reels ADD COLUMN IF NOT EXISTS views_count INTEGER DEFAULT 0",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS user_id VARCHAR(255)",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb",

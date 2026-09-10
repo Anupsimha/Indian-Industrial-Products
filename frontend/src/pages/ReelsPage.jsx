@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Heart, MessageCircle, Share2, UserPlus, UserCheck, MapPin, ArrowLeft, Volume2, VolumeX, Pause, Play } from "lucide-react";
+import { Heart, MessageCircle, Share2, UserPlus, UserCheck, MapPin, ArrowLeft, Volume2, VolumeX, Pause, Play, Eye } from "lucide-react";
 import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
@@ -18,7 +18,22 @@ const ReelItem = ({ reel, active, muted, onMuteToggle }) => {
   const [progress, setProgress] = useState(0);
   const [buffering, setBuffering] = useState(false);
   const [showHeart, setShowHeart] = useState(false);
+  const [viewsCount, setViewsCount] = useState(reel.views_count || 0);
+  const viewTrackedRef = useRef(false);
   const videoRef = useRef();
+
+  useEffect(() => {
+    if (active && !viewTrackedRef.current) {
+      viewTrackedRef.current = true;
+      api.post(`/reels/${reel.id}/view`)
+        .then((r) => {
+          if (r.data && typeof r.data.views_count === "number") {
+            setViewsCount(r.data.views_count);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [active, reel.id]);
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -156,6 +171,10 @@ const ReelItem = ({ reel, active, muted, onMuteToggle }) => {
           </span>
           <span className="text-[10px] mt-0.5 font-medium">{muted ? "Muted" : "Sound"}</span>
         </button>
+        <div className="flex flex-col items-center opacity-90" data-testid={`reel-views-${reel.id}`}>
+          <Eye size={24} />
+          <span className="text-[10px] mt-0.5 font-medium">{viewsCount}</span>
+        </div>
         <button onClick={(e) => { e.stopPropagation(); toggleLike(); }} data-testid={`reel-like-${reel.id}`} className="flex flex-col items-center active:scale-95">
           <Heart size={24} className={liked ? "fill-rose-500 text-rose-500" : ""} />
           <span className="text-[10px] mt-0.5 font-medium">{likes}</span>
