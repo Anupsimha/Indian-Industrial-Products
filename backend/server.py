@@ -1166,7 +1166,7 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
     is_owner = False
     if current_user:
         stmt_follow = select(Follow).where(Follow.company_id == company.id, Follow.user_id == current_user["id"])
-        is_following = bool((await db.execute(stmt_follow)).scalar_one_or_none())
+        is_following = bool((await db.execute(stmt_follow)).scalars().first())
         is_owner = company.owner_id == current_user["id"] or current_user.get("role") == "admin"
     return CompanyOut(
         id=company.id, name=company.name, description=company.description,
@@ -1201,7 +1201,7 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
 
 async def hydrate_post(post: Post, current_user: Optional[dict], db: AsyncSession) -> Optional[PostOut]:
     stmt_comp = select(Company).where(Company.id == post.company_id)
-    company = (await db.execute(stmt_comp)).scalar_one_or_none()
+    company = (await db.execute(stmt_comp)).scalars().first()
     if not company:
         return None
     stmt_likes = select(func.count(Like.id)).where(Like.target_id == post.id, Like.target_type == "post")
@@ -1214,25 +1214,25 @@ async def hydrate_post(post: Post, current_user: Optional[dict], db: AsyncSessio
     enquiries_count = (await db.execute(stmt_enq)).scalar_one()
 
     stmt_u = select(User.plan_name).where(User.id == company.owner_id)
-    plan_name = (await db.execute(stmt_u)).scalar_one_or_none() or "Free"
+    plan_name = (await db.execute(stmt_u)).scalars().first() or "Free"
     
     is_liked = False
     is_saved = False
     is_following = False
     if current_user:
         stmt_like = select(Like).where(Like.target_id == post.id, Like.target_type == "post", Like.user_id == current_user["id"])
-        is_liked = bool((await db.execute(stmt_like)).scalar_one_or_none())
+        is_liked = bool((await db.execute(stmt_like)).scalars().first())
         
         stmt_save = select(Bookmark).where(Bookmark.post_id == post.id, Bookmark.user_id == current_user["id"])
-        is_saved = bool((await db.execute(stmt_save)).scalar_one_or_none())
+        is_saved = bool((await db.execute(stmt_save)).scalars().first())
         
         stmt_follow = select(Follow).where(Follow.company_id == company.id, Follow.user_id == current_user["id"])
-        is_following = bool((await db.execute(stmt_follow)).scalar_one_or_none())
+        is_following = bool((await db.execute(stmt_follow)).scalars().first())
 
     group_name = None
     if getattr(post, "group_id", None):
         stmt_grp = select(IndustrialGroup.name).where(or_(IndustrialGroup.id == post.group_id, IndustrialGroup.slug == post.group_id))
-        group_name = (await db.execute(stmt_grp)).scalar_one_or_none()
+        group_name = (await db.execute(stmt_grp)).scalars().first()
         
     return PostOut(
         id=post.id, company_id=company.id, company_name=company.name,
@@ -1249,9 +1249,11 @@ async def hydrate_post(post: Post, current_user: Optional[dict], db: AsyncSessio
     )
 
 
-async def hydrate_reel(reel: Reel, current_user: Optional[dict], db: AsyncSession) -> ReelOut:
+async def hydrate_reel(reel: Reel, current_user: Optional[dict], db: AsyncSession) -> Optional[ReelOut]:
     stmt_comp = select(Company).where(Company.id == reel.company_id)
-    company = (await db.execute(stmt_comp)).scalar_one()
+    company = (await db.execute(stmt_comp)).scalars().first()
+    if not company:
+        return None
     
     stmt_likes = select(func.count(Like.id)).where(Like.target_id == reel.id, Like.target_type == "reel")
     likes_count = (await db.execute(stmt_likes)).scalar_one()
@@ -1263,15 +1265,15 @@ async def hydrate_reel(reel: Reel, current_user: Optional[dict], db: AsyncSessio
     is_following = False
     if current_user:
         stmt_like = select(Like).where(Like.target_id == reel.id, Like.target_type == "reel", Like.user_id == current_user["id"])
-        is_liked = bool((await db.execute(stmt_like)).scalar_one_or_none())
+        is_liked = bool((await db.execute(stmt_like)).scalars().first())
         
         stmt_follow = select(Follow).where(Follow.company_id == company.id, Follow.user_id == current_user["id"])
-        is_following = bool((await db.execute(stmt_follow)).scalar_one_or_none())
+        is_following = bool((await db.execute(stmt_follow)).scalars().first())
 
     group_name = None
     if getattr(reel, "group_id", None):
         stmt_grp = select(IndustrialGroup.name).where(or_(IndustrialGroup.id == reel.group_id, IndustrialGroup.slug == reel.group_id))
-        group_name = (await db.execute(stmt_grp)).scalar_one_or_none()
+        group_name = (await db.execute(stmt_grp)).scalars().first()
         
     return ReelOut(
         id=reel.id, company_id=company.id, company_name=company.name,
@@ -2440,7 +2442,8 @@ async def list_reels(request: Request, search: Optional[str] = None, limit: int 
         )
     stmt = stmt.order_by(desc(Reel.created_at)).limit(limit)
     docs = (await db.execute(stmt)).scalars().all()
-    return [await hydrate_reel(d, cu, db) for d in docs]
+    hydrated = [await hydrate_reel(d, cu, db) for d in docs]
+    return [h for h in hydrated if h is not None]
 
 
 @api.post("/reels", response_model=ReelOut)
