@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Heart, MessageCircle, Share2, UserPlus, UserCheck, MapPin, ArrowLeft, Volume2, VolumeX, Pause, Play } from "lucide-react";
+import { Heart, MessageCircle, Share2, UserPlus, UserCheck, MapPin, ArrowLeft, Volume2, VolumeX, Pause, Play, Search, X } from "lucide-react";
 import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
@@ -203,11 +203,23 @@ export default function ReelsPage() {
   const [reels, setReels] = useState([]);
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const containerRef = useRef();
 
-  useEffect(() => {
-    api.get("/reels").then((r) => setReels(r.data)).catch(() => {});
+  const fetchReels = useCallback((q = "") => {
+    const params = q.trim() ? { search: q.trim() } : {};
+    api.get("/reels", { params })
+      .then((r) => {
+        setReels(r.data);
+        setActive(0);
+      })
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetchReels("");
+  }, [fetchReels]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -228,6 +240,47 @@ export default function ReelsPage() {
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 text-white font-display font-bold">
         Reels
       </div>
+
+      {/* Top Search bar / button */}
+      <div className="absolute top-3 right-4 z-50 flex items-center gap-2">
+        {searchOpen ? (
+          <div className="flex items-center gap-1.5 bg-black/80 border border-white/20 rounded-full px-3 py-1 text-white backdrop-blur-md transition-all animate-in fade-in duration-200">
+            <Search size={14} className="text-white/60 shrink-0" />
+            <input
+              type="text"
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSearchQuery(val);
+                fetchReels(val);
+              }}
+              placeholder="Search reels..."
+              className="bg-transparent text-xs text-white placeholder-white/50 focus:outline-none w-32 sm:w-48"
+              data-testid="reels-search-input"
+            />
+            <button
+              onClick={() => {
+                setSearchOpen(false);
+                setSearchQuery("");
+                fetchReels("");
+              }}
+              className="p-0.5 text-white/70 hover:text-white"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="p-2 bg-black/50 hover:bg-black/70 text-white rounded-full backdrop-blur-sm transition-all"
+            data-testid="reels-search-toggle"
+          >
+            <Search size={20} />
+          </button>
+        )}
+      </div>
+
       <div ref={containerRef} className="reels-container h-full overflow-y-scroll">
         {reels.map((r, i) => (
           <ReelItem
@@ -239,7 +292,9 @@ export default function ReelsPage() {
           />
         ))}
         {reels.length === 0 && (
-          <div className="h-full grid place-items-center text-white/70 text-sm">No reels yet.</div>
+          <div className="h-full grid place-items-center text-white/70 text-sm">
+            {searchQuery ? `No reels found for "${searchQuery}".` : "No reels yet."}
+          </div>
         )}
       </div>
     </div>

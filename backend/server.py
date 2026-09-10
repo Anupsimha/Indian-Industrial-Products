@@ -2437,9 +2437,20 @@ async def toggle_save(post_id: str, user: dict = Depends(get_current_user), db: 
 
 # -------------------- Reels --------------------
 @api.get("/reels", response_model=List[ReelOut])
-async def list_reels(request: Request, limit: int = 30, db: AsyncSession = Depends(get_db)):
+async def list_reels(request: Request, search: Optional[str] = None, limit: int = 30, db: AsyncSession = Depends(get_db)):
     cu = await get_optional_user(request)
-    stmt = select(Reel).order_by(desc(Reel.created_at)).limit(limit)
+    stmt = select(Reel)
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        stmt = stmt.join(Company, Reel.company_id == Company.id, isouter=True).where(
+            or_(
+                Reel.content.ilike(term),
+                Company.name.ilike(term),
+                Company.city.ilike(term),
+                Company.state.ilike(term)
+            )
+        )
+    stmt = stmt.order_by(desc(Reel.created_at)).limit(limit)
     docs = (await db.execute(stmt)).scalars().all()
     return [await hydrate_reel(d, cu, db) for d in docs]
 
