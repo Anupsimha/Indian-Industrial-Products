@@ -380,16 +380,6 @@ export default function LeadsPage() {
     fetchStats();
   };
 
-  const updateStatus = async (id, status) => {
-    try {
-      await api.patch(`/enquiries/${id}/status?new_status=${status}`);
-      setLeads((arr) => arr.map((l) => (l.id === id ? { ...l, status } : l)));
-      toast.success(`Lead status updated to ${status}`);
-    } catch {
-      toast.error("Failed to update status");
-    }
-  };
-
   // Filter in Frontend for Status & Search
   const filteredLeads = leads.filter((l) => {
     // 1. Status Tab filter
@@ -669,22 +659,6 @@ export default function LeadsPage() {
                         >
                           <MessageSquare size={12} /> WhatsApp
                         </a>
-                        {lead.status !== "in_progress" && (
-                          <button
-                            onClick={() => updateStatus(lead.id, "in_progress")}
-                            className="px-2.5 py-1.5 bg-orange-50 text-orange-800 rounded-lg text-[10px] font-bold hover:bg-orange-100"
-                          >
-                            In Progress
-                          </button>
-                        )}
-                        {lead.status !== "closed" && (
-                          <button
-                            onClick={() => updateStatus(lead.id, "closed")}
-                            className="px-2.5 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-bold hover:bg-slate-200"
-                          >
-                            Close
-                          </button>
-                        )}
                       </div>
                     )}
                   </div>
