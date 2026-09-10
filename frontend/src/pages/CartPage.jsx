@@ -38,6 +38,7 @@ export default function CartPage() {
   const [loadingRates, setLoadingRates] = useState(false);
   const [rateError, setRateError] = useState(null);
   const [detectingLocation, setDetectingLocation] = useState(false);
+  const [geoAttempted, setGeoAttempted] = useState(false);
 
   const fetchShippingRates = useCallback(async (targetPincode) => {
     if (!targetPincode || targetPincode.length < 6) {
@@ -125,16 +126,17 @@ export default function CartPage() {
     );
   }, [user, fetchShippingRates]);
 
-  // Auto-detect location & fetch rates when entering delivery step
+  // Auto-detect location & fetch rates when entering delivery step (only once)
   useEffect(() => {
-    if (step === "delivery" && shippingOptions.length === 0 && !loadingRates && !rateError && !detectingLocation) {
+    if (step === "delivery" && shippingOptions.length === 0 && !loadingRates && !rateError && !detectingLocation && !geoAttempted) {
+      setGeoAttempted(true);
       if (pincode && pincode.length === 6) {
         fetchShippingRates(pincode);
       } else {
         detectUserLocationPincode();
       }
     }
-  }, [step, shippingOptions.length, loadingRates, rateError, pincode, detectingLocation, fetchShippingRates, detectUserLocationPincode]);
+  }, [step, shippingOptions.length, loadingRates, rateError, pincode, detectingLocation, geoAttempted, fetchShippingRates, detectUserLocationPincode]);
 
 
   const getSelectedDeliveryDetails = () => {
@@ -242,6 +244,11 @@ export default function CartPage() {
         amount: cartTotal
       });
       const orderData = orderRes.data;
+      if (!orderData || !orderData.key || !orderData.order_id) {
+        toast.error("Razorpay gateway parameters missing or invalid. Please verify payment configuration.");
+        setIsPlacing(false);
+        return;
+      }
 
       const options = {
         key: orderData.key,
