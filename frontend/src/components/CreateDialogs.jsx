@@ -95,8 +95,11 @@ export const PostDialog = ({ open, onClose, onSaved }) => {
             </select>
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Media (optional)</label>
-            <div className="mt-2">
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Media (optional)</label>
+              <span className="text-[11px] font-medium text-orange-600">Select multiple files (up to 10)</span>
+            </div>
+            <div>
               <MediaUploader value={media} onChange={setMedia} accept="image/*,video/*" folder="iip/posts" multiple={true} maxItems={10} testid="post-media" />
             </div>
           </div>
