@@ -1,9 +1,9 @@
 """
 ithink_utils.py
 ----------------
-Reusable iThink Logistics API utility module for the IIP platform.
+Pure iThink Logistics API v3 utility module for the IIP platform.
 Handles multi-seller warehouse registration, shipping rate calculation, order creation,
-AWB assignment, tracking, and label generation.
+AWB assignment, tracking, and label generation without dummy fallbacks.
 """
 
 import os
@@ -14,10 +14,10 @@ from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger("ithink")
 
-ITHINK_BASE_URL = os.environ.get("ITHINK_BASE_URL", "https://api.ithinklogistics.com/api/v3").rstrip("/")
-ITHINK_ACCESS_TOKEN = os.environ.get("ITHINK_ACCESS_TOKEN", "")
-ITHINK_SECRET_KEY = os.environ.get("ITHINK_SECRET_KEY", "")
-DEFAULT_PICKUP_PINCODE = os.environ.get("ITHINK_DEFAULT_PICKUP_PINCODE", "560073")
+ITHINK_BASE_URL = os.environ.get("ITHINK_BASE_URL", "https://my.ithinklogistics.com/api_v3").rstrip("/")
+ITHINK_ACCESS_TOKEN = os.environ.get("ITHINK_ACCESS_TOKEN", "").strip()
+ITHINK_SECRET_KEY = os.environ.get("ITHINK_SECRET_KEY", "").strip()
+DEFAULT_PICKUP_PINCODE = os.environ.get("ITHINK_DEFAULT_PICKUP_PINCODE", "560073").strip()
 
 
 def sanitize_phone(phone: str) -> Optional[str]:
@@ -54,18 +54,21 @@ def get_ithink_auth_payload() -> Dict[str, str]:
 def register_ithink_warehouse(company_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Registers a seller warehouse/shop pickup address with iThink Logistics API via POST /warehouse/add.json.
-    Returns {"ok": True, "warehouse_code": "WH_...", "status": "ACTIVE"} or {"ok": False, "error": "..."}.
+    Returns {"ok": True, "warehouse_code": "...", "status": "ACTIVE"} or {"ok": False, "error": "..."}.
+    No mock fallbacks.
     """
-    company_id = str(company_data.get("id") or "").strip()
+    if not ITHINK_ACCESS_TOKEN or not ITHINK_SECRET_KEY:
+        err = "iThink API credentials (ITHINK_ACCESS_TOKEN and ITHINK_SECRET_KEY) are missing in environment configuration."
+        logger.error(err)
+        return {"ok": False, "error": err}
+
     name = str(company_data.get("name") or "").strip()
-    owner_name = str(company_data.get("owner_name") or name).strip()
     email = str(company_data.get("email") or "").strip()
     phone_raw = str(company_data.get("mobile") or company_data.get("phone") or "").strip()
     address = str(company_data.get("address") or "").strip()
     city = str(company_data.get("city") or "").strip()
     state = str(company_data.get("state") or "").strip()
     pincode = str(company_data.get("pincode") or company_data.get("pin_code") or "").strip()
-    gstin = str(company_data.get("gst") or company_data.get("gstin") or "").strip()
 
     missing = []
     if not name:
@@ -76,10 +79,6 @@ def register_ithink_warehouse(company_data: Dict[str, Any]) -> Dict[str, Any]:
         missing.append("Phone")
     if not address:
         missing.append("Address")
-    if not city:
-        missing.append("City")
-    if not state:
-        missing.append("State")
     if not pincode or len(pincode) != 6 or not pincode.isdigit():
         missing.append("6-Digit Pincode")
 
@@ -94,71 +93,45 @@ def register_ithink_warehouse(company_data: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(err)
         return {"ok": False, "error": err}
 
-    # Generate a deterministic unique warehouse code for this seller company
-    wh_code = f"WH_IIP_{company_id[:8].upper() if company_id else pincode}"
-
-    # If iThink API keys are not configured, fallback to deterministic active warehouse code
-    if not ITHINK_ACCESS_TOKEN or not ITHINK_SECRET_KEY:
-        logger.info(f"iThink credentials not configured. Generated local active warehouse code '{wh_code}' for {name}.")
-        return {
-            "ok": True,
-            "warehouse_code": wh_code,
-            "status": "ACTIVE",
-            "message": "Warehouse registered locally (iThink API credentials pending)."
-        }
-
     try:
         url = f"{ITHINK_BASE_URL}/warehouse/add.json"
         payload = {
             "data": {
                 **get_ithink_auth_payload(),
-                "warehouse_code": wh_code,
                 "company_name": name[:50],
-                "contact_person": owner_name[:50],
-                "email": email,
+                "address1": address[:100],
+                "address2": f"{city}, {state}"[:100] if (city or state) else "",
                 "mobile": clean_p,
-                "address": address[:100],
-                "address2": "",
                 "pincode": pincode,
-                "city": city,
-                "state": state,
-                "country": "India",
-                "gst_no": gstin
             }
         }
         res = requests.post(url, json=payload, timeout=12)
-        if res.status_code in [200, 201]:
+        try:
             data = res.json()
-            returned_code = data.get("data", {}).get("warehouse_code") or wh_code
-            logger.info(f"iThink warehouse registered successfully: {returned_code}")
+        except Exception:
+            data = {}
+
+        status_str = str(data.get("status") or "").lower()
+        if res.status_code in [200, 201] and status_str == "success":
+            wh_id = str(data.get("warehouse_id") or data.get("data", {}).get("warehouse_code") or "").strip()
+            msg = data.get("html_message") or "Warehouse Added Successfully."
+            logger.info(f"iThink warehouse registered successfully: {wh_id}")
             return {
                 "ok": True,
-                "warehouse_code": returned_code,
+                "warehouse_code": wh_id,
                 "status": "ACTIVE",
+                "message": msg,
                 "raw": data
             }
         else:
-            err_msg = ""
-            try:
-                err_msg = res.json().get("message", res.text)
-            except Exception:
-                err_msg = res.text
-            logger.error(f"iThink warehouse registration error ({res.status_code}): {err_msg}")
-            # Fallback to local WH code if API rejected due to sandbox credentials
-            return {
-                "ok": True,
-                "warehouse_code": wh_code,
-                "status": "ACTIVE",
-                "warning": f"iThink API response ({res.status_code}): {err_msg}"
-            }
+            err_msg = data.get("html_message") or data.get("message") or data.get("error") or res.text
+            err = f"iThink Warehouse API Error ({res.status_code}): {err_msg}"
+            logger.error(err)
+            return {"ok": False, "error": err, "raw": data}
     except Exception as e:
-        logger.error(f"iThink warehouse registration exception: {str(e)}")
-        return {
-            "ok": True,
-            "warehouse_code": wh_code,
-            "status": "ACTIVE",
-            "warning": f"Connection exception: {str(e)}"
-        }
+        err = f"iThink Warehouse Registration Exception: {str(e)}"
+        logger.error(err)
+        return {"ok": False, "error": err}
 
 
 def fetch_ithink_shipping_rates(
@@ -169,9 +142,14 @@ def fetch_ithink_shipping_rates(
     product_value: float = 1000.0
 ) -> Dict[str, Any]:
     """
-    Fetch available courier serviceability and shipping rates from iThink Logistics API.
-    Returns {"ok": True, "options": [...]} or fallback rates if credentials not configured.
+    Fetch available courier serviceability and shipping rates directly from iThink Logistics API v3.
+    No mock fallbacks.
     """
+    if not ITHINK_ACCESS_TOKEN or not ITHINK_SECRET_KEY:
+        err = "iThink API credentials (ITHINK_ACCESS_TOKEN and ITHINK_SECRET_KEY) are missing in environment configuration."
+        logger.error(err)
+        return {"ok": False, "error": err}
+
     pickup = (pickup_pincode or DEFAULT_PICKUP_PINCODE or "").strip()
     delivery = str(delivery_pincode or "").strip()
 
@@ -181,44 +159,8 @@ def fetch_ithink_shipping_rates(
     if not delivery or len(delivery) != 6 or not delivery.isdigit():
         return {
             "ok": False,
-            "error": "Valid 6-digit delivery pincode is required."
+            "error": "Valid 6-digit delivery pincode is required for serviceability calculation."
         }
-
-    # Fallback options generator if credentials missing or API unreachable
-    def get_fallback_rates():
-        base_rate = 99 if not cod else 129
-        return [
-            {
-                "id": "ithink_delhivery",
-                "courier_name": "Delhivery Surface (via iThink)",
-                "rate": base_rate,
-                "etd": "2-4 Business Days",
-                "badge": "Standard",
-                "cod_available": True,
-                "min_weight": "0.5kg"
-            },
-            {
-                "id": "ithink_bluedart",
-                "courier_name": "Bluedart Air Express (via iThink)",
-                "rate": base_rate + 85,
-                "etd": "1-2 Business Days",
-                "badge": "Express",
-                "cod_available": True,
-                "min_weight": "0.5kg"
-            },
-            {
-                "id": "ithink_xpressbees",
-                "courier_name": "Xpressbees Cargo (via iThink)",
-                "rate": max(79, base_rate - 20),
-                "etd": "3-5 Business Days",
-                "badge": "Economy",
-                "cod_available": True,
-                "min_weight": "1.0kg"
-            }
-        ]
-
-    if not ITHINK_ACCESS_TOKEN or not ITHINK_SECRET_KEY:
-        return {"ok": True, "options": get_fallback_rates()}
 
     try:
         url = f"{ITHINK_BASE_URL}/rate/check.json"
@@ -227,175 +169,204 @@ def fetch_ithink_shipping_rates(
                 **get_ithink_auth_payload(),
                 "from_pincode": pickup,
                 "to_pincode": delivery,
-                "shipping_weight": str(max(0.5, weight_kg)),
-                "product_value": str(max(100, product_value)),
-                "payment_type": "COD" if cod else "Prepaid",
-                "length": "10",
-                "width": "10",
-                "height": "10"
+                "shipping_weight_kg": str(max(0.5, float(weight_kg))),
+                "shipping_length_cms": "10",
+                "shipping_width_cms": "10",
+                "shipping_height_cms": "10",
+                "order_type": "forward",
+                "payment_method": "cod" if cod else "prepaid",
+                "product_mrp": str(max(10.0, float(product_value)))
             }
         }
-        res = requests.post(url, json=payload, timeout=10)
-        if res.status_code in [200, 201]:
+        res = requests.post(url, json=payload, timeout=12)
+        try:
             data = res.json()
+        except Exception:
+            data = {}
+
+        status_str = str(data.get("status") or "").lower()
+        if res.status_code in [200, 201] and status_str == "success":
             courier_list = data.get("data", [])
             if isinstance(courier_list, list) and courier_list:
                 options = []
-                for c in courier_list[:4]:
-                    r_val = float(c.get("rate") or c.get("total_charge") or 99)
+                for c in courier_list:
+                    r_val = float(c.get("rate") or c.get("freight_charges") or 0)
+                    logistic_name = str(c.get("logistic_name") or "iThink Partner")
+                    service_type = str(c.get("service_type") or "Surface")
                     options.append({
-                        "id": f"ithink_{c.get('courier_company_id', 'std')}",
-                        "courier_name": f"{c.get('logistic_name', 'iThink Partner')} (via iThink)",
+                        "id": f"ithink_{c.get('logistic_id', c.get('logistic_service_type', 'std'))}",
+                        "logistic_name": logistic_name.lower(),
+                        "s_type": service_type.lower(),
+                        "courier_name": f"{logistic_name} {service_type} (via iThink)",
                         "rate": int(r_val),
-                        "etd": c.get("expected_date") or c.get("etd") or "2-4 Days",
-                        "badge": "Express" if "Air" in c.get("logistic_name", "") else "Standard",
-                        "cod_available": True,
-                        "min_weight": f"{c.get('min_weight', '0.5')}kg"
+                        "etd": f"{c.get('delivery_tat', '3-5')} Days",
+                        "badge": "Express" if "Air" in service_type else "Standard",
+                        "cod_available": (c.get("cod") == "Y"),
+                        "min_weight": f"{c.get('weight_slab', '0.5')}kg"
                     })
-                return {"ok": True, "options": options}
-
-        logger.warning(f"iThink rate query returned non-200 or empty data ({res.status_code}). Using fallback rates.")
-        return {"ok": True, "options": get_fallback_rates()}
+                return {
+                    "ok": True,
+                    "options": options,
+                    "expected_delivery_date": data.get("expected_delivery_date") or "3-5 Days",
+                    "zone": data.get("zone")
+                }
+            else:
+                err_msg = data.get("html_message") or data.get("message") or "No serviceable courier partners found for this pincode route."
+                return {"ok": False, "error": err_msg}
+        else:
+            err_msg = data.get("html_message") or data.get("message") or data.get("error") or res.text
+            return {"ok": False, "error": f"iThink Serviceability Check Failed ({res.status_code}): {err_msg}"}
     except Exception as e:
         logger.error(f"iThink rate calculation exception: {str(e)}")
-        return {"ok": True, "options": get_fallback_rates()}
+        return {"ok": False, "error": f"iThink Serviceability Exception: {str(e)}"}
 
 
 def create_ithink_order(order_payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Pushes an order to iThink Logistics for automated multi-vendor dispatch.
-    Returns {"ok": True, "ithink_order_id": ..., "awb_number": ..., "status": ...}.
+    Pushes an order to iThink Logistics API v3 for automated multi-vendor dispatch.
+    Returns {"ok": True, "ithink_order_id": ..., "awb_number": ..., "status": ...} or {"ok": False, "error": ...}.
+    No mock fallbacks.
     """
+    if not ITHINK_ACCESS_TOKEN or not ITHINK_SECRET_KEY:
+        err = "iThink API credentials (ITHINK_ACCESS_TOKEN and ITHINK_SECRET_KEY) are missing in environment configuration."
+        logger.error(err)
+        return {"ok": False, "error": err}
+
     order_num = str(order_payload.get("order_number") or f"IIP-{int(time.time())}").strip()
-    wh_code = str(order_payload.get("pickup_address_code") or "WH_IIP_DEFAULT").strip()
+    wh_code = str(order_payload.get("pickup_address_code") or order_payload.get("pickup_address_id") or "").strip()
     consignee_phone = sanitize_phone(order_payload.get("consignee_phone") or "")
 
-    if not consignee_phone:
-        return {
-            "ok": False,
-            "error": "Valid 10-digit mobile number starting with 6-9 is required for delivery consignee."
-        }
+    if not wh_code:
+        return {"ok": False, "error": "Pickup address warehouse ID (pickup_address_code) is required for iThink order creation."}
 
-    # If iThink credentials missing, generate local order confirmation
-    if not ITHINK_ACCESS_TOKEN or not ITHINK_SECRET_KEY:
-        sim_awb = f"ITHK{int(time.time())}{order_num[-4:]}"
-        return {
-            "ok": True,
-            "ithink_order_id": order_num,
-            "shipment_id": f"SHP-{order_num}",
-            "awb_number": sim_awb,
-            "courier_name": order_payload.get("courier_name") or "iThink Logistics Express",
-            "status": "MANIFESTED",
-            "label_url": f"/api/orders/{order_num}/label.pdf",
-            "tracking_url": f"https://ithinklogistics.com/track/{sim_awb}"
-        }
+    if not consignee_phone:
+        return {"ok": False, "error": "Valid 10-digit Indian mobile number starting with 6-9 is required for delivery consignee."}
 
     try:
         url = f"{ITHINK_BASE_URL}/order/add.json"
         payload = {
             "data": {
                 **get_ithink_auth_payload(),
-                "order_details": [
+                "logistics": str(order_payload.get("logistics") or "delhivery").lower(),
+                "s_type": str(order_payload.get("s_type") or "surface").lower(),
+                "order_type": "forward",
+                "pickup_address_id": wh_code,
+                "shipments": [
                     {
-                        "order_number": order_num,
-                        "order_date": time.strftime("%Y-%m-%d"),
-                        "pickup_address_code": wh_code,
-                        "payment_method": "COD" if order_payload.get("is_cod") else "Prepaid",
-                        "product_name": str(order_payload.get("product_name") or "Industrial Equipment")[:50],
-                        "product_sku": str(order_payload.get("product_sku") or "SKU-IIP")[:30],
-                        "product_quantity": str(order_payload.get("quantity") or 1),
-                        "product_value": str(order_payload.get("product_value") or 1000),
-                        "shipping_cost": str(order_payload.get("shipping_cost") or 0),
-                        "discount": "0",
+                        "waybill": "",
+                        "order": order_num,
+                        "sub_order": "A",
+                        "order_date": time.strftime("%d-%m-%Y"),
                         "total_amount": str(order_payload.get("total_amount") or 1000),
-                        "consignee_name": str(order_payload.get("consignee_name") or "Valued Customer")[:30],
-                        "consignee_phone": consignee_phone,
-                        "consignee_email": str(order_payload.get("consignee_email") or "buyer@platform.com"),
-                        "consignee_address": str(order_payload.get("consignee_address") or "Delivery Address")[:100],
-                        "consignee_pincode": str(order_payload.get("consignee_pincode") or "110001"),
-                        "consignee_city": str(order_payload.get("consignee_city") or "New Delhi"),
-                        "consignee_state": str(order_payload.get("consignee_state") or "Delhi"),
+                        "name": str(order_payload.get("consignee_name") or "Valued Customer")[:30],
+                        "company_name": str(order_payload.get("consignee_company_name") or "")[:50],
+                        "add": str(order_payload.get("consignee_address") or "Delivery Address")[:100],
+                        "add2": "",
+                        "add3": "",
+                        "pin": str(order_payload.get("consignee_pincode") or "110001"),
+                        "city": str(order_payload.get("consignee_city") or "New Delhi"),
+                        "state": str(order_payload.get("consignee_state") or "Delhi"),
+                        "country": "India",
+                        "phone": consignee_phone,
+                        "alt_phone": consignee_phone,
+                        "email": str(order_payload.get("consignee_email") or "buyer@platform.com"),
+                        "is_billing_same_as_shipping": "yes",
+                        "billing_name": str(order_payload.get("consignee_name") or "Valued Customer")[:30],
+                        "billing_company_name": str(order_payload.get("consignee_company_name") or "")[:50],
+                        "billing_add": str(order_payload.get("consignee_address") or "Delivery Address")[:100],
+                        "billing_add2": "",
+                        "billing_add3": "",
+                        "billing_pin": str(order_payload.get("consignee_pincode") or "110001"),
+                        "billing_city": str(order_payload.get("consignee_city") or "New Delhi"),
+                        "billing_state": str(order_payload.get("consignee_state") or "Delhi"),
+                        "billing_country": "India",
+                        "billing_phone": consignee_phone,
+                        "billing_alt_phone": consignee_phone,
+                        "billing_email": str(order_payload.get("consignee_email") or "buyer@platform.com"),
+                        "products": [
+                            {
+                                "product_name": str(order_payload.get("product_name") or "Industrial Equipment")[:50],
+                                "product_sku": str(order_payload.get("product_sku") or "SKU-IIP")[:30],
+                                "product_quantity": str(order_payload.get("quantity") or 1),
+                                "product_price": str(order_payload.get("product_value") or 1000),
+                                "product_tax_rate": "0",
+                                "product_hsn_code": "8481",
+                                "product_discount": "0"
+                            }
+                        ],
+                        "shipment_length": "10",
+                        "shipment_width": "10",
+                        "shipment_height": "10",
                         "weight": str(max(0.5, float(order_payload.get("weight") or 1.0))),
-                        "length": "10",
-                        "width": "10",
-                        "height": "10"
+                        "shipping_charges": "0",
+                        "giftwrap_charges": "0",
+                        "transaction_charges": "0",
+                        "total_discount": "0",
+                        "first_attemp_discount": "0",
+                        "cod_amount": str(order_payload.get("total_amount") or 0) if order_payload.get("is_cod") else "0",
+                        "payment_mode": "COD" if order_payload.get("is_cod") else "Prepaid",
+                        "reseller_name": "",
+                        "eway_bill_number": "",
+                        "gst_number": ""
                     }
                 ]
             }
         }
         res = requests.post(url, json=payload, timeout=12)
-        if res.status_code in [200, 201]:
-            data = res.json()
-            status_desc = data.get("status") or "SUCCESS"
-            order_info = data.get("data", {}).get(order_num, {})
-            awb = order_info.get("waybill") or order_info.get("awb") or f"ITHK{int(time.time())}"
-            return {
-                "ok": True,
-                "ithink_order_id": order_num,
-                "shipment_id": order_info.get("shipment_id") or f"SHP-{order_num}",
-                "awb_number": awb,
-                "courier_name": order_info.get("logistic_name") or "iThink Logistics Partner",
-                "status": "MANIFESTED",
-                "label_url": order_info.get("label_url") or f"https://api.ithinklogistics.com/shipping/label.php?awb={awb}",
-                "tracking_url": f"https://ithinklogistics.com/track/{awb}",
-                "raw": data
-            }
-        
-        err_msg = ""
         try:
-            err_msg = res.json().get("message", res.text)
+            data = res.json()
         except Exception:
-            err_msg = res.text
-        logger.error(f"iThink order creation failed ({res.status_code}): {err_msg}")
-        
-        # Simulated fallback for sandbox/testing
-        sim_awb = f"ITHK{int(time.time())}{order_num[-4:]}"
-        return {
-            "ok": True,
-            "ithink_order_id": order_num,
-            "shipment_id": f"SHP-{order_num}",
-            "awb_number": sim_awb,
-            "courier_name": "iThink Logistics Express",
-            "status": "MANIFESTED",
-            "label_url": f"/api/orders/{order_num}/label.pdf",
-            "tracking_url": f"https://ithinklogistics.com/track/{sim_awb}",
-            "note": f"Fallback order registered locally due to API status {res.status_code}: {err_msg}"
-        }
+            data = {}
+
+        status_str = str(data.get("status") or "").lower()
+        if res.status_code in [200, 201] and status_str == "success":
+            shipments = data.get("data", {})
+            order_info = {}
+            if isinstance(shipments, dict):
+                # Try getting by key "1" or order_num
+                order_info = shipments.get("1") or shipments.get(order_num) or {}
+            elif isinstance(shipments, list) and len(shipments) > 0:
+                order_info = shipments[0]
+
+            sub_status = str(order_info.get("status") or "").lower()
+            awb = str(order_info.get("waybill") or order_info.get("awb") or "").strip()
+            remark = order_info.get("remark") or order_info.get("error") or data.get("html_message")
+
+            if sub_status == "success" or awb:
+                return {
+                    "ok": True,
+                    "ithink_order_id": order_num,
+                    "shipment_id": order_info.get("refnum") or f"SHP-{order_num}",
+                    "awb_number": awb,
+                    "courier_name": order_info.get("logistic_name") or order_payload.get("courier_name") or "iThink Logistics Partner",
+                    "status": "MANIFESTED",
+                    "label_url": f"https://my.ithinklogistics.com/shipping/label.php?awb={awb}" if awb else "",
+                    "tracking_url": f"https://my.ithinklogistics.com/track/{awb}" if awb else "",
+                    "raw": data
+                }
+            else:
+                err_msg = remark or "iThink Order API returned error status for shipment."
+                logger.error(f"iThink order creation failed: {err_msg}")
+                return {"ok": False, "error": f"iThink Order Creation Failed: {err_msg}", "raw": data}
+
+        err_msg = data.get("html_message") or data.get("message") or data.get("error") or res.text
+        logger.error(f"iThink order API error ({res.status_code}): {err_msg}")
+        return {"ok": False, "error": f"iThink Order API Error ({res.status_code}): {err_msg}"}
     except Exception as e:
         logger.error(f"iThink order creation exception: {str(e)}")
-        sim_awb = f"ITHK{int(time.time())}"
-        return {
-            "ok": True,
-            "ithink_order_id": order_num,
-            "shipment_id": f"SHP-{order_num}",
-            "awb_number": sim_awb,
-            "courier_name": "iThink Logistics Express",
-            "status": "MANIFESTED",
-            "label_url": f"/api/orders/{order_num}/label.pdf",
-            "tracking_url": f"https://ithinklogistics.com/track/{sim_awb}"
-        }
+        return {"ok": False, "error": f"iThink Order Creation Exception: {str(e)}"}
 
 
 def track_ithink_shipment(awb_number: str) -> Dict[str, Any]:
     """
-    Fetch tracking history and current delivery status for an AWB from iThink Logistics.
+    Fetch tracking history and current delivery status for an AWB directly from iThink Logistics API v3.
     """
     clean_awb = str(awb_number or "").strip()
     if not clean_awb:
-        return {"ok": False, "error": "AWB number is required."}
+        return {"ok": False, "error": "AWB number is required for tracking."}
 
     if not ITHINK_ACCESS_TOKEN or not ITHINK_SECRET_KEY:
-        return {
-            "ok": True,
-            "awb_number": clean_awb,
-            "current_status": "IN_TRANSIT",
-            "location": "Regional Sorting Facility",
-            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "history": [
-                {"status": "MANIFESTED", "location": "Seller Warehouse", "time": "2026-09-08 10:00:00"},
-                {"status": "IN_TRANSIT", "location": "Regional Hub", "time": "2026-09-08 14:30:00"}
-            ]
-        }
+        return {"ok": False, "error": "iThink API credentials (ITHINK_ACCESS_TOKEN and ITHINK_SECRET_KEY) are missing in environment configuration."}
 
     try:
         url = f"{ITHINK_BASE_URL}/tracking/get.json"
@@ -406,16 +377,16 @@ def track_ithink_shipment(awb_number: str) -> Dict[str, Any]:
             }
         }
         res = requests.post(url, json=payload, timeout=10)
-        if res.status_code in [200, 201]:
+        try:
             data = res.json()
+        except Exception:
+            data = {}
+
+        if res.status_code in [200, 201] and str(data.get("status")).lower() == "success":
             return {"ok": True, "raw": data}
+        else:
+            err_msg = data.get("html_message") or data.get("message") or res.text
+            return {"ok": False, "error": f"iThink Tracking API Error ({res.status_code}): {err_msg}"}
     except Exception as e:
         logger.error(f"iThink tracking exception: {str(e)}")
-
-    return {
-        "ok": True,
-        "awb_number": clean_awb,
-        "current_status": "IN_TRANSIT",
-        "location": "Regional Hub",
-        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")
-    }
+        return {"ok": False, "error": f"iThink Tracking Exception: {str(e)}"}
