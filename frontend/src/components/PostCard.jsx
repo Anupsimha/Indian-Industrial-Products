@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Heart, Bookmark, MessageCircle, MapPin, MoreHorizontal, UserPlus, UserCheck, Send, Share2, Trash2 } from "lucide-react";
+import { Heart, Bookmark, MessageCircle, MapPin, MoreHorizontal, UserPlus, UserCheck, Send, Share2, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
@@ -22,6 +22,33 @@ export const PostCard = ({ post, onUpdate }) => {
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState("");
+  const [currentMediaIdx, setCurrentMediaIdx] = useState(0);
+
+  const mediaList = Array.isArray(post.media_urls) && post.media_urls.length > 0
+    ? post.media_urls
+    : (post.media_url ? [post.media_url] : []);
+
+  const prevMedia = (e) => {
+    e.stopPropagation();
+    setCurrentMediaIdx((idx) => (idx === 0 ? mediaList.length - 1 : idx - 1));
+  };
+
+  const nextMedia = (e) => {
+    e.stopPropagation();
+    setCurrentMediaIdx((idx) => (idx === mediaList.length - 1 ? 0 : idx + 1));
+  };
+
+  const isVideoUrl = (url) => {
+    if (!url) return false;
+    const cleanUrl = url.toLowerCase();
+    return (
+      cleanUrl.endsWith(".mp4") ||
+      cleanUrl.endsWith(".webm") ||
+      cleanUrl.endsWith(".mov") ||
+      cleanUrl.includes("/video/upload/") ||
+      (post.media_type === "video" && mediaList.length === 1)
+    );
+  };
 
   const requireAuth = () => {
     if (!user) { window.location.href = "/login"; return false; }
@@ -162,26 +189,79 @@ export const PostCard = ({ post, onUpdate }) => {
         {post.content}
       </p>
 
-      {post.media_url && post.media_type === "image" && (
-        <button
-          onDoubleClick={toggleLike}
-          className="block w-full"
-          aria-label="Open media"
-        >
-          <img
-            src={optimizedUrl(post.media_url, { w: 800 })}
-            alt=""
-            className="w-full max-h-[420px] lg:max-h-[500px] object-cover bg-slate-100 transition-all"
-          />
-        </button>
-      )}
-      {post.media_url && post.media_type === "video" && (
-        <video
-          src={post.media_url}
-          controls
-          className="w-full max-h-[480px] lg:max-h-[540px] bg-black transition-all"
-          data-testid={`post-video-${post.id}`}
-        />
+      {mediaList.length > 0 && (
+        <div className="relative w-full bg-slate-900 group select-none overflow-hidden" data-testid={`post-media-container-${post.id}`}>
+          {isVideoUrl(mediaList[currentMediaIdx]) ? (
+            <video
+              src={mediaList[currentMediaIdx]}
+              controls
+              className="w-full max-h-[480px] lg:max-h-[540px] bg-black object-contain mx-auto transition-all"
+              data-testid={`post-video-${post.id}`}
+            />
+          ) : (
+            <button
+              onDoubleClick={toggleLike}
+              className="block w-full"
+              aria-label="Open media"
+            >
+              <img
+                src={optimizedUrl(mediaList[currentMediaIdx], { w: 800 })}
+                alt=""
+                className="w-full max-h-[420px] lg:max-h-[500px] object-cover bg-slate-100 transition-all"
+              />
+            </button>
+          )}
+
+          {/* Left Arrow Button */}
+          {mediaList.length > 1 && (
+            <button
+              type="button"
+              onClick={prevMedia}
+              data-testid={`post-media-prev-${post.id}`}
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 hover:bg-black/80 text-white flex items-center justify-center backdrop-blur-sm transition-all shadow-md z-10"
+              aria-label="Previous image"
+            >
+              <ChevronLeft size={22} />
+            </button>
+          )}
+
+          {/* Right Arrow Button */}
+          {mediaList.length > 1 && (
+            <button
+              type="button"
+              onClick={nextMedia}
+              data-testid={`post-media-next-${post.id}`}
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 hover:bg-black/80 text-white flex items-center justify-center backdrop-blur-sm transition-all shadow-md z-10"
+              aria-label="Next image"
+            >
+              <ChevronRight size={22} />
+            </button>
+          )}
+
+          {/* Count Badge & Dot Indicators */}
+          {mediaList.length > 1 && (
+            <>
+              <div className="absolute top-3 right-3 bg-black/60 text-white text-[11px] font-bold px-2.5 py-1 rounded-full backdrop-blur-sm z-10 tracking-wider">
+                {currentMediaIdx + 1} / {mediaList.length}
+              </div>
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-10">
+                {mediaList.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrentMediaIdx(i);
+                    }}
+                    className={`h-1.5 rounded-full transition-all ${
+                      i === currentMediaIdx ? "w-5 bg-white" : "w-1.5 bg-white/50 hover:bg-white/80"
+                    }`}
+                    aria-label={`Go to slide ${i + 1}`}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* Dual Row Action Bar */}

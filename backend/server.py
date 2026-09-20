@@ -191,6 +191,7 @@ class Post(Base):
     group_id = Column(String(36), nullable=True)
     content = Column(Text, nullable=False)
     media_url = Column(String(1024), nullable=True)
+    media_urls = Column(JSON, default=list, nullable=True)
     media_type = Column(String(50), nullable=False)
     category = Column(String(255), nullable=True)
     views_count = Column(Integer, default=0, nullable=False)
@@ -630,6 +631,7 @@ class IndustrialGroupOut(BaseModel):
 class PostCreate(BaseModel):
     content: str
     media_url: Optional[str] = None
+    media_urls: Optional[List[str]] = None
     media_type: Literal["image", "video", "text"] = "text"
     category: Optional[str] = None
     group_id: Optional[str] = None
@@ -643,6 +645,7 @@ class PostOut(BaseModel):
     location: str
     content: str
     media_url: Optional[str]
+    media_urls: List[str] = []
     media_type: str
     category: Optional[str] = None
     group_id: Optional[str] = None
@@ -1234,10 +1237,20 @@ async def hydrate_post(post: Post, current_user: Optional[dict], db: AsyncSessio
         stmt_grp = select(IndustrialGroup.name).where(or_(IndustrialGroup.id == post.group_id, IndustrialGroup.slug == post.group_id))
         group_name = (await db.execute(stmt_grp)).scalars().first()
         
+    raw_urls = getattr(post, "media_urls", None)
+    if isinstance(raw_urls, list) and len(raw_urls) > 0:
+        cleaned_urls = [clean_media_url(u) for u in raw_urls if u]
+    elif post.media_url:
+        cleaned_urls = [clean_media_url(post.media_url)]
+    else:
+        cleaned_urls = []
+
+    first_media_url = cleaned_urls[0] if cleaned_urls else clean_media_url(post.media_url)
+
     return PostOut(
         id=post.id, company_id=company.id, company_name=company.name,
         company_logo=clean_media_url(company.logo_url), location=company.location,
-        content=post.content, media_url=clean_media_url(post.media_url),
+        content=post.content, media_url=first_media_url, media_urls=cleaned_urls,
         media_type=post.media_type, category=post.category,
         group_id=getattr(post, "group_id", None), group_name=group_name,
         views_count=getattr(post, "views_count", 0) or 0,
@@ -2358,9 +2371,16 @@ async def create_post(payload: PostCreate, user: dict = Depends(get_current_user
     if not user.get("company_id"):
         raise HTTPException(status_code=403, detail="Only businesses can post")
     pid = str(uuid.uuid4())
+    
+    media_urls = [u for u in (payload.media_urls or []) if u]
+    if not media_urls and payload.media_url:
+        media_urls = [payload.media_url]
+    
+    primary_media_url = payload.media_url or (media_urls[0] if media_urls else None)
+    
     doc = Post(
         id=pid, company_id=user["company_id"], content=payload.content,
-        media_url=payload.media_url, media_type=payload.media_type,
+        media_url=primary_media_url, media_urls=media_urls, media_type=payload.media_type,
         category=payload.category, group_id=payload.group_id, created_at=now_iso(),
     )
     db.add(doc)
@@ -6904,6 +6924,7 @@ async def startup():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS certifications JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE",
         "ALTER TABLE posts ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
+        "ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE reels ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",
         "ALTER TABLE reels ADD COLUMN IF NOT EXISTS views_count INTEGER DEFAULT 0",
         "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS group_id VARCHAR(255)",

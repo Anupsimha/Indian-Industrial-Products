@@ -27,10 +27,13 @@ export const PostDialog = ({ open, onClose, onSaved }) => {
     setSubmitting(true);
     try {
       const first = media[0];
+      const mediaUrls = media.map((m) => m.url).filter(Boolean);
+      const hasVideo = media.some((m) => m.resource_type === "video");
       const payload = {
         content,
         media_url: first?.url || null,
-        media_type: first ? (first.resource_type === "video" ? "video" : "image") : "text",
+        media_urls: mediaUrls,
+        media_type: mediaUrls.length > 0 ? (hasVideo ? "video" : "image") : "text",
         category: category || null,
         group_id: groupId || null,
       };
@@ -94,7 +97,7 @@ export const PostDialog = ({ open, onClose, onSaved }) => {
           <div>
             <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Media (optional)</label>
             <div className="mt-2">
-              <MediaUploader value={media} onChange={setMedia} accept="image/*,video/*" folder="iip/posts" maxItems={1} testid="post-media" />
+              <MediaUploader value={media} onChange={setMedia} accept="image/*,video/*" folder="iip/posts" multiple={true} maxItems={10} testid="post-media" />
             </div>
           </div>
           <button type="submit" disabled={submitting} data-testid="post-save-btn"
