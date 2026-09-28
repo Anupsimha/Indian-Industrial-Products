@@ -189,6 +189,7 @@ export default function CartPage() {
           name: item.name,
           price: item.price,
           qty: item.quantity || 1,
+          image_url: item.image_url || "",
           company_id: item.company_id || item.seller_id
         })),
         subtotal: cartSubtotal,

@@ -812,7 +812,7 @@ class OrderItemIn(BaseModel):
     name: str
     qty: int
     price: Optional[str] = None
-    image_url: str
+    image_url: Optional[str] = None
     company_name: Optional[str] = None
 
 

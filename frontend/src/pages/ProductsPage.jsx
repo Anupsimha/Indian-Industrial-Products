@@ -145,7 +145,7 @@ export default function ProductsPage() {
           name: item.name,
           qty: item.qty,
           price: item.price || "On Request",
-          image_url: item.image_url,
+          image_url: item.image_url || "",
           company_name: item.company_name || "",
         })),
         subtotal: cartSubtotal,
