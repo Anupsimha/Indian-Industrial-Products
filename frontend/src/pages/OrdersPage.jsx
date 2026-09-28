@@ -21,6 +21,30 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
+  const [trackingModalOpen, setTrackingModalOpen] = useState(false);
+  const [trackingData, setTrackingData] = useState(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+
+  const handleOpenTrackModal = async (orderId) => {
+    setTrackingModalOpen(true);
+    setTrackingLoading(true);
+    setTrackingData(null);
+    try {
+      const { data } = await api.get(`/orders/${orderId}/track`);
+      setTrackingData(data);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to load tracking status");
+      setTrackingModalOpen(false);
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    toast.success("AWB Number copied to clipboard!");
+  };
 
   const handleRejectOrder = async (orderId) => {
     try {
@@ -163,6 +187,16 @@ export default function OrdersPage() {
                 />
               </button>
 
+              {/* Action Buttons */}
+              <div className="px-4 pb-3 flex items-center gap-2">
+                <button
+                  onClick={() => handleOpenTrackModal(order.id)}
+                  className="flex-1 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  <Truck size={14} /> Track Package
+                </button>
+              </div>
+
               {/* Expanded Order Details */}
               {isOpen && (
                 <div className="px-4 pb-4 pt-0 border-t border-slate-50 space-y-3 animate-in fade-in duration-150">
@@ -235,6 +269,126 @@ export default function OrdersPage() {
           );
         })}
       </div>
+
+      {/* Amazon-Style Track Order Modal */}
+      {trackingModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Truck className="text-blue-400" size={20} />
+                <h3 className="font-display font-bold text-base">Shipment Tracking</h3>
+              </div>
+              <button
+                onClick={() => setTrackingModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            {trackingLoading ? (
+              <div className="p-12 text-center flex flex-col items-center justify-center">
+                <div className="w-10 h-10 border-4 border-blue-900 border-t-transparent rounded-full animate-spin mb-4" />
+                <p className="text-sm font-bold text-slate-600">Fetching live status from iThink Logistics...</p>
+              </div>
+            ) : trackingData ? (
+              <div className="p-5 max-h-[80vh] overflow-y-auto space-y-5">
+                {/* Expected Delivery Banner */}
+                <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-2xl shadow-md">
+                  <div className="text-xs uppercase tracking-wider text-blue-200 font-bold">Estimated Delivery</div>
+                  <div className="text-xl font-black mt-0.5">{trackingData.expected_delivery_date || "3-5 Business Days"}</div>
+                  <div className="text-xs text-blue-100 mt-1 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Status: <span className="font-bold">{trackingData.current_status}</span>
+                  </div>
+                </div>
+
+                {/* Carrier & AWB Details */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400 font-extrabold">Logistics Partner</div>
+                    <div className="text-sm font-bold text-slate-900">{trackingData.courier_name}</div>
+                    {trackingData.awb_number && (
+                      <div className="text-xs font-mono text-slate-500 mt-0.5">AWB: {trackingData.awb_number}</div>
+                    )}
+                  </div>
+                  {trackingData.awb_number && (
+                    <button
+                      onClick={() => copyToClipboard(trackingData.awb_number)}
+                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 shadow-sm transition-all"
+                    >
+                      Copy AWB
+                    </button>
+                  )}
+                </div>
+
+                {/* Amazon-Style 5-Milestone Step Progress Bar */}
+                <div className="py-2">
+                  <div className="text-xs font-bold text-slate-900 mb-3">Order Progress</div>
+                  <div className="relative flex items-center justify-between">
+                    {/* Connecting Line */}
+                    <div className="absolute left-4 right-4 top-4 h-1 bg-slate-200 -z-0" />
+                    
+                    {(trackingData.milestones || []).map((ms, idx) => {
+                      const isDone = ms.completed;
+                      return (
+                        <div key={idx} className="relative z-10 flex flex-col items-center text-center w-16">
+                          <div
+                            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all shadow-sm ${
+                              isDone ? "bg-emerald-600 text-white ring-4 ring-emerald-100" : "bg-white border-2 border-slate-300 text-slate-400"
+                            }`}
+                          >
+                            {isDone ? "✓" : idx + 1}
+                          </div>
+                          <span className={`text-[10px] font-bold mt-2 leading-tight ${isDone ? "text-emerald-700" : "text-slate-400"}`}>
+                            {ms.label}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Scan Timeline */}
+                <div>
+                  <div className="text-xs font-bold text-slate-900 mb-3">Activity & Scan History</div>
+                  {trackingData.scan_timeline && trackingData.scan_timeline.length > 0 ? (
+                    <div className="relative pl-4 space-y-4 border-l-2 border-blue-100 ml-2">
+                      {trackingData.scan_timeline.map((scan, i) => (
+                        <div key={i} className="relative group">
+                          <span className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-blue-600 ring-4 ring-blue-100" />
+                          <div className="text-xs font-bold text-slate-900">{scan.status || scan.remark}</div>
+                          <div className="text-[10px] text-slate-500">{scan.location} • {scan.date_time}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 p-4 rounded-2xl text-center text-xs text-slate-500 border border-dashed border-slate-200">
+                      Package is being prepared for pickup by courier partner. Live scan updates will appear here automatically.
+                    </div>
+                  )}
+                </div>
+
+                {/* Official iThink Link if Available */}
+                {trackingData.tracking_url && (
+                  <a
+                    href={trackingData.tracking_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full py-3 bg-blue-50 text-blue-900 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all border border-blue-100"
+                  >
+                    Open Official Courier Tracking Page ↗
+                  </a>
+                )}
+              </div>
+            ) : (
+              <div className="p-8 text-center text-sm text-slate-500">No tracking details found.</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

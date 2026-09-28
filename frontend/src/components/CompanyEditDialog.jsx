@@ -64,11 +64,7 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
         certifications: certs.split(",").map((s) => s.trim()).filter(Boolean),
       };
       const res = await api.patch(`/companies/${company.id}`, payload);
-      if (res.data?.shiprocket_warning) {
-        toast.warning(`Profile updated. Shiprocket Warning: ${res.data.shiprocket_warning}`);
-      } else {
-        toast.success("Profile & Shiprocket pickup location saved");
-      }
+      toast.success("Profile & iThink Logistics warehouse saved!");
       onSaved?.();
       onClose?.();
     } catch (err) {

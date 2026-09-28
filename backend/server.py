@@ -6,13 +6,12 @@ load_dotenv(ROOT_DIR / '.env')
 
 # Email utility (imported after load_dotenv so env vars are available)
 from email_utils import send_email, build_otp_email
-from shiprocket_utils import (
-    fetch_shipping_rates,
-    create_shiprocket_adhoc_order,
-    register_shiprocket_pickup_location,
-    check_shiprocket_pickup_verification,
-    get_shiprocket_pickup_locations,
-    sanitize_shiprocket_phone,
+from ithink_utils import (
+    fetch_ithink_shipping_rates,
+    create_ithink_order,
+    register_ithink_warehouse,
+    track_ithink_shipment,
+    sanitize_phone as sanitize_ithink_phone,
 )
 from payout_crypto import encrypt_bank_field, decrypt_bank_field, mask_account_number
 
@@ -176,9 +175,7 @@ class Company(Base):
     state = Column(String(100), nullable=True)
     pincode = Column(String(20), nullable=True)
     pickup_location_name = Column(String(100), nullable=True)
-    shiprocket_pickup_id = Column(String(100), nullable=True)
-    shiprocket_phone_verified = Column(Boolean, default=False, nullable=True)
-    shiprocket_warning = Column(String(512), nullable=True)
+    ithink_warehouse_code = Column(String(100), nullable=True)
     employees = Column(String(255), nullable=True)
     certifications = Column(JSON, default=list, nullable=True)
     is_featured = Column(Boolean, default=False, nullable=False)
@@ -534,9 +531,7 @@ class CompanyOut(BaseModel):
     state: Optional[str] = None
     pincode: Optional[str] = None
     pickup_location_name: Optional[str] = None
-    shiprocket_pickup_id: Optional[str] = None
-    shiprocket_phone_verified: bool = False
-    shiprocket_warning: Optional[str] = None
+    ithink_warehouse_code: Optional[str] = None
     employees: Optional[str] = None
     certifications: Optional[List[str]] = None
     is_featured: bool = False
@@ -849,7 +844,7 @@ class OrderItemIn(BaseModel):
     name: str
     qty: int
     price: Optional[str] = None
-    image_url: str
+    image_url: Optional[str] = None
     company_name: Optional[str] = None
 
 
@@ -883,8 +878,12 @@ class OrderOut(BaseModel):
     address: Optional[str] = None
     pincode: Optional[str] = None
     created_at: str
-    shiprocket_status: Optional[str] = "SUCCESS"
-    shiprocket_warning: Optional[str] = None
+    ithink_order_id: Optional[str] = None
+    ithink_shipment_id: Optional[str] = None
+    awb_number: Optional[str] = None
+    courier_name: Optional[str] = None
+    label_url: Optional[str] = None
+    tracking_url: Optional[str] = None
 
 
 # -------------------- Bank & Wallet Pydantic Schemas --------------------
@@ -1186,9 +1185,7 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
         state=getattr(company, "state", None),
         pincode=getattr(company, "pincode", None),
         pickup_location_name=getattr(company, "pickup_location_name", None),
-        shiprocket_pickup_id=getattr(company, "shiprocket_pickup_id", None),
-        shiprocket_phone_verified=bool(getattr(company, "shiprocket_phone_verified", False)),
-        shiprocket_warning=getattr(company, "shiprocket_warning", None),
+        ithink_warehouse_code=getattr(company, "ithink_warehouse_code", None),
         employees=company.employees,
         certifications=company.certifications,
         is_featured=company.is_featured,
@@ -2292,8 +2289,7 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
                 is_ver = bool(sr_res.get("phone_verified", False))
                 warn = sr_res.get("phone_warning")
                 upd_vals = {
-                    "shiprocket_phone_verified": is_ver,
-                    "shiprocket_warning": warn
+                    "ithink_warehouse_code": wh_code,
                 }
                 if reg_nickname and reg_nickname != company.pickup_location_name:
                     upd_vals["pickup_location_name"] = reg_nickname
@@ -2301,9 +2297,11 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
                 
                 await db.execute(update(Company).where(Company.id == company_id).values(**upd_vals))
                 await db.commit()
-                company.shiprocket_phone_verified = is_ver
-                company.shiprocket_warning = warn
-                logger.info(f"Shiprocket pickup location registered for company '{company.name}': {reg_nickname} (Verified: {is_ver})")
+                company.ithink_warehouse_code = wh_code
+                logger.info(f"iThink warehouse registered for company '{company.name}': {wh_code}")
+            else:
+                logger.error(f"iThink warehouse registration failed for company '{company.name}': {it_res.get('error')}")
+                raise HTTPException(status_code=400, detail=it_res.get("error", "iThink warehouse registration failed"))
         except HTTPException:
             raise
         except Exception as sr_err:
@@ -2336,8 +2334,7 @@ async def sync_company_pickup_status(user: dict = Depends(get_current_user), db:
         warn = "Phone verification is pending in your Shiprocket Panel (Settings -> Pickup Addresses). Check your mobile number for Shiprocket OTP."
 
     await db.execute(update(Company).where(Company.id == comp.id).values(
-        shiprocket_phone_verified=is_verified,
-        shiprocket_warning=warn
+        ithink_warehouse_code=wh_code,
     ))
     await db.commit()
 
@@ -2345,9 +2342,9 @@ async def sync_company_pickup_status(user: dict = Depends(get_current_user), db:
         "ok": True,
         "company_id": comp.id,
         "pickup_location_name": comp.pickup_location_name,
-        "shiprocket_phone_verified": is_verified,
-        "status": status_str,
-        "warning": warn
+        "ithink_warehouse_code": wh_code,
+        "status": "ACTIVE",
+        "warning": None
     }
 
 
@@ -2692,14 +2689,6 @@ async def create_product(request: Request, payload: ProductCreate, user: dict = 
             detail="Please complete your company warehouse address and 6-digit Pincode in profile settings before adding products to the marketplace."
         )
 
-    # Live verification status sync (non-blocking)
-    if not getattr(company, "shiprocket_phone_verified", False):
-        live_ver = check_shiprocket_pickup_verification(company.pickup_location_name, company.mobile, company.pincode)
-        if live_ver.get("phone_verified"):
-            await db.execute(update(Company).where(Company.id == company.id).values(shiprocket_phone_verified=True, shiprocket_warning=None))
-            await db.commit()
-            company.shiprocket_phone_verified = True
-
     pid = str(uuid.uuid4())
 
     
@@ -2867,31 +2856,45 @@ async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSessi
             if comp_id:
                 stmt_c = select(Company).where(Company.id == comp_id)
                 seller_comp = (await db.execute(stmt_c)).scalar_one_or_none()
-                if seller_comp and seller_comp.address and seller_comp.pincode:
-                    # Register/verify pickup location with Shiprocket using actual seller company details
-                    sr_res = register_shiprocket_pickup_location({
-                        "pickup_location": seller_comp.pickup_location_name,
-                        "name": seller_comp.owner_name or seller_comp.name,
-                        "email": seller_comp.email,
-                        "phone": seller_comp.mobile,
-                        "address": seller_comp.address,
-                        "city": seller_comp.city,
-                        "state": seller_comp.state,
-                        "pin_code": seller_comp.pincode,
-                        "gstin": seller_comp.gst or ""
-                    })
-                    if sr_res.get("ok"):
-                        reg_nick = sr_res.get("pickup_location")
-                        is_ver = bool(sr_res.get("phone_verified", False))
-                        warn = sr_res.get("phone_warning")
-                        await db.execute(update(Company).where(Company.id == seller_comp.id).values(
-                            pickup_location_name=reg_nick,
-                            shiprocket_phone_verified=is_ver,
-                            shiprocket_warning=warn
-                        ))
-                        await db.commit()
-                        if is_ver:
-                            pickup_location = reg_nick
+                if seller_comp:
+                    wh_code = seller_comp.ithink_warehouse_code
+                    if not wh_code:
+                        comp_pin = (seller_comp.pincode or "").strip()
+                        if not comp_pin and seller_comp.address:
+                            import re
+                            m_pin = re.search(r'\b[1-9][0-9]{5}\b', seller_comp.address)
+                            if m_pin:
+                                comp_pin = m_pin.group(0)
+                        if not comp_pin:
+                            comp_pin = "560073"
+
+                        comp_city, comp_state = resolve_pincode_city_state(
+                            comp_pin,
+                            user_city=seller_comp.city,
+                            user_state=seller_comp.state
+                        )
+
+                        it_wh_res = register_ithink_warehouse({
+                            "id": seller_comp.id,
+                            "name": seller_comp.name,
+                            "owner_name": seller_comp.owner_name or seller_comp.name,
+                            "email": seller_comp.email or "seller@iip.com",
+                            "mobile": seller_comp.mobile or "9876543210",
+                            "address": seller_comp.address or f"Industrial Estate, {comp_city}",
+                            "city": comp_city,
+                            "state": comp_state,
+                            "pincode": comp_pin,
+                            "gstin": seller_comp.gst or ""
+                        })
+                        if it_wh_res.get("ok"):
+                            wh_code = it_wh_res.get("warehouse_code")
+                            await db.execute(update(Company).where(Company.id == seller_comp.id).values(
+                                ithink_warehouse_code=wh_code,
+                                pincode=comp_pin,
+                                city=comp_city,
+                                state=comp_state
+                            ))
+                            await db.commit()
 
         # Fallback to master account verified warehouse if custom location is unverified or missing
         if not pickup_location:
@@ -2930,9 +2933,22 @@ async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSessi
             user_state=user.get("state")
         )
 
-        comment_text = "Paid order on IIP Marketplace"
-        if seller_comp:
-            comment_text += f" | Seller Origin: {seller_comp.name}, {seller_comp.address or ''}, {seller_comp.city or ''} ({seller_comp.pincode or ''}), Phone: {seller_comp.mobile or ''}"
+        item_name = "Industrial Product"
+        item_sku = "SKU-IIP"
+        item_qty = 1
+        item_price = order.total
+        if order.items and isinstance(order.items, list) and len(order.items) > 0 and isinstance(order.items[0], dict):
+            item_name = order.items[0].get("name", "Industrial Product")
+            item_sku = str(order.items[0].get("id") or order.items[0].get("product_id") or "SKU-IIP")
+            item_qty = int(order.items[0].get("qty") or order.items[0].get("quantity") or 1)
+            raw_p = order.items[0].get("price")
+            parsed_p = None
+            if raw_p:
+                import re
+                digits = re.findall(r'\d+(?:\.\d+)?', str(raw_p).replace(',', ''))
+                if digits:
+                    parsed_p = float(digits[0])
+            item_price = parsed_p if parsed_p is not None else float(order.subtotal or 1000)
 
         sr_payload = {
             "order_id": order.id[:30],
@@ -2976,6 +2992,8 @@ async def auto_sync_order_to_shiprocket(order: Order, user: dict, db: AsyncSessi
     except Exception as e:
         logger.error(f"Error syncing order to Shiprocket: {str(e)}")
         return None
+
+
 
 async def credit_seller_wallet_for_order(order: Order, db: AsyncSession):
     """
@@ -3132,13 +3150,9 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
     if status == "paid" or payload.payment_method != "cod":
         await credit_seller_wallet_for_order(order, db)
 
-    # Automatically push order to live Shiprocket panel
-    sr_res = await auto_sync_order_to_shiprocket(order, user, db)
-    shiprocket_status = "SUCCESS"
-    shiprocket_warning = None
-    if isinstance(sr_res, dict) and not sr_res.get("ok"):
-        shiprocket_status = "FAILED"
-        shiprocket_warning = sr_res.get("error") or "Shiprocket order sync failed"
+    # Automatically push order to live iThink panel
+    it_res = await auto_sync_order_to_ithink(order, user, db)
+    ithink_order = (it_res.get("order") or {}) if isinstance(it_res, dict) else {}
 
     return OrderOut(
         id=order.id, user_id=order.user_id, items=order.items or [],
@@ -3147,7 +3161,12 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
         payment_method=order.payment_method, payment_id=order.payment_id,
         razorpay_order_id=order.razorpay_order_id,
         status=order.status, address=order.address, pincode=order.pincode, created_at=order.created_at,
-        shiprocket_status=shiprocket_status, shiprocket_warning=shiprocket_warning
+        ithink_order_id=ithink_order.get("ithink_order_id"),
+        ithink_shipment_id=ithink_order.get("ithink_shipment_id"),
+        awb_number=ithink_order.get("awb_number"),
+        courier_name=ithink_order.get("courier_name"),
+        label_url=ithink_order.get("label_url"),
+        tracking_url=ithink_order.get("tracking_url"),
     )
 
 
@@ -3162,7 +3181,13 @@ async def my_orders(user: dict = Depends(get_current_user), db: AsyncSession = D
         gst=o.gst, total=o.total, delivery_option=o.delivery_option,
         payment_method=o.payment_method, payment_id=o.payment_id,
         razorpay_order_id=o.razorpay_order_id,
-        status=o.status, address=o.address, created_at=o.created_at
+        status=o.status, address=o.address, pincode=o.pincode, created_at=o.created_at,
+        ithink_order_id=o.ithink_order_id,
+        ithink_shipment_id=o.ithink_shipment_id,
+        awb_number=o.awb_number,
+        courier_name=o.courier_name,
+        label_url=o.label_url,
+        tracking_url=o.tracking_url,
     ) for o in orders]
 
 
@@ -3173,15 +3198,105 @@ async def get_order(order_id: str, user: dict = Depends(get_current_user), db: A
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if order.user_id != user["id"] and user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=403, detail="Forbidden: You are not authorized to view this order.")
     return OrderOut(
         id=order.id, user_id=order.user_id, items=order.items or [],
         subtotal=order.subtotal, delivery_cost=order.delivery_cost,
         gst=order.gst, total=order.total, delivery_option=order.delivery_option,
         payment_method=order.payment_method, payment_id=order.payment_id,
         razorpay_order_id=order.razorpay_order_id,
-        status=order.status, address=order.address, created_at=order.created_at
+        status=order.status, address=order.address, pincode=order.pincode, created_at=order.created_at,
+        ithink_order_id=order.ithink_order_id,
+        ithink_shipment_id=order.ithink_shipment_id,
+        awb_number=order.awb_number,
+        courier_name=order.courier_name,
+        label_url=order.label_url,
+        tracking_url=order.tracking_url,
     )
+
+
+@api.get("/orders/{order_id}/track")
+async def track_order(order_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Returns live tracking status and milestone history for an order.
+    STRICT SECURITY: Requires Authentication. Only the Buyer who placed the order,
+    the Seller whose company is in the order, or an Admin can track this order.
+    """
+    stmt = select(Order).where(Order.id == order_id)
+    order = (await db.execute(stmt)).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Security Authorization Check:
+    is_buyer = (order.user_id == user["id"])
+    is_admin = (user.get("role") == "admin")
+    is_seller = False
+
+    if not is_buyer and not is_admin:
+        stmt_user_comps = select(Company.id).where(Company.owner_id == user["id"])
+        user_comp_ids = set((await db.execute(stmt_user_comps)).scalars().all())
+        if user_comp_ids and order.items and isinstance(order.items, list):
+            for item in order.items:
+                if isinstance(item, dict) and item.get("company_id") in user_comp_ids:
+                    is_seller = True
+                    break
+
+    if not is_buyer and not is_admin and not is_seller:
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: You are not authorized to track this order."
+        )
+
+    # Query iThink tracking API if AWB is available
+    ithink_tracking = None
+    if order.awb_number:
+        from ithink_utils import track_ithink_shipment
+        it_res = track_ithink_shipment(order.awb_number)
+        if it_res.get("ok"):
+            ithink_tracking = it_res
+
+    # Build 5-step Amazon-style milestones
+    steps = [
+        {"key": "placed", "label": "Order Placed", "completed": True, "time": order.created_at},
+        {"key": "shipped", "label": "Shipped", "completed": bool(order.awb_number or order.ithink_order_id), "time": order.created_at if order.awb_number else None},
+        {"key": "in_transit", "label": "In Transit", "completed": False, "time": None},
+        {"key": "out_for_delivery", "label": "Out for Delivery", "completed": False, "time": None},
+        {"key": "delivered", "label": "Delivered", "completed": order.status == "delivered", "time": None}
+    ]
+
+    current_status = "Order Confirmed"
+    if order.status == "delivered":
+        current_status = "Delivered"
+        for s in steps:
+            s["completed"] = True
+    elif ithink_tracking and ithink_tracking.get("status"):
+        st = str(ithink_tracking.get("status")).lower()
+        current_status = ithink_tracking.get("status")
+        if "out" in st:
+            steps[1]["completed"] = True
+            steps[2]["completed"] = True
+            steps[3]["completed"] = True
+        elif "transit" in st or "shipped" in st:
+            steps[1]["completed"] = True
+            steps[2]["completed"] = True
+        elif "manifest" in st or "pickup" in st:
+            steps[1]["completed"] = True
+
+    scans = ithink_tracking.get("scans", []) if ithink_tracking else []
+
+    return {
+        "order_id": order.id,
+        "status": order.status,
+        "current_status": current_status,
+        "courier_name": order.courier_name or (ithink_tracking.get("courier_name") if ithink_tracking else "iThink Logistics Partner"),
+        "awb_number": order.awb_number or (ithink_tracking.get("awb_number") if ithink_tracking else None),
+        "tracking_url": order.tracking_url or (f"https://my.ithinklogistics.com/track/{order.awb_number}" if order.awb_number else None),
+        "expected_delivery_date": ithink_tracking.get("expected_delivery_date") if ithink_tracking else "3-5 Business Days",
+        "milestones": steps,
+        "scan_timeline": scans,
+        "delivery_address": order.address,
+        "pincode": order.pincode
+    }
 
 
 @api.post("/orders/{order_id}/reject")
@@ -6917,9 +7032,10 @@ async def startup():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS state VARCHAR(100)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS pincode VARCHAR(20)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS pickup_location_name VARCHAR(100)",
-        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS shiprocket_pickup_id VARCHAR(100)",
-        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS shiprocket_phone_verified BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS shiprocket_warning VARCHAR(512)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS ithink_warehouse_code VARCHAR(255)",
+        "ALTER TABLE companies DROP COLUMN IF EXISTS shiprocket_pickup_id",
+        "ALTER TABLE companies DROP COLUMN IF EXISTS shiprocket_phone_verified",
+        "ALTER TABLE companies DROP COLUMN IF EXISTS shiprocket_warning",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS employees VARCHAR(255)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS certifications JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE",

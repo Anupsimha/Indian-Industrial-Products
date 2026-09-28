@@ -61,7 +61,7 @@ export default function TermsAndConditionsPage() {
           <section className="space-y-2">
             <h2 className="text-base md:text-lg font-bold text-slate-900">4. Shipping, Logistics & Delivery</h2>
             <p>
-              Industrial product delivery is fulfilled in partnership with integrated logistics providers (such as <strong>Shiprocket</strong> and carrier partners).
+              Industrial product delivery is fulfilled in partnership with integrated logistics providers (such as <strong>iThink Logistics</strong> and carrier partners).
             </p>
             <ul className="list-disc pl-5 space-y-1 text-xs text-slate-600">
               <li>Estimated delivery timelines are provided during checkout based on delivery Pincode.</li>

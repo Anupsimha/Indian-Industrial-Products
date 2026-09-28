@@ -64,7 +64,7 @@ export default function PrivacyPolicyPage() {
             </p>
             <ul className="list-disc pl-5 space-y-1 text-xs text-slate-600">
               <li><strong>Payment Partners:</strong> Razorpay for PCI-DSS compliant payment processing.</li>
-              <li><strong>Logistics Partners:</strong> Shiprocket and courier partners to enable delivery.</li>
+              <li><strong>Logistics Partners:</strong> iThink Logistics and courier partners to enable delivery.</li>
             </ul>
           </section>
 
