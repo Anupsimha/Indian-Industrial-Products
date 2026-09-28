@@ -36,10 +36,11 @@ class TestIThinkUtilsComprehensive(unittest.TestCase):
         self.assertEqual(sanitize_phone("+91 98765 43210"), "9876543210")
         self.assertEqual(sanitize_phone("09876543210"), "9876543210")
         self.assertEqual(sanitize_phone("919876543210"), "9876543210")
+        self.assertEqual(sanitize_phone("+91 09876543210"), "9876543210")
         
         # Invalid numbers
-        self.assertIsNone(sanitize_phone("1234567890")) # starts with 1
-        self.assertIsNone(sanitize_phone("5555555555")) # starts with 5
+        self.assertIsNone(sanitize_phone("1234567890"))
+        self.assertIsNone(sanitize_phone("5555555555"))
         self.assertIsNone(sanitize_phone("123"))
         self.assertIsNone(sanitize_phone(""))
         self.assertIsNone(sanitize_phone(None))
@@ -122,6 +123,23 @@ class TestIThinkUtilsComprehensive(unittest.TestCase):
         })
         self.assertFalse(res["ok"])
         self.assertIn("Invalid address", res["error"])
+
+    @patch("requests.post")
+    def test_register_warehouse_non_json(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.json.side_effect = Exception("Invalid JSON")
+        mock_resp.text = "Server Error"
+        mock_post.return_value = mock_resp
+
+        res = register_ithink_warehouse({
+            "name": "Bharat Steel",
+            "email": "test@steel.com",
+            "mobile": "9876543210",
+            "address": "Test",
+            "pincode": "411026"
+        })
+        self.assertFalse(res["ok"])
 
     @patch("requests.post")
     def test_register_warehouse_exception(self, mock_post):
@@ -217,6 +235,13 @@ class TestIThinkUtilsComprehensive(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertIn("500", res["error"])
 
+    @patch("requests.post")
+    def test_fetch_shipping_rates_exception(self, mock_post):
+        mock_post.side_effect = Exception("Network Connection Refused")
+        res = fetch_ithink_shipping_rates(delivery_pincode="110001")
+        self.assertFalse(res["ok"])
+        self.assertIn("Exception", res["error"])
+
     # ------------------ ORDER CREATION TESTS ------------------
 
     def test_create_order_missing_credentials(self):
@@ -235,7 +260,7 @@ class TestIThinkUtilsComprehensive(unittest.TestCase):
         self.assertIn("mobile number", res["error"])
 
     @patch("requests.post")
-    def test_create_order_success(self, mock_post):
+    def test_create_order_success_dict(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
@@ -269,6 +294,31 @@ class TestIThinkUtilsComprehensive(unittest.TestCase):
         self.assertEqual(res["courier_name"], "Delhivery Surface")
 
     @patch("requests.post")
+    def test_create_order_success_list(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "status": "success",
+            "data": [
+                {
+                    "status": "success",
+                    "waybill": "WAYBILL_LIST_123",
+                    "refnum": "SHP-1002",
+                    "logistic_name": "Xpressbees"
+                }
+            ]
+        }
+        mock_post.return_value = mock_resp
+
+        res = create_ithink_order({
+            "order_number": "IIP-1002",
+            "pickup_address_code": "124621",
+            "consignee_phone": "9876543210"
+        })
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["awb_number"], "WAYBILL_LIST_123")
+
+    @patch("requests.post")
     def test_create_order_insufficient_balance_error(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -292,6 +342,30 @@ class TestIThinkUtilsComprehensive(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertIn("Insufficient wallet balance", res["error"])
 
+    @patch("requests.post")
+    def test_create_order_http_error(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.json.return_value = {"error": "Bad Request"}
+        mock_post.return_value = mock_resp
+
+        res = create_ithink_order({
+            "pickup_address_code": "124621",
+            "consignee_phone": "9876543210"
+        })
+        self.assertFalse(res["ok"])
+        self.assertIn("400", res["error"])
+
+    @patch("requests.post")
+    def test_create_order_exception(self, mock_post):
+        mock_post.side_effect = Exception("Order Post Exception")
+        res = create_ithink_order({
+            "pickup_address_code": "124621",
+            "consignee_phone": "9876543210"
+        })
+        self.assertFalse(res["ok"])
+        self.assertIn("Exception", res["error"])
+
     # ------------------ TRACKING TESTS ------------------
 
     def test_track_shipment_missing_awb(self):
@@ -305,7 +379,7 @@ class TestIThinkUtilsComprehensive(unittest.TestCase):
             self.assertFalse(res["ok"])
 
     @patch("requests.post")
-    def test_track_shipment_success(self, mock_post):
+    def test_track_shipment_success_dict(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
@@ -342,6 +416,30 @@ class TestIThinkUtilsComprehensive(unittest.TestCase):
         self.assertEqual(res["scans"][0]["location"], "Bhosari Hub, Pune")
 
     @patch("requests.post")
+    def test_track_shipment_success_list(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [
+            {
+                "shipment_status": "Out For Delivery",
+                "courier_name": "Xpressbees",
+                "scans": [
+                    {
+                        "date": "29-09-2026 08:00:00",
+                        "city": "Bangalore",
+                        "status": "Out For Delivery"
+                    }
+                ]
+            }
+        ]
+        mock_post.return_value = mock_resp
+
+        res = track_ithink_shipment("AWB456")
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["status"], "Out For Delivery")
+        self.assertEqual(len(res["scans"]), 1)
+
+    @patch("requests.post")
     def test_track_shipment_http_error(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 404
@@ -352,6 +450,13 @@ class TestIThinkUtilsComprehensive(unittest.TestCase):
         res = track_ithink_shipment("AWB_INVALID")
         self.assertFalse(res["ok"])
         self.assertIn("404", res["error"])
+
+    @patch("requests.post")
+    def test_track_shipment_exception(self, mock_post):
+        mock_post.side_effect = Exception("Tracking Exception Error")
+        res = track_ithink_shipment("AWB123")
+        self.assertFalse(res["ok"])
+        self.assertIn("Exception", res["error"])
 
 
 if __name__ == '__main__':
