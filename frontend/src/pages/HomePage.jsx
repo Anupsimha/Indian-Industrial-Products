@@ -315,10 +315,10 @@ export default function HomePage() {
     setLoading(true);
     try {
       const s = reset ? 0 : skip;
-      const { data } = await api.get(`/posts?skip=${s}&limit=10`);
+      const { data } = await api.get(`/posts?skip=${s}&limit=6`);
       setPosts((p) => (reset ? data : [...p, ...data]));
       setSkip(s + data.length);
-      if (data.length < 10) setHasMore(false);
+      if (data.length < 6) setHasMore(false);
     } finally {
       setLoading(false);
     }
@@ -670,13 +670,13 @@ export default function HomePage() {
               />
             </div>
 
-            <div className="grid grid-cols-6 border-b border-slate-200 text-center w-full bg-white z-10 sticky top-14 lg:top-16">
+            <div className="flex items-center justify-between border-b border-slate-200 w-full bg-white z-10 sticky top-14 lg:top-16 overflow-x-auto no-scrollbar px-1">
               {["For You", "Following", "Trending", "Local", "Leads", "Jobs"].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveFeedTab(tab)}
                   data-testid={`feed-tab-${tab.toLowerCase().replace(/\s+/g, '-')}`}
-                  className={`py-3 text-[11px] sm:text-xs font-bold transition-colors border-b-2 ${
+                  className={`py-3 px-2 sm:px-3 text-[11px] sm:text-xs font-bold transition-colors border-b-2 whitespace-nowrap shrink-0 flex-1 text-center ${
                     activeFeedTab === tab
                       ? "border-blue-800 text-blue-800 font-extrabold"
                       : "border-transparent text-slate-500 hover:text-slate-700"
@@ -834,6 +834,23 @@ export default function HomePage() {
               </div>
             ) : (
               <>
+                {loading && posts.length === 0 && (
+                  <div className="space-y-4">
+                    {[1, 2, 3].map((n) => (
+                      <div key={n} className="bg-white rounded-xl p-4 border border-slate-200 space-y-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full skeleton-shimmer bg-slate-200" />
+                          <div className="space-y-1.5 flex-1">
+                            <div className="h-4 w-32 skeleton-shimmer bg-slate-200 rounded" />
+                            <div className="h-3 w-20 skeleton-shimmer bg-slate-200 rounded" />
+                          </div>
+                        </div>
+                        <div className="h-4 w-3/4 skeleton-shimmer bg-slate-200 rounded" />
+                        <div className="h-56 w-full skeleton-shimmer bg-slate-200 rounded-lg" />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {filteredMobilePosts.map((p) => (
                   <PostCard key={p.id} post={p} onUpdate={() => fetchPosts(true)} />
                 ))}
@@ -845,7 +862,7 @@ export default function HomePage() {
                 <div ref={sentinelRef} className="h-8" />
               </>
             )}
-            {loading && (
+            {loading && posts.length > 0 && (
               <div className="flex justify-center py-4">
                 <Loader2 className="animate-spin text-blue-800" size={22} />
               </div>

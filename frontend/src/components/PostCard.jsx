@@ -7,6 +7,7 @@ import { optimizedUrl } from "../lib/cloudinary";
 import { useAuth } from "../context/AuthContext";
 import { EnquiryDialog } from "./EnquiryDialog";
 import { PlanBadge } from "./PlanBadge";
+import { FeedVideoPlayer } from "./FeedVideoPlayer";
 import { toast } from "sonner";
 
 export const PostCard = ({ post, onUpdate }) => {
@@ -23,6 +24,7 @@ export const PostCard = ({ post, onUpdate }) => {
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState("");
   const [currentMediaIdx, setCurrentMediaIdx] = useState(0);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   const mediaList = Array.isArray(post.media_urls) && post.media_urls.length > 0
     ? post.media_urls
@@ -192,22 +194,29 @@ export const PostCard = ({ post, onUpdate }) => {
       {mediaList.length > 0 && (
         <div className="relative w-full bg-slate-900 group select-none overflow-hidden" data-testid={`post-media-container-${post.id}`}>
           {isVideoUrl(mediaList[currentMediaIdx]) ? (
-            <video
+            <FeedVideoPlayer
               src={mediaList[currentMediaIdx]}
-              controls
-              className="w-full max-h-[480px] lg:max-h-[540px] bg-black object-contain mx-auto transition-all"
-              data-testid={`post-video-${post.id}`}
+              className="w-full max-h-[480px] lg:max-h-[540px]"
+              testId={`post-video-${post.id}`}
             />
           ) : (
             <button
               onDoubleClick={toggleLike}
-              className="block w-full"
+              className="block w-full relative min-h-[220px]"
               aria-label="Open media"
             >
+              {!imageLoaded && (
+                <div className="absolute inset-0 skeleton-shimmer bg-slate-800" />
+              )}
               <img
                 src={optimizedUrl(mediaList[currentMediaIdx], { w: 800 })}
                 alt=""
-                className="w-full max-h-[420px] lg:max-h-[500px] object-cover bg-slate-100 transition-all"
+                loading="lazy"
+                decoding="async"
+                onLoad={() => setImageLoaded(true)}
+                className={`w-full max-h-[420px] lg:max-h-[500px] object-cover bg-slate-100 transition-opacity duration-300 ${
+                  imageLoaded ? "opacity-100" : "opacity-0"
+                }`}
               />
             </button>
           )}
