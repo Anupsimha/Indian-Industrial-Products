@@ -45,13 +45,13 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
     e.preventDefault();
     if (!form.name?.trim()) return toast.error("Company name is required");
     if (!form.owner_name?.trim()) return toast.error("Owner name is required");
-    if (!form.mobile?.trim()) return toast.error("Phone number is required for Shiprocket pickup");
-    if (!form.email?.trim()) return toast.error("Email is required for Shiprocket pickup");
-    if (!form.address?.trim()) return toast.error("Street Address / Factory Unit is required for Shiprocket pickup");
-    if (!form.city?.trim()) return toast.error("City is required for Shiprocket pickup");
-    if (!form.state?.trim()) return toast.error("State is required for Shiprocket pickup");
+    if (!form.mobile?.trim()) return toast.error("Phone number is required for iThink pickup");
+    if (!form.email?.trim()) return toast.error("Email is required for iThink pickup");
+    if (!form.address?.trim()) return toast.error("Street Address / Factory Unit is required for iThink pickup");
+    if (!form.city?.trim()) return toast.error("City is required for iThink pickup");
+    if (!form.state?.trim()) return toast.error("State is required for iThink pickup");
     if (!form.pincode?.trim() || form.pincode.trim().length !== 6 || !/^\d{6}$/.test(form.pincode.trim())) {
-      return toast.error("Valid 6-Digit Warehouse Pincode is required for Shiprocket logistics");
+      return toast.error("Valid 6-Digit Warehouse Pincode is required for iThink logistics");
     }
 
     setSubmitting(true);
@@ -111,19 +111,19 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
             <Row label="Website" value={form.website} onChange={(v) => setForm({ ...form, website: v })} testid="ce-web" />
           </Section>
 
-          <Section title="Shiprocket Warehouse & Pickup Location">
-            <p className="text-[11px] text-slate-500 mb-2">Used by Shiprocket couriers for direct factory/shop pickup and rate calculation.</p>
+          <Section title="iThink Logistics Warehouse & Pickup Location">
+            <p className="text-[11px] text-slate-500 mb-2">Used by iThink Logistics couriers for direct factory/shop pickup and rate calculation.</p>
             
             <div className="mb-3 p-3 bg-blue-50 border border-blue-100 rounded-xl text-[11px] font-medium space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
-                  {company?.shiprocket_phone_verified ? (
+                  {company?.ithink_warehouse_code ? (
                     <span className="text-emerald-700 font-bold flex items-center gap-1 text-xs">
-                      <CheckCircle2 size={16} className="text-emerald-600 shrink-0" /> Shiprocket Pickup Verified
+                      <CheckCircle2 size={16} className="text-emerald-600 shrink-0" /> Warehouse Registered ({company.ithink_warehouse_code})
                     </span>
                   ) : (
                     <span className="text-amber-800 font-bold flex items-center gap-1 text-xs">
-                      <Info size={16} className="text-amber-600 shrink-0" /> Phone OTP Verification Pending
+                      <Info size={16} className="text-amber-600 shrink-0" /> Warehouse Registration Pending
                     </span>
                   )}
                 </div>
@@ -132,11 +132,11 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
                   onClick={async () => {
                     try {
                       const res = await api.post("/companies/me/sync-pickup-status");
-                      if (res.data?.shiprocket_phone_verified) {
-                        toast.success("Shiprocket Warehouse Phone Verification Confirmed!");
+                      if (res.data?.ithink_warehouse_code) {
+                        toast.success(`iThink Warehouse Registered: ${res.data.ithink_warehouse_code}`);
                         onSaved?.();
                       } else {
-                        toast.warning("Verification is still pending in Shiprocket. Check warehouse mobile number for OTP.");
+                        toast.warning("Warehouse registration pending. Please verify details.");
                       }
                     } catch (err) {
                       toast.error(formatApiError(err.response?.data?.detail) || "Failed to sync status");
@@ -144,11 +144,11 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
                   }}
                   className="px-2.5 py-1 rounded-lg bg-blue-800 text-white font-bold text-[11px] hover:bg-blue-900 transition-colors shadow-xs"
                 >
-                  Sync Status
+                  Register Warehouse
                 </button>
               </div>
               <p className="leading-relaxed text-slate-600">
-                Shiprocket requires a 1-time OTP verification for new warehouse phone numbers. If pending, verify the OTP sent to <strong>{form.mobile || "your warehouse mobile"}</strong> or check your Shiprocket Panel.
+                iThink Logistics uses your seller warehouse pincode and phone number for dispatch and rate calculation.
               </p>
             </div>
 
