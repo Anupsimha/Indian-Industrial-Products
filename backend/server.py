@@ -387,6 +387,12 @@ class Order(Base):
     address = Column(Text, nullable=True)
     pincode = Column(String(20), nullable=True)
     created_at = Column(String(255), nullable=False)
+    ithink_order_id = Column(String(255), nullable=True)
+    ithink_shipment_id = Column(String(255), nullable=True)
+    awb_number = Column(String(255), nullable=True)
+    courier_name = Column(String(255), nullable=True)
+    label_url = Column(Text, nullable=True)
+    tracking_url = Column(Text, nullable=True)
 
 
 class SellerBankAccount(Base):
@@ -3158,12 +3164,12 @@ async def my_orders(user: dict = Depends(get_current_user), db: AsyncSession = D
         payment_method=o.payment_method, payment_id=o.payment_id,
         razorpay_order_id=o.razorpay_order_id,
         status=o.status, address=o.address, pincode=o.pincode, created_at=o.created_at,
-        ithink_order_id=o.ithink_order_id,
-        ithink_shipment_id=o.ithink_shipment_id,
-        awb_number=o.awb_number,
-        courier_name=o.courier_name,
-        label_url=o.label_url,
-        tracking_url=o.tracking_url,
+        ithink_order_id=getattr(o, "ithink_order_id", None),
+        ithink_shipment_id=getattr(o, "ithink_shipment_id", None),
+        awb_number=getattr(o, "awb_number", None),
+        courier_name=getattr(o, "courier_name", None),
+        label_url=getattr(o, "label_url", None),
+        tracking_url=getattr(o, "tracking_url", None),
     ) for o in orders]
 
 
@@ -3182,12 +3188,12 @@ async def get_order(order_id: str, user: dict = Depends(get_current_user), db: A
         payment_method=order.payment_method, payment_id=order.payment_id,
         razorpay_order_id=order.razorpay_order_id,
         status=order.status, address=order.address, pincode=order.pincode, created_at=order.created_at,
-        ithink_order_id=order.ithink_order_id,
-        ithink_shipment_id=order.ithink_shipment_id,
-        awb_number=order.awb_number,
-        courier_name=order.courier_name,
-        label_url=order.label_url,
-        tracking_url=order.tracking_url,
+        ithink_order_id=getattr(order, "ithink_order_id", None),
+        ithink_shipment_id=getattr(order, "ithink_shipment_id", None),
+        awb_number=getattr(order, "awb_number", None),
+        courier_name=getattr(order, "courier_name", None),
+        label_url=getattr(order, "label_url", None),
+        tracking_url=getattr(order, "tracking_url", None),
     )
 
 
@@ -6965,6 +6971,12 @@ async def startup():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS cover_url VARCHAR(1024)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS owner_name VARCHAR(255)",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS pincode VARCHAR(20)",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS ithink_order_id VARCHAR(255)",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS ithink_shipment_id VARCHAR(255)",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS awb_number VARCHAR(255)",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS courier_name VARCHAR(255)",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS label_url TEXT",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_url TEXT",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS gst VARCHAR(50)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS pan VARCHAR(50)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS business_type VARCHAR(1024)",
