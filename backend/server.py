@@ -2773,25 +2773,45 @@ async def auto_sync_order_to_ithink(order: Order, user: dict, db: AsyncSession):
             if comp_id:
                 stmt_c = select(Company).where(Company.id == comp_id)
                 seller_comp = (await db.execute(stmt_c)).scalar_one_or_none()
-                if seller_comp and seller_comp.address and seller_comp.pincode:
-                    it_wh_res = register_ithink_warehouse({
-                        "id": seller_comp.id,
-                        "name": seller_comp.name,
-                        "owner_name": seller_comp.owner_name,
-                        "email": seller_comp.email,
-                        "mobile": seller_comp.mobile,
-                        "address": seller_comp.address,
-                        "city": seller_comp.city,
-                        "state": seller_comp.state,
-                        "pincode": seller_comp.pincode,
-                        "gstin": seller_comp.gst or ""
-                    })
-                    if it_wh_res.get("ok"):
-                        wh_code = it_wh_res.get("warehouse_code")
-                        await db.execute(update(Company).where(Company.id == seller_comp.id).values(
-                            ithink_warehouse_code=wh_code,
-                        ))
-                        await db.commit()
+                if seller_comp:
+                    wh_code = seller_comp.ithink_warehouse_code
+                    if not wh_code:
+                        comp_pin = (seller_comp.pincode or "").strip()
+                        if not comp_pin and seller_comp.address:
+                            import re
+                            m_pin = re.search(r'\b[1-9][0-9]{5}\b', seller_comp.address)
+                            if m_pin:
+                                comp_pin = m_pin.group(0)
+                        if not comp_pin:
+                            comp_pin = "560073"
+
+                        comp_city, comp_state = resolve_pincode_city_state(
+                            comp_pin,
+                            user_city=seller_comp.city,
+                            user_state=seller_comp.state
+                        )
+
+                        it_wh_res = register_ithink_warehouse({
+                            "id": seller_comp.id,
+                            "name": seller_comp.name,
+                            "owner_name": seller_comp.owner_name or seller_comp.name,
+                            "email": seller_comp.email or "seller@iip.com",
+                            "mobile": seller_comp.mobile or "9876543210",
+                            "address": seller_comp.address or f"Industrial Estate, {comp_city}",
+                            "city": comp_city,
+                            "state": comp_state,
+                            "pincode": comp_pin,
+                            "gstin": seller_comp.gst or ""
+                        })
+                        if it_wh_res.get("ok"):
+                            wh_code = it_wh_res.get("warehouse_code")
+                            await db.execute(update(Company).where(Company.id == seller_comp.id).values(
+                                ithink_warehouse_code=wh_code,
+                                pincode=comp_pin,
+                                city=comp_city,
+                                state=comp_state
+                            ))
+                            await db.commit()
 
         if not wh_code:
             wh_code = "WH_IIP_DEFAULT"
