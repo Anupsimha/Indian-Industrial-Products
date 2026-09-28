@@ -2268,33 +2268,25 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
         stmt_c = select(Company).where(Company.id == company_id)
         company = (await db.execute(stmt_c)).scalar_one()
 
-        # Trigger Shiprocket addpickup registration for dynamic warehouse routing
+        # Trigger iThink warehouse registration for dynamic seller warehouse routing
         try:
-            sr_res = register_shiprocket_pickup_location({
-                "pickup_location": company.pickup_location_name,
-                "name": company.owner_name or company.name,
+            it_res = register_ithink_warehouse({
+                "id": company.id,
+                "name": company.name,
+                "owner_name": company.owner_name,
                 "email": company.email,
-                "phone": company.mobile,
+                "mobile": company.mobile,
                 "address": company.address,
                 "city": company.city,
                 "state": company.state,
-                "pin_code": company.pincode,
+                "pincode": company.pincode,
                 "gstin": company.gst or ""
             })
-            if not sr_res.get("ok"):
-                logger.error(f"Shiprocket pickup location registration failed for company '{company.name}': {sr_res.get('error')}")
-                raise HTTPException(status_code=400, detail=sr_res.get("error", "Shiprocket pickup location registration failed"))
-            else:
-                reg_nickname = sr_res.get("pickup_location")
-                is_ver = bool(sr_res.get("phone_verified", False))
-                warn = sr_res.get("phone_warning")
+            if it_res.get("ok"):
+                wh_code = it_res.get("warehouse_code")
                 upd_vals = {
                     "ithink_warehouse_code": wh_code,
                 }
-                if reg_nickname and reg_nickname != company.pickup_location_name:
-                    upd_vals["pickup_location_name"] = reg_nickname
-                    company.pickup_location_name = reg_nickname
-                
                 await db.execute(update(Company).where(Company.id == company_id).values(**upd_vals))
                 await db.commit()
                 company.ithink_warehouse_code = wh_code
@@ -2304,9 +2296,9 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
                 raise HTTPException(status_code=400, detail=it_res.get("error", "iThink warehouse registration failed"))
         except HTTPException:
             raise
-        except Exception as sr_err:
-            logger.error(f"Failed registering pickup location with Shiprocket: {str(sr_err)}")
-            raise HTTPException(status_code=400, detail=f"Failed registering pickup location with Shiprocket: {str(sr_err)}")
+        except Exception as it_err:
+            logger.error(f"Failed registering warehouse with iThink Logistics: {str(it_err)}")
+            raise HTTPException(status_code=400, detail=f"Failed registering warehouse with iThink Logistics: {str(it_err)}")
         
     return await hydrate_company(company, user, db)
 
