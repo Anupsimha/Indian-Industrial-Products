@@ -3150,7 +3150,7 @@ async def track_order(order_id: str, user: dict = Depends(get_current_user), db:
 
     if not is_buyer and not is_admin and not is_seller:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=403,
             detail="Forbidden: You are not authorized to track this order."
         )
 
