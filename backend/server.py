@@ -2823,7 +2823,14 @@ async def auto_sync_order_to_ithink(order: Order, user: dict, db: AsyncSession):
             item_name = order.items[0].get("name", "Industrial Product")
             item_sku = str(order.items[0].get("id") or order.items[0].get("product_id") or "SKU-IIP")
             item_qty = int(order.items[0].get("qty") or order.items[0].get("quantity") or 1)
-            item_price = float(order.items[0].get("price") or order.subtotal or 1000)
+            raw_p = order.items[0].get("price")
+            parsed_p = None
+            if raw_p:
+                import re
+                digits = re.findall(r'\d+(?:\.\d+)?', str(raw_p).replace(',', ''))
+                if digits:
+                    parsed_p = float(digits[0])
+            item_price = parsed_p if parsed_p is not None else float(order.subtotal or 1000)
 
         order_payload = {
             "order_number": f"IIP-{order.id[:8].upper()}",
