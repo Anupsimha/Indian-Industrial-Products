@@ -3088,7 +3088,13 @@ async def my_orders(user: dict = Depends(get_current_user), db: AsyncSession = D
         gst=o.gst, total=o.total, delivery_option=o.delivery_option,
         payment_method=o.payment_method, payment_id=o.payment_id,
         razorpay_order_id=o.razorpay_order_id,
-        status=o.status, address=o.address, created_at=o.created_at
+        status=o.status, address=o.address, pincode=o.pincode, created_at=o.created_at,
+        ithink_order_id=o.ithink_order_id,
+        ithink_shipment_id=o.ithink_shipment_id,
+        awb_number=o.awb_number,
+        courier_name=o.courier_name,
+        label_url=o.label_url,
+        tracking_url=o.tracking_url,
     ) for o in orders]
 
 
@@ -3099,15 +3105,105 @@ async def get_order(order_id: str, user: dict = Depends(get_current_user), db: A
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if order.user_id != user["id"] and user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=403, detail="Forbidden: You are not authorized to view this order.")
     return OrderOut(
         id=order.id, user_id=order.user_id, items=order.items or [],
         subtotal=order.subtotal, delivery_cost=order.delivery_cost,
         gst=order.gst, total=order.total, delivery_option=order.delivery_option,
         payment_method=order.payment_method, payment_id=order.payment_id,
         razorpay_order_id=order.razorpay_order_id,
-        status=order.status, address=order.address, created_at=order.created_at
+        status=order.status, address=order.address, pincode=order.pincode, created_at=order.created_at,
+        ithink_order_id=order.ithink_order_id,
+        ithink_shipment_id=order.ithink_shipment_id,
+        awb_number=order.awb_number,
+        courier_name=order.courier_name,
+        label_url=order.label_url,
+        tracking_url=order.tracking_url,
     )
+
+
+@api.get("/orders/{order_id}/track")
+async def track_order(order_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Returns live tracking status and milestone history for an order.
+    STRICT SECURITY: Requires Authentication. Only the Buyer who placed the order,
+    the Seller whose company is in the order, or an Admin can track this order.
+    """
+    stmt = select(Order).where(Order.id == order_id)
+    order = (await db.execute(stmt)).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Security Authorization Check:
+    is_buyer = (order.user_id == user["id"])
+    is_admin = (user.get("role") == "admin")
+    is_seller = False
+
+    if not is_buyer and not is_admin:
+        stmt_user_comps = select(Company.id).where(Company.owner_id == user["id"])
+        user_comp_ids = set((await db.execute(stmt_user_comps)).scalars().all())
+        if user_comp_ids and order.items and isinstance(order.items, list):
+            for item in order.items:
+                if isinstance(item, dict) and item.get("company_id") in user_comp_ids:
+                    is_seller = True
+                    break
+
+    if not is_buyer and not is_admin and not is_seller:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: You are not authorized to track this order."
+        )
+
+    # Query iThink tracking API if AWB is available
+    ithink_tracking = None
+    if order.awb_number:
+        from ithink_utils import track_ithink_shipment
+        it_res = track_ithink_shipment(order.awb_number)
+        if it_res.get("ok"):
+            ithink_tracking = it_res
+
+    # Build 5-step Amazon-style milestones
+    steps = [
+        {"key": "placed", "label": "Order Placed", "completed": True, "time": order.created_at},
+        {"key": "shipped", "label": "Shipped", "completed": bool(order.awb_number or order.ithink_order_id), "time": order.created_at if order.awb_number else None},
+        {"key": "in_transit", "label": "In Transit", "completed": False, "time": None},
+        {"key": "out_for_delivery", "label": "Out for Delivery", "completed": False, "time": None},
+        {"key": "delivered", "label": "Delivered", "completed": order.status == "delivered", "time": None}
+    ]
+
+    current_status = "Order Confirmed"
+    if order.status == "delivered":
+        current_status = "Delivered"
+        for s in steps:
+            s["completed"] = True
+    elif ithink_tracking and ithink_tracking.get("status"):
+        st = str(ithink_tracking.get("status")).lower()
+        current_status = ithink_tracking.get("status")
+        if "out" in st:
+            steps[1]["completed"] = True
+            steps[2]["completed"] = True
+            steps[3]["completed"] = True
+        elif "transit" in st or "shipped" in st:
+            steps[1]["completed"] = True
+            steps[2]["completed"] = True
+        elif "manifest" in st or "pickup" in st:
+            steps[1]["completed"] = True
+
+    scans = ithink_tracking.get("scans", []) if ithink_tracking else []
+
+    return {
+        "order_id": order.id,
+        "status": order.status,
+        "current_status": current_status,
+        "courier_name": order.courier_name or (ithink_tracking.get("courier_name") if ithink_tracking else "iThink Logistics Partner"),
+        "awb_number": order.awb_number or (ithink_tracking.get("awb_number") if ithink_tracking else None),
+        "tracking_url": order.tracking_url or (f"https://my.ithinklogistics.com/track/{order.awb_number}" if order.awb_number else None),
+        "expected_delivery_date": ithink_tracking.get("expected_delivery_date") if ithink_tracking else "3-5 Business Days",
+        "milestones": steps,
+        "scan_timeline": scans,
+        "delivery_address": order.address,
+        "pincode": order.pincode
+    }
 
 
 @api.post("/orders/{order_id}/reject")

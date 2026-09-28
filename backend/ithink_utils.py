@@ -369,21 +369,56 @@ def track_ithink_shipment(awb_number: str) -> Dict[str, Any]:
         return {"ok": False, "error": "iThink API credentials (ITHINK_ACCESS_TOKEN and ITHINK_SECRET_KEY) are missing in environment configuration."}
 
     try:
-        url = f"{ITHINK_BASE_URL}/tracking/get.json"
+        url = f"{ITHINK_BASE_URL}/order/track.json"
         payload = {
             "data": {
                 **get_ithink_auth_payload(),
-                "awb_number": clean_awb
+                "awb_number_list": clean_awb
             }
         }
-        res = requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=12)
         try:
             data = res.json()
         except Exception:
             data = {}
 
-        if res.status_code in [200, 201] and str(data.get("status")).lower() == "success":
-            return {"ok": True, "raw": data}
+        if res.status_code in [200, 201]:
+            shipment_data = {}
+            if isinstance(data, dict):
+                raw_data = data.get("data")
+                if isinstance(raw_data, dict):
+                    shipment_data = raw_data.get(clean_awb) or (next(iter(raw_data.values())) if raw_data else {})
+                elif isinstance(raw_data, list) and len(raw_data) > 0:
+                    shipment_data = raw_data[0]
+            elif isinstance(data, list) and len(data) > 0:
+                shipment_data = data[0]
+
+            scans = []
+            if isinstance(shipment_data, dict):
+                raw_scans = shipment_data.get("scan_details") or shipment_data.get("scans") or []
+                if isinstance(raw_scans, list):
+                    for s in raw_scans:
+                        if isinstance(s, dict):
+                            scans.append({
+                                "date_time": s.get("scan_date_time") or s.get("status_date_time") or s.get("date") or "",
+                                "location": s.get("scan_location") or s.get("location") or s.get("city") or "",
+                                "status": s.get("status_name") or s.get("status") or "",
+                                "remark": s.get("remark") or s.get("status_reason") or s.get("instructions") or ""
+                            })
+
+            curr_status = shipment_data.get("shipment_status") or shipment_data.get("status") or "In Transit"
+            courier_name = shipment_data.get("courier_name") or shipment_data.get("logistic_name") or "iThink Logistics Partner"
+            etd = shipment_data.get("expected_delivery_date") or shipment_data.get("etd") or ""
+
+            return {
+                "ok": True,
+                "awb_number": clean_awb,
+                "status": curr_status,
+                "courier_name": courier_name,
+                "expected_delivery_date": etd,
+                "scans": scans,
+                "raw": data
+            }
         else:
             err_msg = data.get("html_message") or data.get("message") or res.text
             return {"ok": False, "error": f"iThink Tracking API Error ({res.status_code}): {err_msg}"}
