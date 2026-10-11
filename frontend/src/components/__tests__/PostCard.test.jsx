@@ -138,4 +138,23 @@ describe("PostCard Component — Lazy Loading & Media Tests", () => {
 
     jest.useRealTimers();
   });
+
+  test("renders Edit button for post owner and opens PostEditDialog with pre-filled content", () => {
+    const ownerUser = { id: "u-owner", company_id: "comp-1" };
+    renderPostCard(mockPostImage, ownerUser);
+
+    const editBtn = screen.getByTestId("post-edit-post-101");
+    const deleteBtn = screen.getByTestId("post-delete-post-101");
+    expect(editBtn).toBeInTheDocument();
+    expect(deleteBtn).toBeInTheDocument();
+
+    // Click edit button
+    fireEvent.click(editBtn);
+
+    // Verify PostEditDialog opened
+    expect(screen.getByTestId("post-edit-dialog")).toBeInTheDocument();
+    const contentInput = screen.getByTestId("post-edit-content-input");
+    expect(contentInput).toBeInTheDocument();
+    expect(contentInput.value).toBe(mockPostImage.content);
+  });
 });

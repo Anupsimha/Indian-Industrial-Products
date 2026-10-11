@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Heart, Bookmark, MessageCircle, MapPin, MoreHorizontal, UserPlus, UserCheck, Send, Share2, Trash2, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Heart, Bookmark, MessageCircle, MapPin, MoreHorizontal, UserPlus, UserCheck, Send, Share2, Trash2, ChevronLeft, ChevronRight, Loader2, Edit3 } from "lucide-react";
 import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
@@ -8,16 +8,24 @@ import { useAuth } from "../context/AuthContext";
 import { EnquiryDialog } from "./EnquiryDialog";
 import { PlanBadge } from "./PlanBadge";
 import { FeedVideoPlayer } from "./FeedVideoPlayer";
+import { PostEditDialog } from "./PostEditDialog";
 import { toast } from "sonner";
 
 export const PostCard = ({ post, onUpdate }) => {
   const { user } = useAuth();
-  const isOwnPost = user && user.company_id === post.company_id;
-  const [liked, setLiked] = useState(post.is_liked);
-  const [likes, setLikes] = useState(post.likes_count);
-  const [views, setViews] = useState(post.views_count || 0);
-  const [saved, setSaved] = useState(post.is_saved);
-  const [following, setFollowing] = useState(post.is_following);
+  const [currentPost, setCurrentPost] = useState(post);
+  const [editOpen, setEditOpen] = useState(false);
+
+  useEffect(() => {
+    setCurrentPost(post);
+  }, [post]);
+
+  const isOwnPost = user && user.company_id === currentPost.company_id;
+  const [liked, setLiked] = useState(currentPost.is_liked);
+  const [likes, setLikes] = useState(currentPost.likes_count);
+  const [views, setViews] = useState(currentPost.views_count || 0);
+  const [saved, setSaved] = useState(currentPost.is_saved);
+  const [following, setFollowing] = useState(currentPost.is_following);
   const [popping, setPopping] = useState(false);
   const [enquiryOpen, setEnquiryOpen] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -30,9 +38,9 @@ export const PostCard = ({ post, onUpdate }) => {
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
 
-  const mediaList = Array.isArray(post.media_urls) && post.media_urls.length > 0
-    ? post.media_urls
-    : (post.media_url ? [post.media_url] : []);
+  const mediaList = Array.isArray(currentPost.media_urls) && currentPost.media_urls.length > 0
+    ? currentPost.media_urls
+    : (currentPost.media_url ? [currentPost.media_url] : []);
 
   const prevMedia = (e) => {
     e?.stopPropagation?.();
@@ -180,33 +188,46 @@ export const PostCard = ({ post, onUpdate }) => {
           </div>
           <div className="flex items-center gap-1 text-xs lg:text-sm text-slate-500">
             <MapPin size={12} className="lg:scale-110" />
-            <span className="truncate">{post.location}</span>
-            {post.category && (
+            <span className="truncate">{currentPost.location || post.location}</span>
+            {currentPost.category && (
               <span className="ml-2 px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 text-[10px] lg:text-xs font-semibold">
-                {post.category}
+                {currentPost.category}
               </span>
             )}
           </div>
         </div>
         {isOwnPost ? (
-          <button
-            onClick={async () => {
-              if (window.confirm("Are you sure you want to delete this post?")) {
-                try {
-                  await api.delete(`/posts/${post.id}`);
-                  toast.success("Post deleted successfully");
-                  onUpdate?.();
-                } catch (err) {
-                  console.error(err);
-                  toast.error("Failed to delete post");
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => setEditOpen(true)}
+              data-testid={`post-edit-${currentPost.id}`}
+              className="text-xs lg:text-sm font-semibold rounded-full px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 inline-flex items-center gap-1 transition-colors active:scale-95"
+              title="Edit post"
+            >
+              <Edit3 size={13} className="lg:scale-110" />
+              <span>Edit</span>
+            </button>
+            <button
+              onClick={async () => {
+                if (window.confirm("Are you sure you want to delete this post?")) {
+                  try {
+                    await api.delete(`/posts/${currentPost.id}`);
+                    toast.success("Post deleted successfully");
+                    onUpdate?.();
+                  } catch (err) {
+                    console.error(err);
+                    toast.error("Failed to delete post");
+                  }
                 }
-              }
-            }}
-            className="text-xs lg:text-sm font-semibold rounded-full px-3 py-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 inline-flex items-center gap-1.5 transition-colors"
-          >
-            <Trash2 size={14} className="lg:scale-110" />
-            <span>Delete</span>
-          </button>
+              }}
+              data-testid={`post-delete-${currentPost.id}`}
+              className="text-xs lg:text-sm font-semibold rounded-full px-3 py-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 inline-flex items-center gap-1 transition-colors active:scale-95"
+              title="Delete post"
+            >
+              <Trash2 size={13} className="lg:scale-110" />
+              <span>Delete</span>
+            </button>
+          </div>
         ) : (
           <button
             onClick={toggleFollow}
@@ -228,7 +249,7 @@ export const PostCard = ({ post, onUpdate }) => {
 
       {/* Content */}
       <p className="px-4 pb-3 lg:px-5 lg:pb-4 text-sm lg:text-base text-slate-800 leading-relaxed">
-        {post.content}
+        {currentPost.content}
       </p>
 
       {mediaList.length > 0 && (
@@ -464,6 +485,18 @@ export const PostCard = ({ post, onUpdate }) => {
             {comments.length === 0 && <li className="text-xs lg:text-sm text-slate-400">No comments yet. Be the first!</li>}
           </ul>
         </div>
+      )}
+
+      {isOwnPost && (
+        <PostEditDialog
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          post={currentPost}
+          onUpdated={(updatedPost) => {
+            setCurrentPost(updatedPost);
+            onUpdate?.(updatedPost);
+          }}
+        />
       )}
     </article>
   );

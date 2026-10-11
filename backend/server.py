@@ -638,6 +638,15 @@ class PostCreate(BaseModel):
     group_id: Optional[str] = None
 
 
+class PostUpdate(BaseModel):
+    content: Optional[str] = None
+    media_url: Optional[str] = None
+    media_urls: Optional[List[str]] = None
+    media_type: Optional[Literal["image", "video", "text"]] = None
+    category: Optional[str] = None
+    group_id: Optional[str] = None
+
+
 class PostOut(BaseModel):
     id: str
     company_id: str
@@ -2387,6 +2396,52 @@ async def create_post(payload: PostCreate, user: dict = Depends(get_current_user
     stmt = select(Post).where(Post.id == pid)
     doc_loaded = (await db.execute(stmt)).scalar_one()
     return await hydrate_post(doc_loaded, user, db)
+
+
+@api.patch("/posts/{post_id}", response_model=PostOut)
+@api.put("/posts/{post_id}", response_model=PostOut)
+async def update_post(
+    post_id: str,
+    payload: PostUpdate,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(Post).where(Post.id == post_id)
+    post = (await db.execute(stmt)).scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post.company_id != user.get("company_id") and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden: You cannot edit another company's post")
+    
+    if payload.content is not None:
+        post.content = payload.content.strip()
+    if payload.category is not None:
+        post.category = payload.category or None
+    if payload.group_id is not None:
+        post.group_id = payload.group_id or None
+    if payload.media_type is not None:
+        post.media_type = payload.media_type
+
+    if payload.media_urls is not None:
+        clean_media = [u for u in payload.media_urls if u]
+        post.media_urls = clean_media
+        post.media_url = clean_media[0] if clean_media else None
+        if not payload.media_type and clean_media:
+            has_video = any(
+                u.lower().endswith((".mp4", ".webm", ".mov")) or "/video/upload/" in u.lower()
+                for u in clean_media
+            )
+            post.media_type = "video" if has_video else "image"
+        elif not clean_media:
+            post.media_type = "text"
+    elif payload.media_url is not None:
+        post.media_url = payload.media_url or None
+        post.media_urls = [payload.media_url] if payload.media_url else []
+
+    await db.commit()
+    stmt_reload = select(Post).where(Post.id == post_id)
+    post_loaded = (await db.execute(stmt_reload)).scalar_one()
+    return await hydrate_post(post_loaded, user, db)
 
 
 @api.post("/posts/{post_id}/like")
