@@ -2769,6 +2769,7 @@ async def create_product(request: Request, payload: ProductCreate, user: dict = 
     return make_product_out(doc, company)
 
 
+@api.put("/products/{product_id}", response_model=ProductOut)
 @api.patch("/products/{product_id}", response_model=ProductOut)
 async def update_product(product_id: str, payload: ProductCreate, request: Request, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     stmt = select(Product).where(Product.id == product_id)

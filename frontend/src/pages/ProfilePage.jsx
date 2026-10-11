@@ -31,6 +31,7 @@ export default function ProfilePage() {
   const [postOpen, setPostOpen] = useState(false);
   const [reelOpen, setReelOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
   const [userEditOpen, setUserEditOpen] = useState(false);
   const [adminSetupOpen, setAdminSetupOpen] = useState(false);
@@ -328,7 +329,10 @@ export default function ProfilePage() {
         )}
         {activeTab === "products" && (
           <button
-            onClick={() => setProductOpen(true)}
+            onClick={() => {
+              setEditingProduct(null);
+              setProductOpen(true);
+            }}
             className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-full font-bold text-xs shadow transition-colors"
           >
             <Plus size={14} /> Add Product
@@ -390,24 +394,40 @@ export default function ProfilePage() {
                         alt={p.name}
                         className="w-full h-full object-cover"
                       />
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (window.confirm("Are you sure you want to delete this product?")) {
-                            try {
-                              await api.delete(`/products/${p.id}`);
-                              toast.success("Product deleted successfully");
-                              loadCompanyData();
-                            } catch (err) {
-                              console.error(err);
-                              toast.error("Failed to delete product");
+                      <div className="absolute top-2 right-2 flex items-center gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingProduct(p);
+                            setProductOpen(true);
+                          }}
+                          className="p-1.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600 shadow transition-colors"
+                          title="Edit product"
+                          data-testid={`profile-edit-product-${p.id}`}
+                        >
+                          <Edit size={14} />
+                        </button>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (window.confirm("Are you sure you want to delete this product?")) {
+                              try {
+                                await api.delete(`/products/${p.id}`);
+                                toast.success("Product deleted successfully");
+                                loadCompanyData();
+                              } catch (err) {
+                                console.error(err);
+                                toast.error("Failed to delete product");
+                              }
                             }
-                          }
-                        }}
-                        className="absolute top-2 right-2 p-1.5 rounded-full bg-red-50 hover:bg-red-100 text-red-600 shadow transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                          }}
+                          className="p-1.5 rounded-full bg-red-50 hover:bg-red-100 text-red-600 shadow transition-colors"
+                          title="Delete product"
+                          data-testid={`profile-delete-product-${p.id}`}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
                     <div className="p-3">
                       <div className="font-semibold text-sm text-slate-900 line-clamp-1">{p.name}</div>
@@ -552,7 +572,15 @@ export default function ProfilePage() {
       {/* Dialogs */}
       <PostDialog open={postOpen} onClose={() => setPostOpen(false)} onSaved={loadCompanyData} />
       <ReelDialog open={reelOpen} onClose={() => setReelOpen(false)} onSaved={loadCompanyData} />
-      <ProductDialog open={productOpen} onClose={() => setProductOpen(false)} onSaved={loadCompanyData} />
+      <ProductDialog
+        open={productOpen}
+        onClose={() => {
+          setProductOpen(false);
+          setEditingProduct(null);
+        }}
+        initial={editingProduct}
+        onSaved={loadCompanyData}
+      />
       {company && (
         <CompanyEditDialog open={editOpen} onClose={() => setEditOpen(false)} company={company} onSaved={loadCompanyData} />
       )}

@@ -5,11 +5,12 @@ import { whatsappLink } from "../lib/api";
 import {
   MessageSquare, Search, SlidersHorizontal, ShoppingCart, Plus, Minus,
   CheckCircle, MapPin, CreditCard, Clock, ChevronRight, X, Star, ShieldCheck,
-  Truck, ArrowRight, ShieldAlert, Award, Bookmark
+  Truck, ArrowRight, ShieldAlert, Award, Bookmark, Edit3
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
+import { ProductDialog } from "../components/ProductDialog";
 
 const parsePrice = (priceStr) => {
   if (!priceStr || typeof priceStr !== "string") return null;
@@ -48,6 +49,10 @@ export default function ProductsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  // Product Edit State
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [productDialogOpen, setProductDialogOpen] = useState(false);
+
   // Buying Flow State (local to this page's checkout modal)
   const [selectedProduct, setSelectedProduct] = useState(null); // Detail modal product
   const [buyingStep, setBuyingStep] = useState(null); // 'cart' | 'delivery' | 'checkout' | 'payment' | 'processing' | 'confirmed' | null
@@ -65,10 +70,14 @@ export default function ProductsPage() {
     india: { label: "India Delivery (100+ KM)", cost: 199, desc: "Get it in 3-7 Days" }
   };
 
-  useEffect(() => {
+  const fetchProducts = () => {
     api.get("/products")
       .then((r) => setProducts(r.data))
       .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchProducts();
   }, []);
 
   const cats = ["All", ...Array.from(new Set(products.map((p) => p.category)))];
@@ -321,13 +330,29 @@ export default function ProductsPage() {
               className="bg-white border border-slate-100 rounded-2xl p-3 flex gap-3 shadow-sm hover:shadow-md transition-all relative"
               data-testid={`product-mobile-${p.id}`}
             >
-              {/* Save/Bookmark Button at Top Right */}
-              <button 
-                onClick={() => toast.success(`${p.name} saved!`)}
-                className="absolute top-3 right-3 p-1 text-slate-400 hover:text-blue-900 transition-colors"
-              >
-                <Bookmark size={16} />
-              </button>
+              {/* Actions at Top Right */}
+              <div className="absolute top-2.5 right-2.5 flex items-center gap-1 z-10">
+                {user && user.company_id === p.company_id && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingProduct(p);
+                      setProductDialogOpen(true);
+                    }}
+                    className="p-1 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors shadow-xs"
+                    title="Edit Product"
+                    data-testid={`product-mobile-edit-${p.id}`}
+                  >
+                    <Edit3 size={13} />
+                  </button>
+                )}
+                <button 
+                  onClick={() => toast.success(`${p.name} saved!`)}
+                  className="p-1 text-slate-400 hover:text-blue-900 transition-colors"
+                >
+                  <Bookmark size={16} />
+                </button>
+              </div>
 
               {/* Left: Product Image */}
               <div 
@@ -421,6 +446,20 @@ export default function ProductsPage() {
               <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase tracking-wider">
                 {p.stock_left !== undefined && p.stock_left !== null ? `Qty: ${p.stock_left}` : "In Stock"}
               </span>
+              {user && user.company_id === p.company_id && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingProduct(p);
+                    setProductDialogOpen(true);
+                  }}
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-white/95 backdrop-blur-sm text-blue-700 hover:bg-white shadow-sm transition-all hover:scale-105"
+                  title="Edit Product"
+                  data-testid={`product-edit-${p.id}`}
+                >
+                  <Edit3 size={13} />
+                </button>
+              )}
             </div>
 
             <div className="p-3 flex-grow flex flex-col justify-between">
@@ -821,6 +860,21 @@ export default function ProductsPage() {
 
           </div>
         </div>
+      )}
+
+      {/* Product Edit Dialog */}
+      {productDialogOpen && (
+        <ProductDialog
+          open={productDialogOpen}
+          onClose={() => {
+            setProductDialogOpen(false);
+            setEditingProduct(null);
+          }}
+          initial={editingProduct}
+          onSaved={() => {
+            fetchProducts();
+          }}
+        />
       )}
     </div>
   );

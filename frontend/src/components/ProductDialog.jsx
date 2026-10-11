@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { X, MapPin, ImagePlus, Loader2, Trash2, AlertTriangle } from "lucide-react";
 import api, { formatApiError } from "../lib/api";
 import { toast } from "sonner";
@@ -194,14 +195,14 @@ export const ProductDialog = ({ open, onClose, onSaved, initial }) => {
     }
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
+      className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
       data-testid="product-dialog"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full max-w-md rounded-t-2xl md:rounded-2xl shadow-xl animate-fade-up max-h-[92vh] overflow-y-auto"
+        className="bg-white w-full max-w-md rounded-2xl shadow-xl animate-fade-up max-h-[92vh] overflow-y-auto my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -390,6 +391,7 @@ export const ProductDialog = ({ open, onClose, onSaved, initial }) => {
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

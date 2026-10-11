@@ -1,16 +1,17 @@
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import api, { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
 import {
   ArrowLeft, ShoppingCart, MessageSquare, MapPin, Star, CheckCircle,
   Clock, ShieldCheck, Truck, Bookmark, Award, Sparkles, Loader2, Package,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Edit3
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 import { EnquiryDialog } from "../components/EnquiryDialog";
+import { ProductDialog } from "../components/ProductDialog";
 
 export default function ProductDetailPage() {
   const { id } = useParams();
@@ -22,6 +23,7 @@ export default function ProductDetailPage() {
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [enquiryOpen, setEnquiryOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [activeImgIdx, setActiveImgIdx] = useState(0);
   const [isGalleryHovered, setIsGalleryHovered] = useState(false);
 
@@ -64,32 +66,32 @@ export default function ProductDetailPage() {
     }
   };
 
-  useEffect(() => {
-    const fetchProductDetails = async () => {
-      setLoading(true);
-      try {
-        const { data } = await api.get(`/products/${id}`);
-        setProduct(data);
-        
-        // Fetch recommendations from the same category
-        if (data && data.category) {
-          const res = await api.get(`/products?category=${encodeURIComponent(data.category)}`);
-          if (res.data) {
-            // Filter out current product
-            const filtered = res.data.filter((p) => p.id !== data.id);
-            setRecommendations(filtered.slice(0, 6)); // Limit to 6
-          }
+  const fetchProductDetails = useCallback(async () => {
+    try {
+      const { data } = await api.get(`/products/${id}`);
+      setProduct(data);
+      
+      // Fetch recommendations from the same category
+      if (data && data.category) {
+        const res = await api.get(`/products?category=${encodeURIComponent(data.category)}`);
+        if (res.data) {
+          // Filter out current product
+          const filtered = res.data.filter((p) => p.id !== data.id);
+          setRecommendations(filtered.slice(0, 6)); // Limit to 6
         }
-      } catch (err) {
-        console.error("Error fetching product detail:", err);
-        toast.error("Failed to load product details.");
-      } finally {
-        setLoading(false);
       }
-    };
-
-    fetchProductDetails();
+    } catch (err) {
+      console.error("Error fetching product detail:", err);
+      toast.error("Failed to load product details.");
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchProductDetails();
+  }, [fetchProductDetails]);
 
   const handleAddToCart = () => {
     if (!product) return;
@@ -149,12 +151,25 @@ export default function ProductDetailPage() {
           <ArrowLeft size={16} /> Back
         </button>
         <span className="font-display font-extrabold text-slate-900 text-sm">Product Details</span>
-        <button 
-          onClick={() => toast.success(`${product.name} bookmarked!`)}
-          className="p-1.5 rounded-full bg-slate-50 text-slate-400 hover:text-blue-900 transition-colors"
-        >
-          <Bookmark size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          {isOwnProduct && (
+            <button
+              onClick={() => setEditOpen(true)}
+              data-testid="product-detail-top-edit-btn"
+              className="px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold text-xs inline-flex items-center gap-1 transition-colors active:scale-95"
+              title="Edit Product"
+            >
+              <Edit3 size={13} />
+              <span>Edit</span>
+            </button>
+          )}
+          <button 
+            onClick={() => toast.success(`${product.name} bookmarked!`)}
+            className="p-1.5 rounded-full bg-slate-50 text-slate-400 hover:text-blue-900 transition-colors"
+          >
+            <Bookmark size={16} />
+          </button>
+        </div>
       </div>
 
       <div className="lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start max-w-7xl mx-auto">
@@ -298,36 +313,38 @@ export default function ProductDetailPage() {
             </div>
             {/* Product Actions (All Devices) */}
             <div className="flex flex-col gap-3 pt-4 border-t border-slate-100">
-              <div className="flex gap-3">
+              {isOwnProduct ? (
                 <button
-                  onClick={handleAddToCart}
-                  className="flex-grow py-3 border border-blue-900 text-blue-900 font-bold text-sm rounded-2xl hover:bg-blue-50 active:scale-[0.98] transition-all"
+                  onClick={() => setEditOpen(true)}
+                  data-testid="product-detail-edit-action-btn"
+                  className="w-full py-3.5 bg-blue-900 hover:bg-blue-950 text-white font-bold text-sm rounded-2xl shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                 >
-                  Add to Cart
+                  <Edit3 size={16} /> Edit Product Details
                 </button>
-                <button
-                  onClick={() => {
-                    if (isOwnProduct) {
-                      toast.error("You cannot send inquiries to your own business.");
-                      return;
-                    }
-                    setEnquiryOpen(true);
-                  }}
-                  className={`flex-grow py-3 rounded-2xl font-bold text-sm transition-all shadow-sm ${
-                    isOwnProduct
-                      ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                      : "bg-orange-600 hover:bg-orange-700 text-white active:scale-[0.98]"
-                  }`}
-                >
-                  Enquiry Now
-                </button>
-              </div>
-              <button
-                onClick={handleBuyNow}
-                className="w-full py-3.5 bg-blue-900 hover:bg-blue-950 text-white font-bold text-sm rounded-2xl shadow-sm active:scale-[0.98] transition-all"
-              >
-                Buy Now
-              </button>
+              ) : (
+                <>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleAddToCart}
+                      className="flex-grow py-3 border border-blue-900 text-blue-900 font-bold text-sm rounded-2xl hover:bg-blue-50 active:scale-[0.98] transition-all"
+                    >
+                      Add to Cart
+                    </button>
+                    <button
+                      onClick={() => setEnquiryOpen(true)}
+                      className="flex-grow py-3 rounded-2xl font-bold text-sm transition-all shadow-sm bg-orange-600 hover:bg-orange-700 text-white active:scale-[0.98]"
+                    >
+                      Enquiry Now
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleBuyNow}
+                    className="w-full py-3.5 bg-blue-900 hover:bg-blue-950 text-white font-bold text-sm rounded-2xl shadow-sm active:scale-[0.98] transition-all"
+                  >
+                    Buy Now
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -415,54 +432,47 @@ export default function ProductDetailPage() {
       </div>
 
       {/* Sticky Bottom Actions Bar (On Mobile) / Bottom Fixed Panel */}
+      {/* Bottom Sticky Action Bar (Mobile Only) */}
       <div className="fixed bottom-16 lg:bottom-0 inset-x-0 bg-white border-t border-slate-200 px-4 py-3 z-30 flex items-center gap-2 max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto shadow-[0_-4px_12px_rgba(0,0,0,0.1)] rounded-t-3xl pb-3">
-        <a
-          href={isOwnProduct ? "#" : whatsappLink(product.whatsapp || "+919876543210", `Hi, I am interested in your product: "${product.name}" listed on IIP.`)}
-          target={isOwnProduct ? "_self" : "_blank"}
-          rel="noreferrer"
-          onClick={(e) => {
-            if (isOwnProduct) {
-              e.preventDefault();
-              toast.error("You cannot contact yourself.");
-            }
-          }}
-          className={`p-3 rounded-2xl flex items-center justify-center shadow-sm transition-all shrink-0 ${
-            isOwnProduct
-              ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-              : "bg-[#25D366] hover:bg-[#20bd5a] text-white active:scale-[0.98]"
-          }`}
-          title="WhatsApp Enquiry"
-        >
-          <MessageSquare size={18} />
-        </a>
-        <button
-          onClick={() => {
-            if (isOwnProduct) {
-              toast.error("You cannot send inquiries to your own business.");
-              return;
-            }
-            setEnquiryOpen(true);
-          }}
-          className={`flex-1 py-3 rounded-2xl font-bold text-xs transition-all shadow-sm ${
-            isOwnProduct
-              ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-              : "bg-orange-600 hover:bg-orange-700 text-white active:scale-[0.98]"
-          }`}
-        >
-          Enquiry Now
-        </button>
-        <button
-          onClick={handleAddToCart}
-          className="flex-1 py-3 border border-blue-900 text-blue-900 font-bold text-xs rounded-2xl hover:bg-blue-50 active:scale-[0.98] transition-all"
-        >
-          Add to Cart
-        </button>
-        <button
-          onClick={handleBuyNow}
-          className="flex-1 py-3 bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs rounded-2xl shadow-sm active:scale-[0.98] transition-all"
-        >
-          Buy Now
-        </button>
+        {isOwnProduct ? (
+          <button
+            onClick={() => setEditOpen(true)}
+            data-testid="product-detail-mobile-edit-btn"
+            className="flex-1 py-3 bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs rounded-2xl shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+          >
+            <Edit3 size={15} /> Edit Product Details
+          </button>
+        ) : (
+          <>
+            <a
+              href={whatsappLink(product.whatsapp || "+919876543210", `Hi, I am interested in your product: "${product.name}" listed on IIP.`)}
+              target="_blank"
+              rel="noreferrer"
+              className="p-3 rounded-2xl flex items-center justify-center shadow-sm transition-all shrink-0 bg-[#25D366] hover:bg-[#20bd5a] text-white active:scale-[0.98]"
+              title="WhatsApp Enquiry"
+            >
+              <MessageSquare size={18} />
+            </a>
+            <button
+              onClick={() => setEnquiryOpen(true)}
+              className="flex-1 py-3 rounded-2xl font-bold text-xs transition-all shadow-sm bg-orange-600 hover:bg-orange-700 text-white active:scale-[0.98]"
+            >
+              Enquiry Now
+            </button>
+            <button
+              onClick={handleAddToCart}
+              className="flex-1 py-3 border border-blue-900 text-blue-900 font-bold text-xs rounded-2xl hover:bg-blue-50 active:scale-[0.98] transition-all"
+            >
+              Add to Cart
+            </button>
+            <button
+              onClick={handleBuyNow}
+              className="flex-1 py-3 bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs rounded-2xl shadow-sm active:scale-[0.98] transition-all"
+            >
+              Buy Now
+            </button>
+          </>
+        )}
       </div>
 
       {/* Enquiry Dialog */}
@@ -475,6 +485,18 @@ export default function ProductDetailPage() {
         defaultCategory={product.category}
         companyName={product.company_name}
       />
+
+      {/* Product Edit Dialog */}
+      {isOwnProduct && editOpen && (
+        <ProductDialog
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          initial={product}
+          onSaved={() => {
+            fetchProductDetails();
+          }}
+        />
+      )}
     </div>
   );
 }

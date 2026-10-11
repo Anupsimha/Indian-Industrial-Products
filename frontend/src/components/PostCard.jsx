@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Heart, Bookmark, MessageCircle, MapPin, MoreHorizontal, UserPlus, UserCheck, Send, Share2, Trash2, ChevronLeft, ChevronRight, Loader2, Edit3 } from "lucide-react";
+import { Heart, Bookmark, MessageCircle, MapPin, MoreHorizontal, UserPlus, UserCheck, Send, Share2, Trash2, ChevronLeft, ChevronRight, Loader2, Edit3, Link2, Flag } from "lucide-react";
 import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
@@ -34,9 +34,39 @@ export const PostCard = ({ post, onUpdate }) => {
   const [currentMediaIdx, setCurrentMediaIdx] = useState(0);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleOutsideClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("touchstart", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("touchstart", handleOutsideClick);
+    };
+  }, [menuOpen]);
+
+  const handleDeletePost = async () => {
+    if (window.confirm("Are you sure you want to delete this post?")) {
+      try {
+        await api.delete(`/posts/${currentPost.id}`);
+        toast.success("Post deleted successfully");
+        onUpdate?.();
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to delete post");
+      }
+    }
+  };
 
   const mediaList = Array.isArray(currentPost.media_urls) && currentPost.media_urls.length > 0
     ? currentPost.media_urls
@@ -208,18 +238,7 @@ export const PostCard = ({ post, onUpdate }) => {
               <span>Edit</span>
             </button>
             <button
-              onClick={async () => {
-                if (window.confirm("Are you sure you want to delete this post?")) {
-                  try {
-                    await api.delete(`/posts/${currentPost.id}`);
-                    toast.success("Post deleted successfully");
-                    onUpdate?.();
-                  } catch (err) {
-                    console.error(err);
-                    toast.error("Failed to delete post");
-                  }
-                }
-              }}
+              onClick={handleDeletePost}
               data-testid={`post-delete-${currentPost.id}`}
               className="text-xs lg:text-sm font-semibold rounded-full px-3 py-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 inline-flex items-center gap-1 transition-colors active:scale-95"
               title="Delete post"
@@ -242,9 +261,94 @@ export const PostCard = ({ post, onUpdate }) => {
             {following ? "Following" : "Follow"}
           </button>
         )}
-        <button className="p-1 text-slate-400 hover:text-slate-700" aria-label="More">
-          <MoreHorizontal size={18} />
-        </button>
+        <div className="relative shrink-0" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            data-testid={`post-more-btn-${currentPost.id}`}
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"
+            aria-label="More options"
+          >
+            <MoreHorizontal size={18} />
+          </button>
+
+          {menuOpen && (
+            <div
+              className="absolute right-0 top-full mt-1 w-44 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-40 animate-fade-in text-xs font-medium text-slate-700 divide-y divide-slate-100"
+              data-testid={`post-more-menu-${currentPost.id}`}
+            >
+              <div className="py-0.5">
+                {isOwnPost && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setEditOpen(true);
+                      }}
+                      className="w-full px-3 py-2 text-left hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2 transition-colors"
+                      data-testid={`post-menu-edit-${currentPost.id}`}
+                    >
+                      <Edit3 size={14} className="text-blue-600" />
+                      <span>Edit Post</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        handleDeletePost();
+                      }}
+                      className="w-full px-3 py-2 text-left hover:bg-rose-50 hover:text-rose-600 flex items-center gap-2 text-rose-600 transition-colors"
+                      data-testid={`post-menu-delete-${currentPost.id}`}
+                    >
+                      <Trash2 size={14} className="text-rose-600" />
+                      <span>Delete Post</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    const postUrl = `${window.location.origin}/#post-${currentPost.id}`;
+                    navigator.clipboard.writeText(postUrl);
+                    toast.success("Post link copied to clipboard!");
+                  }}
+                  className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2 transition-colors text-slate-700"
+                  data-testid={`post-menu-copylink-${currentPost.id}`}
+                >
+                  <Link2 size={14} className="text-slate-500" />
+                  <span>Copy Link</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    const shareText = `Check out this post on Indian Industrial Products: ${currentPost.content?.slice(0, 80)}...`;
+                    const shareUrl = `${window.location.origin}/#post-${currentPost.id}`;
+                    window.open(whatsappLink(shareText, shareUrl), "_blank");
+                  }}
+                  className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2 transition-colors text-slate-700"
+                  data-testid={`post-menu-whatsapp-${currentPost.id}`}
+                >
+                  <Share2 size={14} className="text-emerald-600" />
+                  <span>Share via WhatsApp</span>
+                </button>
+              </div>
+
+              {!isOwnPost && (
+                <div className="py-0.5">
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      toast.success("Thank you. Post reported for review.");
+                    }}
+                    className="w-full px-3 py-2 text-left hover:bg-rose-50 text-slate-500 hover:text-rose-600 flex items-center gap-2 transition-colors"
+                    data-testid={`post-menu-report-${currentPost.id}`}
+                  >
+                    <Flag size={14} />
+                    <span>Report Post</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Content */}
@@ -487,7 +591,7 @@ export const PostCard = ({ post, onUpdate }) => {
         </div>
       )}
 
-      {isOwnPost && (
+      {isOwnPost && editOpen && (
         <PostEditDialog
           open={editOpen}
           onClose={() => setEditOpen(false)}
