@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Heart, Bookmark, MessageCircle, MapPin, MoreHorizontal, UserPlus, UserCheck, Send, Share2, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import api from "../lib/api";
@@ -25,18 +25,22 @@ export const PostCard = ({ post, onUpdate }) => {
   const [commentText, setCommentText] = useState("");
   const [currentMediaIdx, setCurrentMediaIdx] = useState(0);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
 
   const mediaList = Array.isArray(post.media_urls) && post.media_urls.length > 0
     ? post.media_urls
     : (post.media_url ? [post.media_url] : []);
 
   const prevMedia = (e) => {
-    e.stopPropagation();
+    e?.stopPropagation?.();
     setCurrentMediaIdx((idx) => (idx === 0 ? mediaList.length - 1 : idx - 1));
   };
 
   const nextMedia = (e) => {
-    e.stopPropagation();
+    e?.stopPropagation?.();
     setCurrentMediaIdx((idx) => (idx === mediaList.length - 1 ? 0 : idx + 1));
   };
 
@@ -50,6 +54,42 @@ export const PostCard = ({ post, onUpdate }) => {
       cleanUrl.includes("/video/upload/") ||
       (post.media_type === "video" && mediaList.length === 1)
     );
+  };
+
+  // Reset imageLoaded flag when current slide changes
+  useEffect(() => {
+    setImageLoaded(false);
+  }, [currentMediaIdx]);
+
+  // Auto-scroll through multiple photos (pausing on hover, video, or single media)
+  useEffect(() => {
+    if (mediaList.length <= 1) return;
+    if (isVideoUrl(mediaList[currentMediaIdx]) || isHovered) return;
+
+    const timer = setInterval(() => {
+      setCurrentMediaIdx((idx) => (idx === mediaList.length - 1 ? 0 : idx + 1));
+    }, 3800);
+
+    return () => clearInterval(timer);
+  }, [mediaList.length, currentMediaIdx, isHovered]);
+
+  const handleTouchStart = (e) => {
+    if (mediaList.length <= 1) return;
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e) => {
+    if (mediaList.length <= 1) return;
+    const deltaX = touchStartXRef.current - e.changedTouches[0].clientX;
+    const deltaY = touchStartYRef.current - e.changedTouches[0].clientY;
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 40) {
+      if (deltaX > 0) {
+        nextMedia();
+      } else {
+        prevMedia();
+      }
+    }
   };
 
   const requireAuth = () => {
@@ -192,7 +232,14 @@ export const PostCard = ({ post, onUpdate }) => {
       </p>
 
       {mediaList.length > 0 && (
-        <div className="relative w-full bg-slate-900 group select-none overflow-hidden" data-testid={`post-media-container-${post.id}`}>
+        <div
+          className="relative w-full bg-slate-900 group select-none overflow-hidden"
+          data-testid={`post-media-container-${post.id}`}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
           {isVideoUrl(mediaList[currentMediaIdx]) ? (
             <FeedVideoPlayer
               src={mediaList[currentMediaIdx]}
