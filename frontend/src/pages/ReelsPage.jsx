@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Heart, MessageCircle, Share2, UserPlus, UserCheck, MapPin, ArrowLeft, Volume2, VolumeX, Pause, Play, Search, X, Eye } from "lucide-react";
+import { Heart, MessageCircle, Share2, UserPlus, UserCheck, MapPin, ArrowLeft, Volume2, VolumeX, Pause, Play, Search, X, Eye, Sparkles } from "lucide-react";
 import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
 import { useAuth } from "../context/AuthContext";
+import { useLeadInterests } from "../context/LeadInterestContext";
 import { EnquiryDialog } from "../components/EnquiryDialog";
 import { toast } from "sonner";
 
@@ -241,6 +242,7 @@ const ReelItem = ({ reel, active, isNearActive = true, muted, onMuteToggle }) =>
 };
 
 export default function ReelsPage() {
+  const { isPersonalized, selectedLeadIds } = useLeadInterests();
   const [reels, setReels] = useState([]);
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(true);
@@ -249,14 +251,21 @@ export default function ReelsPage() {
   const containerRef = useRef();
 
   const fetchReels = useCallback((q = "") => {
-    const params = q.trim() ? { search: q.trim() } : {};
-    api.get("/reels", { params })
+    let endpoint = "/reels";
+    let params = q.trim() ? { search: q.trim() } : {};
+    if (!q.trim() && isPersonalized) {
+      endpoint = "/recommendations/reels";
+      if (selectedLeadIds.length > 0) {
+        params.lead_ids = selectedLeadIds.join(",");
+      }
+    }
+    api.get(endpoint, { params })
       .then((r) => {
         setReels(r.data);
         setActive(0);
       })
       .catch(() => {});
-  }, []);
+  }, [isPersonalized, selectedLeadIds]);
 
   useEffect(() => {
     fetchReels("");
@@ -278,8 +287,13 @@ export default function ReelsPage() {
       <Link to="/" className="absolute top-4 left-4 z-50 p-2 bg-black/50 text-white rounded-full backdrop-blur-sm">
         <ArrowLeft size={24} />
       </Link>
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 text-white font-display font-bold">
-        Reels
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 text-white font-display font-bold flex items-center gap-1.5">
+        <span>Reels</span>
+        {isPersonalized && (
+          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-blue-600/90 text-white rounded-full flex items-center gap-1 shadow-sm">
+            <Sparkles size={10} className="fill-white" /> Tailored
+          </span>
+        )}
       </div>
 
       {/* Top Search bar / button */}

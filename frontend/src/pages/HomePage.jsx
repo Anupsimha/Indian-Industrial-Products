@@ -14,6 +14,7 @@ import {
   Briefcase, IndianRupee, Trash2, Edit3
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { useLeadInterests } from "../context/LeadInterestContext";
 import { toast } from "sonner";
 
 const SteelIBeam = ({ size = 20, className }) => (
@@ -279,6 +280,13 @@ function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, on
 
 export default function HomePage() {
   const { user } = useAuth();
+  const {
+    isPersonalized,
+    selectedLeads,
+    selectedLeadIds,
+    resetInterests,
+  } = useLeadInterests();
+
   const [categories, setCategories] = useState(["All", "Steel", "Machinery", "Polymers", "Electricals", "Tools", "Pipes", "Drives"]);
   const [posts, setPosts] = useState([]);
   const [companies, setCompanies] = useState([]);
@@ -315,14 +323,19 @@ export default function HomePage() {
     setLoading(true);
     try {
       const s = reset ? 0 : skip;
-      const { data } = await api.get(`/posts?skip=${s}&limit=6`);
+      let endpoint = `/posts?skip=${s}&limit=6`;
+      if (isPersonalized && activeFeedTab === "For You") {
+        const leadParam = selectedLeadIds.length > 0 ? `&lead_ids=${selectedLeadIds.join(",")}` : "";
+        endpoint = `/recommendations/posts?skip=${s}&limit=6${leadParam}`;
+      }
+      const { data } = await api.get(endpoint);
       setPosts((p) => (reset ? data : [...p, ...data]));
       setSkip(s + data.length);
       if (data.length < 6) setHasMore(false);
     } finally {
       setLoading(false);
     }
-  }, [loading, skip]);
+  }, [loading, skip, isPersonalized, activeFeedTab, selectedLeadIds]);
 
   const fetchRequirements = useCallback(async () => {
     try {
@@ -849,6 +862,40 @@ export default function HomePage() {
                         <div className="h-56 w-full skeleton-shimmer bg-slate-200 rounded-lg" />
                       </div>
                     ))}
+                  </div>
+                )}
+                {isPersonalized && activeFeedTab === "For You" && (
+                  <div className="mb-4 p-3.5 bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 border border-blue-200/80 rounded-2xl flex items-center justify-between gap-3 shadow-sm">
+                    <div className="flex items-center gap-2.5 text-xs text-blue-950">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <Sparkles size={16} className="fill-white" />
+                      </div>
+                      <div>
+                        <span className="font-bold flex items-center gap-1.5">
+                          Tailored for your selected leads
+                          <span className="text-[10px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded">Personalized</span>
+                        </span>
+                        <p className="text-[11px] text-blue-800 line-clamp-1">
+                          {selectedLeads.map((l) => l.category || l.product_name).filter(Boolean).slice(0, 3).join(" • ")}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Link
+                        to="/leads"
+                        className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition-all shadow-sm"
+                      >
+                        Change
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={resetInterests}
+                        className="px-2.5 py-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 rounded-xl transition-all"
+                        title="Reset to standard feed"
+                      >
+                        Reset
+                      </button>
+                    </div>
                   </div>
                 )}
                 {filteredMobilePosts.map((p) => (

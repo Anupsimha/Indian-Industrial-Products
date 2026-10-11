@@ -5,11 +5,12 @@ import { whatsappLink } from "../lib/api";
 import {
   MessageSquare, Search, SlidersHorizontal, ShoppingCart, Plus, Minus,
   CheckCircle, MapPin, CreditCard, Clock, ChevronRight, X, Star, ShieldCheck,
-  Truck, ArrowRight, ShieldAlert, Award, Bookmark, Edit3
+  Truck, ArrowRight, ShieldAlert, Award, Bookmark, Edit3, Sparkles
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
+import { useLeadInterests } from "../context/LeadInterestContext";
 import { ProductDialog } from "../components/ProductDialog";
 
 const parsePrice = (priceStr) => {
@@ -47,6 +48,11 @@ export default function ProductsPage() {
   // Global Cart Context
   const { cart, addToCart: ctxAddToCart, updateQty, clearCart, cartSubtotal } = useCart();
   const { user } = useAuth();
+  const {
+    isPersonalized,
+    selectedLeads,
+    selectedLeadIds,
+  } = useLeadInterests();
   const navigate = useNavigate();
 
   // Product Edit State
@@ -70,15 +76,20 @@ export default function ProductsPage() {
     india: { label: "India Delivery (100+ KM)", cost: 199, desc: "Get it in 3-7 Days" }
   };
 
-  const fetchProducts = () => {
-    api.get("/products")
+  const fetchProducts = React.useCallback(() => {
+    let endpoint = "/products";
+    if (isPersonalized) {
+      const leadParam = selectedLeadIds.length > 0 ? `?lead_ids=${selectedLeadIds.join(",")}` : "";
+      endpoint = `/recommendations/products${leadParam}`;
+    }
+    api.get(endpoint)
       .then((r) => setProducts(r.data))
       .catch(() => {});
-  };
+  }, [isPersonalized, selectedLeadIds]);
 
   useEffect(() => {
     fetchProducts();
-  }, []);
+  }, [fetchProducts]);
 
   const cats = ["All", ...Array.from(new Set(products.map((p) => p.category)))];
 
@@ -314,6 +325,27 @@ export default function ProductsPage() {
           </button>
         ))}
       </div>
+
+      {/* Personalized Banner */}
+      {isPersonalized && (
+        <div className="mt-3 p-3 bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 border border-blue-200/80 rounded-2xl flex items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-2 text-xs text-blue-950">
+            <Sparkles size={16} className="text-blue-600 fill-blue-600 shrink-0" />
+            <div>
+              <span className="font-bold">Tailored to your selected leads</span>
+              <p className="text-[11px] text-blue-800 line-clamp-1">
+                Showing top industrial products matching your 5 selected lead requirements.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/leads"
+            className="text-[11px] font-bold text-blue-700 hover:text-blue-900 bg-white px-2.5 py-1 rounded-lg border border-blue-200 shadow-xs shrink-0"
+          >
+            Edit Leads
+          </Link>
+        </div>
+      )}
 
       {/* Mobile Horizontal Cards List (sm:hidden) */}
       <div className="flex flex-col gap-3 sm:hidden mt-4">

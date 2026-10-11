@@ -283,6 +283,13 @@ class Like(Base):
     user_id = Column(String(36), nullable=False)
     created_at = Column(String(255), nullable=False)
 
+class UserLeadInterest(Base):
+    __tablename__ = "user_lead_interests"
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(36), nullable=False, index=True)
+    lead_id = Column(String(36), nullable=False, index=True)
+    created_at = Column(String(255), nullable=False)
+
 class Bookmark(Base):
     __tablename__ = "bookmarks"
     id = Column(String(36), primary_key=True)
@@ -2361,8 +2368,26 @@ async def sync_company_pickup_status(user: dict = Depends(get_current_user), db:
 
 # -------------------- Posts --------------------
 @api.get("/posts", response_model=List[PostOut])
-async def list_posts(request: Request, skip: int = 0, limit: int = 20, db: AsyncSession = Depends(get_db)):
+async def list_posts(request: Request, skip: int = 0, limit: int = 20, personalized: bool = False, db: AsyncSession = Depends(get_db)):
     cu = await get_optional_user(request)
+    if personalized:
+        user_id = cu["id"] if cu else None
+        if user_id:
+            stmt_leads = select(UserLeadInterest.lead_id).where(UserLeadInterest.user_id == user_id).limit(5)
+            active_lead_ids = list((await db.execute(stmt_leads)).scalars().all())
+            if active_lead_ids:
+                try:
+                    from backend.services.recommendation.engine import recommendation_engine
+                except ImportError:
+                    from services.recommendation.engine import recommendation_engine
+                res = await recommendation_engine.get_recommended_posts(db, active_lead_ids, limit=limit, offset=skip)
+                out = []
+                for d in res.items:
+                    p = await hydrate_post(d, cu, db)
+                    if p:
+                        out.append(p)
+                return out
+
     stmt = select(Post).order_by(desc(Post.created_at)).offset(skip).limit(limit)
     docs = (await db.execute(stmt)).scalars().all()
     out = []
@@ -2500,8 +2525,22 @@ async def toggle_save(post_id: str, user: dict = Depends(get_current_user), db: 
 
 # -------------------- Reels --------------------
 @api.get("/reels", response_model=List[ReelOut])
-async def list_reels(request: Request, search: Optional[str] = None, limit: int = 30, db: AsyncSession = Depends(get_db)):
+async def list_reels(request: Request, search: Optional[str] = None, limit: int = 30, personalized: bool = False, db: AsyncSession = Depends(get_db)):
     cu = await get_optional_user(request)
+    if personalized and not search:
+        user_id = cu["id"] if cu else None
+        if user_id:
+            stmt_leads = select(UserLeadInterest.lead_id).where(UserLeadInterest.user_id == user_id).limit(5)
+            active_lead_ids = list((await db.execute(stmt_leads)).scalars().all())
+            if active_lead_ids:
+                try:
+                    from backend.services.recommendation.engine import recommendation_engine
+                except ImportError:
+                    from services.recommendation.engine import recommendation_engine
+                res = await recommendation_engine.get_recommended_reels(db, active_lead_ids, limit=limit)
+                hydrated = [await hydrate_reel(d, cu, db) for d in res.items]
+                return [h for h in hydrated if h is not None]
+
     stmt = select(Reel)
     if search and search.strip():
         term = f"%{search.strip()}%"
@@ -2672,7 +2711,26 @@ async def add_comment(reel_id: str, payload: CommentCreate, user: dict = Depends
 
 # -------------------- Products --------------------
 @api.get("/products", response_model=List[ProductOut])
-async def list_products(category: Optional[str] = None, limit: int = 50, db: AsyncSession = Depends(get_db)):
+async def list_products(request: Request, category: Optional[str] = None, limit: int = 50, personalized: bool = False, db: AsyncSession = Depends(get_db)):
+    if personalized and not category:
+        cu = await get_optional_user(request)
+        user_id = cu["id"] if cu else None
+        if user_id:
+            stmt_leads = select(UserLeadInterest.lead_id).where(UserLeadInterest.user_id == user_id).limit(5)
+            active_lead_ids = list((await db.execute(stmt_leads)).scalars().all())
+            if active_lead_ids:
+                try:
+                    from backend.services.recommendation.engine import recommendation_engine
+                except ImportError:
+                    from services.recommendation.engine import recommendation_engine
+                res = await recommendation_engine.get_recommended_products(db, active_lead_ids, limit=limit)
+                out = []
+                for d in res.items:
+                    stmt_comp = select(Company).where(Company.id == d.company_id)
+                    company = (await db.execute(stmt_comp)).scalar_one_or_none()
+                    out.append(make_product_out(d, company))
+                return out
+
     stmt = select(Product)
     if category:
         stmt = stmt.where(Product.category == category)
@@ -7129,6 +7187,12 @@ async def shutdown():
     await engine.dispose()
 
 
+try:
+    from backend.routers.recommendation_router import recommendation_router
+except ImportError:
+    from routers.recommendation_router import recommendation_router
+
+api.include_router(recommendation_router)
 app.include_router(api)
 app.include_router(news_router)
 

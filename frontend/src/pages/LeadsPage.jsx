@@ -10,6 +10,7 @@ import { Navigate, useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 import { LocationPicker } from "../components/LocationPicker";
+import { useLeadInterests } from "../context/LeadInterestContext";
 
 // ─── OTP Unlock Modal (same as RequirementsPage) ──────────────────────────────
 function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, onSuccess }) {
@@ -273,6 +274,15 @@ function LeadMediaStrip({ urls }) {
 export default function LeadsPage() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const {
+    selectedLeads,
+    count,
+    isPersonalized,
+    isLeadSelected,
+    toggleLeadInterest,
+    setShowConfirmModal,
+    resetInterests,
+  } = useLeadInterests();
 
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -556,6 +566,39 @@ export default function LeadsPage() {
             </div>
           </div>
 
+          {/* Personalization Active Banner */}
+          {isPersonalized && (
+            <div className="mt-4 p-3.5 bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 border border-blue-200/80 rounded-2xl flex items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-2.5 text-xs text-blue-950">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                  <Sparkles size={16} className="fill-white" />
+                </div>
+                <div>
+                  <span className="font-bold">Tailored recommendations are active!</span>
+                  <p className="text-[11px] text-blue-800">
+                    Your feed, products, and reels are customized for your selected industrial interests.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmModal(true)}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                >
+                  View ({count})
+                </button>
+                <button
+                  type="button"
+                  onClick={resetInterests}
+                  className="px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-xl transition-all"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Leads Card list */}
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredLeads.length === 0 && (
@@ -566,10 +609,13 @@ export default function LeadsPage() {
 
             {filteredLeads.map((lead) => {
               const isUnlocked = lead.is_unlocked;
+              const isInterested = isLeadSelected(lead.id);
               return (
                 <article
                   key={lead.id}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition-all text-left"
+                  className={`bg-white border rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition-all text-left ${
+                    isInterested ? "border-blue-400 ring-1 ring-blue-400/30" : "border-slate-200"
+                  }`}
                   data-testid={`lead-card-${lead.id}`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -581,11 +627,30 @@ export default function LeadsPage() {
                         <Tag size={11} /> {lead.category}
                       </div>
                     </div>
-                    <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${
-                      isUnlocked ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
-                    }`}>
-                      {isUnlocked ? "Unlocked" : "Locked"}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLeadInterest(lead);
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold inline-flex items-center gap-1 transition-all active:scale-95 ${
+                          isInterested
+                            ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm ring-2 ring-blue-400/40"
+                            : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
+                        }`}
+                        data-testid={`lead-interest-btn-${lead.id}`}
+                        title={isInterested ? "Click to remove interest" : "Click to express interest"}
+                      >
+                        <Sparkles size={11} className={isInterested ? "fill-white text-white" : "text-amber-500"} />
+                        {isInterested ? "Interested ✓" : "I'm Interested"}
+                      </button>
+                      <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${
+                        isUnlocked ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                      }`}>
+                        {isUnlocked ? "Unlocked" : "Locked"}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="mt-3.5 space-y-2 border-b border-slate-100 pb-3.5 text-xs text-slate-600">
@@ -666,6 +731,61 @@ export default function LeadsPage() {
               );
             })}
           </div>
+
+          {/* Floating Selected Leads Bar */}
+          {count > 0 && (
+            <div className="fixed bottom-24 inset-x-4 md:max-w-lg md:mx-auto z-30 animate-in slide-in-from-bottom-4 duration-200">
+              <div className="bg-slate-900/95 backdrop-blur-md text-white p-3.5 sm:p-4 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                      <Sparkles size={13} className="fill-amber-400" />
+                      Interests: {count}/5
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {[0, 1, 2, 3, 4].map((slot) => (
+                        <span
+                          key={slot}
+                          className={`w-2 h-2 rounded-full transition-all ${
+                            slot < count ? "bg-blue-400 scale-110" : "bg-slate-700"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-300 truncate mt-0.5">
+                    {count === 5
+                      ? "5 leads selected! Click to confirm personalization."
+                      : `Select ${5 - count} more lead${5 - count === 1 ? "" : "s"} for tailored feed`}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmModal(true)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 flex items-center gap-1.5 ${
+                      count === 5
+                        ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white animate-pulse"
+                        : "bg-blue-600 hover:bg-blue-700 text-white"
+                    }`}
+                    data-testid="confirm-leads-bar-btn"
+                  >
+                    <Sparkles size={13} className="fill-white" />
+                    {count === 5 ? "Confirm 5 Leads" : "View Selected"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetInterests}
+                    title="Clear selected leads"
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Bottom Upgrade Banner */}
           <div className="fixed bottom-[72px] right-4 z-20 md:left-4 md:right-4 md:max-w-lg md:mx-auto">
