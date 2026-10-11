@@ -54,4 +54,34 @@ describe("FeedVideoPlayer Component", () => {
 
     expect(window.HTMLMediaElement.prototype.pause).toHaveBeenCalled();
   });
+
+  test("renders lightweight placeholder when far from viewport", () => {
+    // Custom mock that reports element is far off-screen
+    const originalIO = global.IntersectionObserver;
+    global.IntersectionObserver = class {
+      constructor(callback) {
+        this.callback = callback;
+      }
+      observe(el) {
+        this.callback([{ isIntersecting: false, intersectionRatio: 0, target: el }]);
+      }
+      unobserve() {}
+      disconnect() {}
+    };
+
+    render(
+      <FeedVideoPlayer
+        src={sampleSrc}
+        poster="https://res.cloudinary.com/demo/image/upload/sample.jpg"
+        testId="test-feed-video"
+      />
+    );
+
+    // Video tag should be detached
+    expect(screen.queryByTestId("test-feed-video")).not.toBeInTheDocument();
+    // Placeholder should be rendered
+    expect(screen.getByTestId("test-feed-video-placeholder")).toBeInTheDocument();
+
+    global.IntersectionObserver = originalIO;
+  });
 });

@@ -47,7 +47,33 @@ export function uploadMedia(file, folder = "iip/uploads", onProgress) {
   return uploadToCloudinary(file, folder, onProgress);
 }
 
-// Pass-through helper for image/video URLs
-export function optimizedUrl(url) {
+// Smart CDN optimization helper for image and video assets
+export function optimizedUrl(url, options = {}) {
+  if (!url || typeof url !== "string") return url || "";
+  const { w = 800, q = "auto", f = "auto" } = options;
+
+  // 1. Cloudinary URLs: apply auto-format, auto-quality, and max width limit
+  if (url.includes("res.cloudinary.com") && url.includes("/upload/")) {
+    if (url.includes("/f_auto") || url.includes("/w_")) {
+      return url;
+    }
+    const transformStr = `f_${f},q_${q},w_${w},c_limit`;
+    return url.replace("/upload/", `/upload/${transformStr}/`);
+  }
+
+  // 2. Unsplash URLs: apply auto-format, quality, and width params
+  if (url.includes("images.unsplash.com")) {
+    try {
+      const parsed = new URL(url);
+      parsed.searchParams.set("w", String(w));
+      parsed.searchParams.set("auto", "format");
+      parsed.searchParams.set("q", "80");
+      parsed.searchParams.set("fit", "crop");
+      return parsed.toString();
+    } catch {
+      return url;
+    }
+  }
+
   return url;
 }

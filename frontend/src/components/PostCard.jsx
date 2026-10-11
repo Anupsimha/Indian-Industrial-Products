@@ -9,6 +9,7 @@ import { EnquiryDialog } from "./EnquiryDialog";
 import { PlanBadge } from "./PlanBadge";
 import { FeedVideoPlayer } from "./FeedVideoPlayer";
 import { PostEditDialog } from "./PostEditDialog";
+import { isImageCached, markImageCached, preloadImage } from "../lib/mediaCache";
 import { toast } from "sonner";
 
 export const PostCard = ({ post, onUpdate }) => {
@@ -32,7 +33,6 @@ export const PostCard = ({ post, onUpdate }) => {
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState("");
   const [currentMediaIdx, setCurrentMediaIdx] = useState(0);
-  const [imageLoaded, setImageLoaded] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -72,6 +72,21 @@ export const PostCard = ({ post, onUpdate }) => {
     ? currentPost.media_urls
     : (currentPost.media_url ? [currentPost.media_url] : []);
 
+  const currentMediaUrl = mediaList[currentMediaIdx]
+    ? optimizedUrl(mediaList[currentMediaIdx], { w: 800 })
+    : "";
+
+  // Check persistent session mediaCache: if already cached, image renders instantly with zero loader delay
+  const [imageLoaded, setImageLoaded] = useState(() => isImageCached(currentMediaUrl));
+
+  useEffect(() => {
+    if (currentMediaUrl && isImageCached(currentMediaUrl)) {
+      setImageLoaded(true);
+    } else {
+      setImageLoaded(false);
+    }
+  }, [currentMediaUrl]);
+
   const prevMedia = (e) => {
     e?.stopPropagation?.();
     setCurrentMediaIdx((idx) => (idx === 0 ? mediaList.length - 1 : idx - 1));
@@ -94,10 +109,16 @@ export const PostCard = ({ post, onUpdate }) => {
     );
   };
 
-  // Reset imageLoaded flag when current slide changes
+  // Preload next image in carousel for instant transitions
   useEffect(() => {
-    setImageLoaded(false);
-  }, [currentMediaIdx]);
+    if (mediaList.length > 1) {
+      const nextIdx = (currentMediaIdx + 1) % mediaList.length;
+      const nextUrl = mediaList[nextIdx];
+      if (nextUrl && !isVideoUrl(nextUrl)) {
+        preloadImage(optimizedUrl(nextUrl, { w: 800 }));
+      }
+    }
+  }, [currentMediaIdx, mediaList]);
 
   // Quick auto-scroll through multiple photos (2.2s, pausing on hover, video, or single media)
   useEffect(() => {
@@ -194,6 +215,7 @@ export const PostCard = ({ post, onUpdate }) => {
   return (
     <article
       className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-fade-up hover:shadow-md hover:border-slate-300 transition-all"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "0 500px" }}
       data-testid={`post-card-${post.id}`}
     >
       {/* Header */}
@@ -387,13 +409,19 @@ export const PostCard = ({ post, onUpdate }) => {
                 </div>
               )}
               <img
-                src={optimizedUrl(mediaList[currentMediaIdx], { w: 800 })}
+                src={currentMediaUrl}
                 alt=""
                 loading="lazy"
                 decoding="async"
-                onLoad={() => setImageLoaded(true)}
-                onError={() => setImageLoaded(true)}
-                className={`w-full max-h-[420px] lg:max-h-[500px] object-cover bg-slate-100 transition-opacity duration-300 ${
+                onLoad={() => {
+                  if (currentMediaUrl) markImageCached(currentMediaUrl);
+                  setImageLoaded(true);
+                }}
+                onError={() => {
+                  if (currentMediaUrl) markImageCached(currentMediaUrl);
+                  setImageLoaded(true);
+                }}
+                className={`w-full max-h-[420px] lg:max-h-[500px] object-cover bg-slate-100 transition-opacity duration-200 ${
                   imageLoaded ? "opacity-100" : "opacity-0"
                 }`}
               />

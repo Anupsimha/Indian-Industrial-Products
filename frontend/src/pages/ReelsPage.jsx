@@ -8,7 +8,7 @@ import { useAuth } from "../context/AuthContext";
 import { EnquiryDialog } from "../components/EnquiryDialog";
 import { toast } from "sonner";
 
-const ReelItem = ({ reel, active, muted, onMuteToggle }) => {
+const ReelItem = ({ reel, active, isNearActive = true, muted, onMuteToggle }) => {
   const { user } = useAuth();
   const [liked, setLiked] = useState(reel.is_liked);
   const [likes, setLikes] = useState(reel.likes_count);
@@ -100,18 +100,40 @@ const ReelItem = ({ reel, active, muted, onMuteToggle }) => {
       onClick={togglePlay}
       onDoubleClick={onDoubleTap}
     >
-      <video
-        ref={videoRef}
-        src={reel.video_url}
-        poster={reel.thumbnail_url}
-        playsInline loop
-        preload="auto"
-        className="reel-video"
-        onWaiting={() => setBuffering(true)}
-        onCanPlay={() => setBuffering(false)}
-        onPlaying={() => setBuffering(false)}
-        onTimeUpdate={onTimeUpdate}
-      />
+      {!isNearActive ? (
+        /* Off-screen placeholder: releases video pipeline, decoder context, and RAM buffers */
+        <div className="reel-video w-full h-full bg-slate-950 flex items-center justify-center relative">
+          {reel.thumbnail_url ? (
+            <img
+              src={optimizedUrl(reel.thumbnail_url, { w: 800 })}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full bg-slate-900" />
+          )}
+          <div className="absolute inset-0 grid place-items-center bg-black/25">
+            <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md grid place-items-center text-white">
+              <Play size={36} className="translate-x-0.5 fill-white" />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <video
+          ref={videoRef}
+          src={reel.video_url}
+          poster={reel.thumbnail_url}
+          playsInline loop
+          preload={active ? "auto" : "metadata"}
+          className="reel-video"
+          onWaiting={() => setBuffering(true)}
+          onCanPlay={() => setBuffering(false)}
+          onPlaying={() => setBuffering(false)}
+          onTimeUpdate={onTimeUpdate}
+        />
+      )}
 
       {/* Buffering spinner */}
       {buffering && (
@@ -306,6 +328,7 @@ export default function ReelsPage() {
             key={r.id}
             reel={r}
             active={i === active}
+            isNearActive={Math.abs(i - active) <= 1}
             muted={muted}
             onMuteToggle={() => setMuted((m) => !m)}
           />
