@@ -121,18 +121,18 @@ describe("PostCard Component — Lazy Loading & Media Tests", () => {
     expect(screen.getByText("1 / 3")).toBeInTheDocument();
 
     // Test auto-scroll advancement after timer interval
-    jest.advanceTimersByTime(3900);
+    jest.advanceTimersByTime(2300);
     expect(screen.getByText("2 / 3")).toBeInTheDocument();
 
     // Test hover pauses auto-scroll
     const mediaContainer = screen.getByTestId("post-media-container-post-103");
     fireEvent.mouseEnter(mediaContainer);
-    jest.advanceTimersByTime(3900);
+    jest.advanceTimersByTime(2300);
     // Should still be 2 / 3 because it is hovered
     expect(screen.getByText("2 / 3")).toBeInTheDocument();
 
     fireEvent.mouseLeave(mediaContainer);
-    jest.advanceTimersByTime(3900);
+    jest.advanceTimersByTime(2300);
     // Should resume and advance to 3 / 3
     expect(screen.getByText("3 / 3")).toBeInTheDocument();
 

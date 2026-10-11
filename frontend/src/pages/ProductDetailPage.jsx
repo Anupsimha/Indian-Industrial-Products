@@ -33,14 +33,14 @@ export default function ProductDetailPage() {
     return [product.image_url, ...(product.images || [])].filter(Boolean);
   }, [product]);
 
-  // Auto-scroll product photos every 3.8s, pausing on hover
+  // Quick auto-scroll product photos every 2.2s, pausing on hover
   useEffect(() => {
     if (allImages.length <= 1) return;
     if (isGalleryHovered) return;
 
     const timer = setInterval(() => {
       setActiveImgIdx((prev) => (prev < allImages.length - 1 ? prev + 1 : 0));
-    }, 3800);
+    }, 2200);
 
     return () => clearInterval(timer);
   }, [allImages.length, isGalleryHovered]);

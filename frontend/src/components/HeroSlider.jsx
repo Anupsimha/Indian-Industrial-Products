@@ -51,7 +51,7 @@ export const HeroSlider = ({ onCta }) => {
 
   useEffect(() => {
     if (slides.length <= 1 || isHovered) return;
-    const t = setInterval(() => next(), 4500);
+    const t = setInterval(() => next(), 3200);
     return () => clearInterval(t);
   }, [slides, isHovered]);
 

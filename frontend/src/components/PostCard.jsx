@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Heart, Bookmark, MessageCircle, MapPin, MoreHorizontal, UserPlus, UserCheck, Send, Share2, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Heart, Bookmark, MessageCircle, MapPin, MoreHorizontal, UserPlus, UserCheck, Send, Share2, Trash2, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
@@ -61,14 +61,14 @@ export const PostCard = ({ post, onUpdate }) => {
     setImageLoaded(false);
   }, [currentMediaIdx]);
 
-  // Auto-scroll through multiple photos (pausing on hover, video, or single media)
+  // Quick auto-scroll through multiple photos (2.2s, pausing on hover, video, or single media)
   useEffect(() => {
     if (mediaList.length <= 1) return;
     if (isVideoUrl(mediaList[currentMediaIdx]) || isHovered) return;
 
     const timer = setInterval(() => {
       setCurrentMediaIdx((idx) => (idx === mediaList.length - 1 ? 0 : idx + 1));
-    }, 3800);
+    }, 2200);
 
     return () => clearInterval(timer);
   }, [mediaList.length, currentMediaIdx, isHovered]);
@@ -233,7 +233,7 @@ export const PostCard = ({ post, onUpdate }) => {
 
       {mediaList.length > 0 && (
         <div
-          className="relative w-full bg-slate-900 group select-none overflow-hidden"
+          className="relative w-full bg-slate-100 group select-none overflow-hidden"
           data-testid={`post-media-container-${post.id}`}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
@@ -249,11 +249,17 @@ export const PostCard = ({ post, onUpdate }) => {
           ) : (
             <button
               onDoubleClick={toggleLike}
-              className="block w-full relative min-h-[220px]"
+              className="block w-full relative min-h-[240px] bg-slate-100"
               aria-label="Open media"
             >
               {!imageLoaded && (
-                <div className="absolute inset-0 skeleton-shimmer bg-slate-800" />
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 text-slate-500 z-0 min-h-[240px]"
+                  data-testid={`post-media-loader-${post.id}`}
+                >
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
+                  <span className="text-xs font-medium text-slate-500">Loading media...</span>
+                </div>
               )}
               <img
                 src={optimizedUrl(mediaList[currentMediaIdx], { w: 800 })}
@@ -261,6 +267,7 @@ export const PostCard = ({ post, onUpdate }) => {
                 loading="lazy"
                 decoding="async"
                 onLoad={() => setImageLoaded(true)}
+                onError={() => setImageLoaded(true)}
                 className={`w-full max-h-[420px] lg:max-h-[500px] object-cover bg-slate-100 transition-opacity duration-300 ${
                   imageLoaded ? "opacity-100" : "opacity-0"
                 }`}
