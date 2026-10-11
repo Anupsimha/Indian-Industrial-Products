@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import api, { whatsappLink } from "../lib/api";
 import { optimizedUrl } from "../lib/cloudinary";
@@ -23,6 +23,46 @@ export default function ProductDetailPage() {
   const [loading, setLoading] = useState(true);
   const [enquiryOpen, setEnquiryOpen] = useState(false);
   const [activeImgIdx, setActiveImgIdx] = useState(0);
+  const [isGalleryHovered, setIsGalleryHovered] = useState(false);
+
+  const galleryTouchStartXRef = useRef(0);
+  const galleryTouchStartYRef = useRef(0);
+
+  const allImages = useMemo(() => {
+    if (!product) return [];
+    return [product.image_url, ...(product.images || [])].filter(Boolean);
+  }, [product]);
+
+  // Quick auto-scroll product photos every 2.2s, pausing on hover
+  useEffect(() => {
+    if (allImages.length <= 1) return;
+    if (isGalleryHovered) return;
+
+    const timer = setInterval(() => {
+      setActiveImgIdx((prev) => (prev < allImages.length - 1 ? prev + 1 : 0));
+    }, 2200);
+
+    return () => clearInterval(timer);
+  }, [allImages.length, isGalleryHovered]);
+
+  const handleGalleryTouchStart = (e) => {
+    if (allImages.length <= 1) return;
+    galleryTouchStartXRef.current = e.touches[0].clientX;
+    galleryTouchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleGalleryTouchEnd = (e) => {
+    if (allImages.length <= 1) return;
+    const deltaX = galleryTouchStartXRef.current - e.changedTouches[0].clientX;
+    const deltaY = galleryTouchStartYRef.current - e.changedTouches[0].clientY;
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 40) {
+      if (deltaX > 0) {
+        setActiveImgIdx((prev) => (prev < allImages.length - 1 ? prev + 1 : 0));
+      } else {
+        setActiveImgIdx((prev) => (prev > 0 ? prev - 1 : allImages.length - 1));
+      }
+    }
+  };
 
   useEffect(() => {
     const fetchProductDetails = async () => {
@@ -121,11 +161,16 @@ export default function ProductDetailPage() {
         {/* Left Column: Product Image Gallery */}
         <div className="lg:col-span-6 space-y-4">
           {(() => {
-            const allImages = [product.image_url, ...(product.images || [])].filter(Boolean);
             const currentImg = allImages[activeImgIdx] || product.image_url;
             return (
               <>
-                <div className="relative aspect-square w-full rounded-3xl overflow-hidden bg-white border border-slate-200 shadow-md group">
+                <div
+                  className="relative aspect-square w-full rounded-3xl overflow-hidden bg-white border border-slate-200 shadow-md group select-none"
+                  onMouseEnter={() => setIsGalleryHovered(true)}
+                  onMouseLeave={() => setIsGalleryHovered(false)}
+                  onTouchStart={handleGalleryTouchStart}
+                  onTouchEnd={handleGalleryTouchEnd}
+                >
                   <img
                     src={optimizedUrl(currentImg, { w: 800 })}
                     alt={product.name}

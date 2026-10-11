@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import api from "../lib/api";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const defaultSlides = [
   {
@@ -31,6 +32,9 @@ const defaultSlides = [
 export const HeroSlider = ({ onCta }) => {
   const [slides, setSlides] = useState(defaultSlides);
   const [i, setI] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
 
   useEffect(() => {
     api.get("/slides")
@@ -42,20 +46,61 @@ export const HeroSlider = ({ onCta }) => {
       .catch(() => {});
   }, []);
 
+  const prev = () => setI((p) => (p === 0 ? slides.length - 1 : p - 1));
+  const next = () => setI((p) => (p + 1) % slides.length);
+
   useEffect(() => {
-    if (slides.length === 0) return;
-    const t = setInterval(() => setI((p) => (p + 1) % slides.length), 4500);
+    if (slides.length <= 1 || isHovered) return;
+    const t = setInterval(() => next(), 3200);
     return () => clearInterval(t);
-  }, [slides]);
+  }, [slides, isHovered]);
+
+  const handleTouchStart = (e) => {
+    if (slides.length <= 1) return;
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e) => {
+    if (slides.length <= 1) return;
+    const deltaX = touchStartXRef.current - e.changedTouches[0].clientX;
+    const deltaY = touchStartYRef.current - e.changedTouches[0].clientY;
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 40) {
+      if (deltaX > 0) next();
+      else prev();
+    }
+  };
 
   if (slides.length === 0) return null;
   const s = slides[i];
 
   return (
     <div
-      className="relative h-56 sm:h-64 lg:h-80 xl:h-[340px] overflow-hidden rounded-2xl bg-slate-900 mx-4 lg:mx-0 mt-3 shadow-md"
+      className="relative h-56 sm:h-64 lg:h-80 xl:h-[340px] overflow-hidden rounded-2xl bg-slate-900 mx-4 lg:mx-0 mt-3 shadow-md group select-none"
       data-testid="hero-slider"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
     >
+      {slides.length > 1 && (
+        <>
+          <button
+            onClick={prev}
+            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-black/40 hover:bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm"
+            aria-label="Previous slide"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <button
+            onClick={next}
+            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-black/40 hover:bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm"
+            aria-label="Next slide"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </>
+      )}
       {slides.map((sl, idx) => (
         <img
           key={sl.id || idx}

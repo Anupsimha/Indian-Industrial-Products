@@ -87,4 +87,55 @@ describe("PostCard Component — Lazy Loading & Media Tests", () => {
 
     expect(screen.getByTestId("post-comments-post-101")).toBeInTheDocument();
   });
+
+  test("renders multi-photo post with manual arrow controls and auto-scroll capability", () => {
+    jest.useFakeTimers();
+    const multiMediaPost = {
+      ...mockPostImage,
+      id: "post-103",
+      media_urls: [
+        "https://res.cloudinary.com/demo/image/upload/sample1.jpg",
+        "https://res.cloudinary.com/demo/image/upload/sample2.jpg",
+        "https://res.cloudinary.com/demo/image/upload/sample3.jpg",
+      ],
+    };
+
+    renderPostCard(multiMediaPost);
+    expect(screen.getByTestId("post-card-post-103")).toBeInTheDocument();
+    
+    // Check presence of prev and next buttons
+    const nextBtn = screen.getByTestId("post-media-next-post-103");
+    const prevBtn = screen.getByTestId("post-media-prev-post-103");
+    expect(nextBtn).toBeInTheDocument();
+    expect(prevBtn).toBeInTheDocument();
+
+    // Check count badge
+    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+
+    // Test manual click on next button
+    fireEvent.click(nextBtn);
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+
+    // Test manual click on prev button
+    fireEvent.click(prevBtn);
+    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+
+    // Test auto-scroll advancement after timer interval
+    jest.advanceTimersByTime(2300);
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+
+    // Test hover pauses auto-scroll
+    const mediaContainer = screen.getByTestId("post-media-container-post-103");
+    fireEvent.mouseEnter(mediaContainer);
+    jest.advanceTimersByTime(2300);
+    // Should still be 2 / 3 because it is hovered
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+
+    fireEvent.mouseLeave(mediaContainer);
+    jest.advanceTimersByTime(2300);
+    // Should resume and advance to 3 / 3
+    expect(screen.getByText("3 / 3")).toBeInTheDocument();
+
+    jest.useRealTimers();
+  });
 });
