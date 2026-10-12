@@ -204,3 +204,70 @@ class ContentBasedLeadStrategy(BaseRecommendationStrategy):
 
         scored.sort(key=lambda x: x.score, reverse=True)
         return scored[offset : offset + limit]
+
+    def _score_lead(self, lead: Any, profile: LeadPreferenceProfile) -> Tuple[float, List[str], List[str]]:
+        score = 0.0
+        matched_cats = []
+        matched_keys = []
+
+        # 1. Category match (+50.0)
+        lead_cat = (getattr(lead, "category", "") or "").strip().lower()
+        if lead_cat:
+            for prof_cat in profile.categories:
+                if prof_cat.lower() == lead_cat:
+                    score += 50.0
+                    matched_cats.append(prof_cat)
+                    break
+
+        # 2. Keyword overlap in product_name and requirement (+18.0 each)
+        lead_text = f"{getattr(lead, 'product_name', '')} {getattr(lead, 'requirement', '')}"
+        tokens = self._tokenize(lead_text)
+        for kw in profile.keywords:
+            if kw in tokens:
+                score += 18.0
+                matched_keys.append(kw)
+
+        # 3. Location proximity match (+15.0)
+        loc_str = f"{getattr(lead, 'location', '')} {getattr(lead, 'city', '')} {getattr(lead, 'state', '')} {getattr(lead, 'industrial_area', '')}".lower()
+        if loc_str and score > 0:
+            for loc in profile.locations:
+                if loc in loc_str:
+                    score += 15.0
+                    break
+
+        return score, matched_cats, matched_keys
+
+    async def recommend_leads(
+        self,
+        db: AsyncSession,
+        profile: LeadPreferenceProfile,
+        limit: int,
+        offset: int,
+        exclude_ids: Set[str],
+    ) -> List[ScoredItem]:
+        if profile.is_empty:
+            return []
+
+        Enquiry = get_server_models()["Enquiry"]
+
+        stmt = select(Enquiry).where(Enquiry.status != "closed").order_by(desc(Enquiry.created_at)).limit(200)
+        candidates = (await db.execute(stmt)).scalars().all()
+
+        combined_exclude = exclude_ids | set(profile.lead_ids)
+
+        scored: List[ScoredItem] = []
+        for lead in candidates:
+            if lead.id in combined_exclude:
+                continue
+            score, cats, keys = self._score_lead(lead, profile)
+            if score > 0.0:
+                scored.append(ScoredItem(
+                    item=lead,
+                    score=score,
+                    matched_categories=cats,
+                    matched_keywords=keys,
+                    strategy=self.name,
+                ))
+
+        scored.sort(key=lambda x: x.score, reverse=True)
+        return scored[offset : offset + limit]

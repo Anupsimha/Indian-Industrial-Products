@@ -70,7 +70,7 @@ class RecommendationEngine:
         3. If still < limit, triggers tertiary fallback (Freshness / latest).
         """
         collected_items: List[Any] = []
-        collected_ids: Set[str] = set()
+        collected_ids: Set[str] = set(profile.lead_ids) if pipeline_fn_name == "recommend_leads" else set()
         matched_content_count = 0
         fallback_count = 0
         fallback_applied = False
@@ -191,6 +191,25 @@ class RecommendationEngine:
         profile = await self.get_profile_from_lead_ids(db, lead_ids)
         return await self._execute_pipeline(
             pipeline_fn_name="recommend_reels",
+            db=db,
+            profile=profile,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def get_recommended_leads(
+        self,
+        db: AsyncSession,
+        lead_ids: List[str],
+        limit: int = 50,
+        offset: int = 0,
+    ) -> RecommendationResult:
+        """
+        Get tailored leads/requirements based on the 5 selected leads with seamless fallback.
+        """
+        profile = await self.get_profile_from_lead_ids(db, lead_ids)
+        return await self._execute_pipeline(
+            pipeline_fn_name="recommend_leads",
             db=db,
             profile=profile,
             limit=limit,

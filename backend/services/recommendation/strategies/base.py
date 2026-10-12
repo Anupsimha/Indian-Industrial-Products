@@ -54,3 +54,15 @@ class BaseRecommendationStrategy(ABC):
     ) -> List[ScoredItem]:
         """Rank and return reels according to this strategy."""
         pass
+
+    @abstractmethod
+    async def recommend_leads(
+        self,
+        db: AsyncSession,
+        profile: LeadPreferenceProfile,
+        limit: int,
+        offset: int,
+        exclude_ids: Set[str],
+    ) -> List[ScoredItem]:
+        """Rank and return leads/requirements according to this strategy."""
+        pass

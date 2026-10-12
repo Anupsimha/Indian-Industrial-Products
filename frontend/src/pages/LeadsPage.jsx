@@ -276,6 +276,7 @@ export default function LeadsPage() {
   const navigate = useNavigate();
   const {
     selectedLeads,
+    selectedLeadIds,
     count,
     isPersonalized,
     isLeadSelected,
@@ -286,6 +287,7 @@ export default function LeadsPage() {
 
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showRecommendedOnly, setShowRecommendedOnly] = useState(false);
 
   // Filters
   const [filter, setFilter] = useState({ category: "", sort: "recent" });
@@ -315,6 +317,13 @@ export default function LeadsPage() {
       if (loc.city) params.set("city", loc.city);
       if (loc.industrial_area) params.set("industrial_area", loc.industrial_area);
       params.set("sort", filter.sort);
+
+      if (isPersonalized && (showRecommendedOnly || statusFilter === "recommended")) {
+        params.set("personalized", "true");
+        if (selectedLeadIds && selectedLeadIds.length > 0) {
+          params.set("lead_ids", selectedLeadIds.join(","));
+        }
+      }
       
       const { data } = await api.get(`/requirements?${params}`);
       setLeads(data);
@@ -324,7 +333,7 @@ export default function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, loc, user]);
+  }, [filter, loc, user, isPersonalized, showRecommendedOnly, statusFilter, selectedLeadIds]);
 
   useEffect(() => {
     loadLeads();
@@ -533,6 +542,7 @@ export default function LeadsPage() {
             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1" data-testid="leads-status-tabs">
               {[
                 { id: "All", label: "All" },
+                ...(isPersonalized ? [{ id: "recommended", label: "★ Recommended" }] : []),
                 { id: "new", label: "New" },
                 { id: "in_progress", label: "In Progress" },
                 { id: "closed", label: "Closed" },
@@ -540,11 +550,15 @@ export default function LeadsPage() {
               ].map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setStatusFilter(tab.id)}
+                  onClick={() => {
+                    setStatusFilter(tab.id);
+                    if (tab.id === "recommended") setShowRecommendedOnly(true);
+                    else setShowRecommendedOnly(false);
+                  }}
                   className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
                     statusFilter === tab.id
-                      ? "bg-orange-600 text-white shadow-sm"
-                      : "bg-white border border-slate-200 text-slate-600 hover:text-slate-900"
+                      ? tab.id === "recommended" ? "bg-gradient-to-r from-blue-700 to-indigo-700 text-white shadow-sm ring-2 ring-blue-300" : "bg-orange-600 text-white shadow-sm"
+                      : tab.id === "recommended" ? "bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100" : "bg-white border border-slate-200 text-slate-600 hover:text-slate-900"
                   }`}
                   data-testid={`lead-status-tab-${tab.id.toLowerCase().replace("_", "-")}`}
                 >
@@ -568,7 +582,7 @@ export default function LeadsPage() {
 
           {/* Personalization Active Banner */}
           {isPersonalized && (
-            <div className="mt-4 p-3.5 bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 border border-blue-200/80 rounded-2xl flex items-center justify-between gap-3 shadow-sm">
+            <div className="mt-4 p-3.5 bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 border border-blue-200/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
               <div className="flex items-center gap-2.5 text-xs text-blue-950">
                 <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
                   <Sparkles size={16} className="fill-white" />
@@ -576,21 +590,43 @@ export default function LeadsPage() {
                 <div>
                   <span className="font-bold">Tailored recommendations are active!</span>
                   <p className="text-[11px] text-blue-800">
-                    Your feed, products, and reels are customized for your selected industrial interests.
+                    Your feed, products, reels, and leads are customized for your selected industrial interests.
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => setShowConfirmModal(true)}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                  onClick={() => {
+                    const next = !showRecommendedOnly;
+                    setShowRecommendedOnly(next);
+                    if (next) setStatusFilter("recommended");
+                    else setStatusFilter("All");
+                  }}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5 ${
+                    showRecommendedOnly || statusFilter === "recommended"
+                      ? "bg-blue-600 text-white ring-2 ring-blue-300"
+                      : "bg-white text-blue-700 border border-blue-200 hover:bg-blue-50"
+                  }`}
+                  data-testid="toggle-recommended-leads-btn"
                 >
-                  View ({count})
+                  <Sparkles size={12} className={showRecommendedOnly || statusFilter === "recommended" ? "fill-white" : "text-blue-600"} />
+                  {showRecommendedOnly || statusFilter === "recommended" ? "Showing Tailored Leads" : "View Tailored Leads"}
                 </button>
                 <button
                   type="button"
-                  onClick={resetInterests}
+                  onClick={() => setShowConfirmModal(true)}
+                  className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-800 text-xs font-bold rounded-xl transition-all shadow-sm"
+                >
+                  Interests ({count})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRecommendedOnly(false);
+                    if (statusFilter === "recommended") setStatusFilter("All");
+                    resetInterests();
+                  }}
                   className="px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-xl transition-all"
                 >
                   Reset

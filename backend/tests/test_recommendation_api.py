@@ -194,6 +194,57 @@ def test_recommendation_products(test_setup):
     assert data[0]["id"] == "prod-hyd-1"
 
 
+def test_recommendation_leads_endpoint(test_setup):
+    """Test GET /api/recommendations/leads returns matching leads while excluding selected leads."""
+    client = test_setup["client"]
+    session_factory = test_setup["session_factory"]
+
+    import asyncio
+    async def seed_leads():
+        async with session_factory() as session:
+            lead_sel = Enquiry(
+                id="lead-selected-1",
+                name="Buyer Amit",
+                mobile="9876543210",
+                category="Solar Panels",
+                product_name="Monocrystalline 540W",
+                requirement="Solar rooftop modules 100kW",
+                location="Ahmedabad",
+                quantity="200",
+                budget="1000000",
+                status="new",
+                created_at=now_iso(),
+            )
+            session.add(lead_sel)
+
+            lead_matching = Enquiry(
+                id="lead-matching-2",
+                name="Buyer Suresh",
+                mobile="9876543211",
+                category="Solar Panels",
+                product_name="Solar Inverter 50kW",
+                requirement="Grid tied solar inverter needed",
+                location="Ahmedabad",
+                quantity="2",
+                budget="200000",
+                status="new",
+                created_at=now_iso(),
+            )
+            session.add(lead_matching)
+            await session.commit()
+
+    asyncio.run(seed_leads())
+
+    resp = client.get("/api/recommendations/leads?lead_ids=lead-selected-1&limit=5")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) >= 1
+    returned_ids = [l["id"] for l in data]
+    assert "lead-selected-1" not in returned_ids
+    assert "lead-matching-2" in returned_ids
+
+
 def test_recommendation_overview(test_setup):
     """Test GET /api/recommendations/overview."""
     client = test_setup["client"]
@@ -205,3 +256,4 @@ def test_recommendation_overview(test_setup):
     assert "posts" in data
     assert "products" in data
     assert "reels" in data
+    assert "leads" in data

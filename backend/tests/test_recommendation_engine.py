@@ -215,3 +215,38 @@ def test_engine_caps_at_five_leads():
     assert len(clean_ids) == 5
     assert clean_ids == ["id_0", "id_1", "id_2", "id_3", "id_4"]
 
+
+def test_engine_recommends_leads_with_fallback_and_excludes_selected():
+    async def _run():
+        mock_db = MagicMock()
+
+        rec_lead_1 = MockLead("rec_lead_1", "CNC Machining", "VMC Tool Holder", "Need BT40 tool holders in Pune")
+        content_mock = MagicMock()
+        content_mock.recommend_leads = AsyncMock(return_value=[
+            ScoredItem(item=rec_lead_1, score=70, strategy="content_based_lead_strategy")
+        ])
+
+        fallback_lead = MockLead("fb_lead_2", "Pumps", "Centrifugal Pump", "Need water pumps")
+        popularity_mock = MagicMock()
+        popularity_mock.recommend_leads = AsyncMock(return_value=[
+            ScoredItem(item=fallback_lead, score=5, strategy="popularity_fallback_strategy")
+        ])
+
+        engine = RecommendationEngine(
+            primary_strategy=content_mock,
+            secondary_fallback=popularity_mock,
+        )
+        engine.get_profile_from_lead_ids = AsyncMock(return_value=LeadPreferenceProfile(
+            lead_ids=["selected_lead_0"],
+            categories={"CNC Machining"}
+        ))
+
+        result = await engine.get_recommended_leads(mock_db, lead_ids=["selected_lead_0"], limit=2)
+        assert result.total_count == 2
+        assert result.items[0].id == "rec_lead_1"
+        assert result.items[1].id == "fb_lead_2"
+        called_exclude_ids = content_mock.recommend_leads.call_args.kwargs["exclude_ids"]
+        assert "selected_lead_0" in called_exclude_ids
+
+    asyncio.run(_run())
+

@@ -14,12 +14,14 @@ try:
         get_optional_user,
         get_current_user,
         UserLeadInterest,
+        User,
         PostOut,
         ProductOut,
         ReelOut,
         hydrate_post,
         hydrate_reel,
         make_product_out,
+        serialize_enquiry,
         Company,
         now_iso,
     )
@@ -30,12 +32,14 @@ except ImportError:
         get_optional_user,
         get_current_user,
         UserLeadInterest,
+        User,
         PostOut,
         ProductOut,
         ReelOut,
         hydrate_post,
         hydrate_reel,
         make_product_out,
+        serialize_enquiry,
         Company,
         now_iso,
     )
@@ -268,6 +272,40 @@ async def get_recommended_reels_endpoint(
     return out
 
 
+@recommendation_router.get("/leads")
+async def get_recommended_leads_endpoint(
+    request: Request,
+    lead_ids: Optional[str] = Query(None, description="Comma-separated lead IDs (up to 5)"),
+    limit: int = Query(50, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    user: Optional[dict] = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Fetch personalized industrial leads/requirements ranked by the OOP recommendation engine with automatic fallback.
+    Excludes the 5 leads already selected by the user.
+    """
+    cu = user if user is not None else await get_optional_user(request)
+    active_lead_ids = await _resolve_lead_ids(request, lead_ids, db, user=cu)
+
+    user_id = cu["id"] if cu else None
+    unlocked_ids = set()
+    if user_id:
+        stmt_user = select(User).where(User.id == user_id)
+        u = (await db.execute(stmt_user)).scalar_one_or_none()
+        if u and u.unlocked_enquiries:
+            unlocked_ids = set(u.unlocked_enquiries)
+
+    res = await recommendation_engine.get_recommended_leads(
+        db=db,
+        lead_ids=active_lead_ids,
+        limit=limit,
+        offset=skip,
+    )
+
+    return [serialize_enquiry(item, cu, unlocked_ids) for item in res.items]
+
+
 @recommendation_router.get("/overview")
 async def get_recommendations_overview(
     request: Request,
@@ -276,15 +314,24 @@ async def get_recommendations_overview(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Unified summary endpoint providing personalized preview of posts, products, reels, and categories.
+    Unified summary endpoint providing personalized preview of posts, products, reels, leads, and categories.
     """
     cu = user if user is not None else await get_optional_user(request)
     active_lead_ids = await _resolve_lead_ids(request, lead_ids, db, user=cu)
     profile = await recommendation_engine.get_profile_from_lead_ids(db, active_lead_ids)
 
+    user_id = cu["id"] if cu else None
+    unlocked_ids = set()
+    if user_id:
+        stmt_user = select(User).where(User.id == user_id)
+        u = (await db.execute(stmt_user)).scalar_one_or_none()
+        if u and u.unlocked_enquiries:
+            unlocked_ids = set(u.unlocked_enquiries)
+
     post_res = await recommendation_engine.get_recommended_posts(db, active_lead_ids, limit=6)
     prod_res = await recommendation_engine.get_recommended_products(db, active_lead_ids, limit=6)
     reel_res = await recommendation_engine.get_recommended_reels(db, active_lead_ids, limit=6)
+    lead_res = await recommendation_engine.get_recommended_leads(db, active_lead_ids, limit=6)
 
     posts_out = []
     for p in post_res.items:
@@ -302,6 +349,8 @@ async def get_recommendations_overview(
         h = await hydrate_reel(r, cu, db)
         if h: reels_out.append(h)
 
+    leads_out = [serialize_enquiry(l, cu, unlocked_ids) for l in lead_res.items]
+
     return {
         "status": "ok",
         "has_interests": len(active_lead_ids) > 0,
@@ -314,5 +363,6 @@ async def get_recommendations_overview(
         "posts": posts_out,
         "products": products_out,
         "reels": reels_out,
-        "fallback_applied": post_res.fallback_applied or prod_res.fallback_applied or reel_res.fallback_applied,
+        "leads": leads_out,
+        "fallback_applied": post_res.fallback_applied or prod_res.fallback_applied or reel_res.fallback_applied or lead_res.fallback_applied,
     }

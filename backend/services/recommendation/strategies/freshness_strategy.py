@@ -78,3 +78,29 @@ class FreshnessFallbackStrategy(BaseRecommendationStrategy):
             if r.id not in exclude_ids
         ]
         return scored[offset : offset + limit]
+
+    async def recommend_leads(
+        self,
+        db: AsyncSession,
+        profile: LeadPreferenceProfile,
+        limit: int,
+        offset: int,
+        exclude_ids: Set[str],
+    ) -> List[ScoredItem]:
+        Enquiry = get_server_models()["Enquiry"]
+
+        combined_exclude = exclude_ids | set(profile.lead_ids)
+        stmt = (
+            select(Enquiry)
+            .where(Enquiry.status != "closed")
+            .order_by(desc(Enquiry.created_at))
+            .limit(limit + len(combined_exclude))
+        )
+        candidates = (await db.execute(stmt)).scalars().all()
+
+        scored = [
+            ScoredItem(item=e, score=0.5, strategy=self.name)
+            for e in candidates
+            if e.id not in combined_exclude
+        ]
+        return scored[offset : offset + limit]

@@ -4490,6 +4490,38 @@ def _mask_mobile(m: str) -> str:
     return s[:2] + "•" * (len(s) - 4) + s[-2:]
 
 
+def serialize_enquiry(d: Enquiry, cu: Optional[dict] = None, unlocked_ids: Optional[set] = None) -> dict:
+    if unlocked_ids is None:
+        unlocked_ids = set()
+    d_dict = {
+        "id": d.id, "name": d.name, "mobile": d.mobile, "requirement": d.requirement,
+        "category": d.category, "location": d.location, "product_name": d.product_name,
+        "quantity": d.quantity, "budget": getattr(d, "budget", None) or "Not specified by the customer",
+        "required_by": getattr(d, "required_by", None) or "Not specified by the customer",
+        "state": d.state, "city": d.city,
+        "industrial_area": d.industrial_area, "status": d.status,
+        "created_at": d.created_at, "company_id": d.company_id, "post_id": d.post_id
+    }
+    unlocked = _can_see_contact(cu, d_dict) or (d.id in unlocked_ids)
+    return {
+        "id": d.id,
+        "name": d.name if unlocked else d.name.split(" ")[0],
+        "requirement": d.requirement,
+        "category": d.category, "location": d.location,
+        "product_name": d.product_name,
+        "quantity": d.quantity,
+        "budget": getattr(d, "budget", None) or "Not specified by the customer",
+        "required_by": getattr(d, "required_by", None) or "Not specified by the customer",
+        "state": d.state, "city": d.city,
+        "industrial_area": d.industrial_area,
+        "status": d.status, "created_at": d.created_at,
+        "is_unlocked": unlocked,
+        "mobile": d.mobile if unlocked else _mask_mobile(d.mobile),
+        "company_id": d.company_id,
+        "media_urls": d.media_urls or [],
+    }
+
+
 @api.get("/requirements")
 async def list_requirements(
     request: Request,
@@ -4500,9 +4532,30 @@ async def list_requirements(
     state: Optional[str] = None,
     sort: Literal["recent", "trending"] = "recent",
     limit: int = 50,
+    personalized: bool = False,
+    lead_ids: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
     cu = await get_optional_user(request)
+
+    user_id = cu["id"] if cu else None
+    unlocked_ids = set()
+    if user_id:
+        stmt_user = select(User).where(User.id == user_id)
+        u = (await db.execute(stmt_user)).scalar_one_or_none()
+        if u and u.unlocked_enquiries:
+            unlocked_ids = set(u.unlocked_enquiries)
+
+    if personalized:
+        try:
+            from services.recommendation.engine import recommendation_engine
+            from routers.recommendation_router import _resolve_lead_ids
+            active_lead_ids = await _resolve_lead_ids(request, lead_ids, db, user=cu)
+            if active_lead_ids:
+                rec_res = await recommendation_engine.get_recommended_leads(db, active_lead_ids, limit=limit)
+                return [serialize_enquiry(d, cu, unlocked_ids) for d in rec_res.items]
+        except Exception:
+            pass
     
     stmt = select(Enquiry)
     if location:
@@ -4520,46 +4573,7 @@ async def list_requirements(
     res = await db.execute(stmt)
     docs = res.scalars().all()
     
-    out = []
-    user_id = cu["id"] if cu else None
-    unlocked_ids = set()
-    if user_id:
-        stmt_user = select(User).where(User.id == user_id)
-        u = (await db.execute(stmt_user)).scalar_one_or_none()
-        if u and u.unlocked_enquiries:
-            unlocked_ids = set(u.unlocked_enquiries)
-            
-    for d in docs:
-        d_dict = {
-            "id": d.id, "name": d.name, "mobile": d.mobile, "requirement": d.requirement,
-            "category": d.category, "location": d.location, "product_name": d.product_name,
-            "quantity": d.quantity, "budget": getattr(d, "budget", None) or "Not specified by the customer",
-            "required_by": getattr(d, "required_by", None) or "Not specified by the customer",
-            "state": d.state, "city": d.city,
-            "industrial_area": d.industrial_area, "status": d.status,
-            "created_at": d.created_at, "company_id": d.company_id, "post_id": d.post_id
-        }
-        unlocked = _can_see_contact(cu, d_dict) or (d.id in unlocked_ids)
-        item = {
-            "id": d.id,
-            "name": d.name if unlocked else d.name.split(" ")[0],
-            "requirement": d.requirement,
-            "category": d.category, "location": d.location,
-            "product_name": d.product_name,
-            "quantity": d.quantity,
-            "budget": getattr(d, "budget", None) or "Not specified by the customer",
-            "required_by": getattr(d, "required_by", None) or "Not specified by the customer",
-            "state": d.state, "city": d.city,
-            "industrial_area": d.industrial_area,
-            "status": d.status, "created_at": d.created_at,
-            "is_unlocked": unlocked,
-            "mobile": d.mobile if unlocked else _mask_mobile(d.mobile),
-            "company_id": d.company_id,
-            # media is always visible — only contact details are gated
-            "media_urls": d.media_urls or [],
-        }
-        out.append(item)
-    return out
+    return [serialize_enquiry(d, cu, unlocked_ids) for d in docs]
 
 
 # ---------------------------------------------------------------------------
