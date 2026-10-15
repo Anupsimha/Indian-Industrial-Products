@@ -7165,6 +7165,7 @@ async def _seed_plans_if_empty(db: AsyncSession):
     await db.commit()
 
 
+async def _seed_website_templates_if_empty(db: AsyncSession):
     templates = [
         {
             "id": "bloom_pro",
