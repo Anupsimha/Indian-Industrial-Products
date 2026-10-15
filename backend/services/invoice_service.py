@@ -252,27 +252,27 @@ def generate_membership_invoice_pdf(invoice_data: Dict[str, Any]) -> bytes:
         [
             Paragraph("<b>Item / Service Description</b>", table_header),
             Paragraph("<b>SAC Code</b>", table_header),
-            Paragraph("<b>Base Amount (₹)</b>", table_cell_right_bold),
+            Paragraph("<b>Base Amount (Rs.)</b>", table_cell_right_bold),
         ],
         [
             Paragraph(f"<b>{invoice_data.get('plan_name', 'Membership Plan')}</b><br/><font color='#64748b' size='8'>{desc_text}</font>", table_cell),
             Paragraph("998313", table_cell),  # Information technology / portal service SAC
-            Paragraph(f"₹{base_amt:,.2f}", table_cell_right),
+            Paragraph(f"Rs. {base_amt:,.2f}", table_cell_right),
         ],
         [
             "",
             Paragraph("<b>Subtotal (Taxable Value):</b>", table_cell_right_bold),
-            Paragraph(f"<b>₹{base_amt:,.2f}</b>", table_cell_right_bold),
+            Paragraph(f"<b>Rs. {base_amt:,.2f}</b>", table_cell_right_bold),
         ],
         [
             "",
             Paragraph(f"<b>GST ({gst_rate:.0f}%):</b>", table_cell_right_bold),
-            Paragraph(f"<b>₹{gst_amt:,.2f}</b>", table_cell_right_bold),
+            Paragraph(f"<b>Rs. {gst_amt:,.2f}</b>", table_cell_right_bold),
         ],
         [
             "",
             Paragraph("<b>Total Payable (INR):</b>", table_cell_right_bold),
-            Paragraph(f"<b><font size='10' color='#1e3a8a'>₹{tot_amt:,.2f}</font></b>", table_cell_right_bold),
+            Paragraph(f"<b><font size='10' color='#1e3a8a'>Rs. {tot_amt:,.2f}</font></b>", table_cell_right_bold),
         ],
     ]
 
