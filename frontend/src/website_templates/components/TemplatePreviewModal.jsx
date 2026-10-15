@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, Smartphone, Monitor, Sparkles, Check } from "lucide-react";
+import { X, Smartphone, Monitor, Sparkles, Check, ExternalLink } from "lucide-react";
 import { getTemplate, getSampleDataForTemplate } from "../registry";
 
 export default function TemplatePreviewModal({ templateId, isOpen = true, onClose, onSelectTemplate }) {
@@ -47,6 +47,17 @@ export default function TemplatePreviewModal({ templateId, isOpen = true, onClos
                 <Smartphone size={14} /> Mobile
               </button>
             </div>
+
+            <a
+              href={`/site?preview=true&template=${encodeURIComponent(templateId)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold border border-slate-700 transition-colors"
+              title="Open full preview in a new tab"
+            >
+              <ExternalLink size={13} />
+              <span>Open in New Tab</span>
+            </a>
 
             {onSelectTemplate && (
               <button

@@ -33,19 +33,24 @@ export default function WebsiteSetupModal({ isOpen, onClose, onComplete, initial
   const [deployStepIndex, setDeployStepIndex] = useState(0);
   const [deployProgress, setDeployProgress] = useState(15);
   const [deployedWebsite, setDeployedWebsite] = useState(null);
+  const hasAutoPopulatedRef = React.useRef(false);
 
-  // Default suggested subdomain from company name
+  // Default suggested subdomain from company name (only once upon modal opening)
   useEffect(() => {
-    if (!isOpen) return;
-    if (initialCompany.name && !subdomain) {
+    if (!isOpen) {
+      hasAutoPopulatedRef.current = false;
+      return;
+    }
+    if (initialCompany.name && !subdomain && !hasAutoPopulatedRef.current) {
       const suggested = initialCompany.name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 30);
       setSubdomain(suggested);
+      hasAutoPopulatedRef.current = true;
     }
-  }, [isOpen, initialCompany, subdomain]);
+  }, [isOpen, initialCompany.name]);
 
   // Real-time debounced subdomain checking
   useEffect(() => {

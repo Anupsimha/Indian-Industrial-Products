@@ -74,7 +74,15 @@ const Layout = ({ children }) => {
   const isTenantSubdomain = hostParts.length > 2 && !["www", "staging", "billing", "api", "localhost", "127"].includes(hostParts[0]);
 
   if (isTenantSubdomain || isSiteRoute) {
-    return <div className="min-h-screen bg-slate-950">{children}</div>;
+    return (
+      <div className="min-h-screen bg-slate-950">
+        {isTenantSubdomain && (location.pathname === "/" || location.pathname === "/site") ? (
+          <TenantWebsitePage />
+        ) : (
+          children
+        )}
+      </div>
+    );
   }
 
   const isAdmin = user?.role === "admin";

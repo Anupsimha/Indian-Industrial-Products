@@ -61,7 +61,10 @@ export default function ProfilePage() {
         setReels(reelsRes.data);
 
         api.get("/websites/my-website")
-          .then((r) => setMyWebsite(r.data))
+          .then((r) => {
+            const site = r.data?.website || (r.data?.subdomain ? r.data : null);
+            setMyWebsite(site);
+          })
           .catch(() => setMyWebsite(null));
       }
     } catch (err) {
@@ -182,15 +185,17 @@ export default function ProfilePage() {
 
                 <div className="flex items-center gap-1.5 text-xs text-blue-400 mt-2 flex-wrap">
                   <Globe size={13} className="shrink-0" />
-                  {myWebsite ? (
-                    <Link
-                      to={`/site/${myWebsite.subdomain}`}
+                  {myWebsite?.subdomain ? (
+                    <a
+                      href={`/site/${myWebsite.subdomain}`}
+                      target="_blank"
+                      rel="noreferrer"
                       className="font-bold text-amber-300 hover:text-amber-200 inline-flex items-center gap-1 bg-amber-400/10 px-2 py-0.5 rounded-full border border-amber-400/30 transition-colors"
                       data-testid="profile-header-custom-website-link"
                     >
                       <span>{myWebsite.subdomain}.indianindustrialplatform.com</span>
                       <ExternalLink size={11} />
-                    </Link>
+                    </a>
                   ) : (
                     <a href={company?.website ? `http://${company.website}` : "https://www.precisionpartsindia.com"} target="_blank" rel="noreferrer" className="truncate hover:underline">
                       {company?.website || "www.precisionpartsindia.com"}
@@ -366,14 +371,16 @@ export default function ProfilePage() {
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  <Link
-                    to={`/site/${myWebsite.subdomain}`}
+                  <a
+                    href={`/site/${myWebsite.subdomain}`}
+                    target="_blank"
+                    rel="noreferrer"
                     className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-sm"
                     data-testid="profile-visit-website-btn"
                   >
                     <span>Visit Live Site</span>
                     <ExternalLink size={13} />
-                  </Link>
+                  </a>
 
                   <button
                     onClick={() => setWebsiteModalOpen(true)}

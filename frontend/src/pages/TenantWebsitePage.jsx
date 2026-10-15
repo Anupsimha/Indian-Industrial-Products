@@ -2,12 +2,14 @@ import React, { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Loader2, AlertCircle, Building2, ExternalLink } from "lucide-react";
 import api from "../lib/api";
-import { getTemplate } from "../website_templates/registry";
+import { getTemplate, getSampleDataForTemplate } from "../website_templates/registry";
 
 export default function TenantWebsitePage() {
   const { subdomain: paramSubdomain } = useParams();
   const [searchParams] = useSearchParams();
   const querySubdomain = searchParams.get("subdomain");
+  const isPreview = searchParams.get("preview") === "true";
+  const previewTemplateId = searchParams.get("template");
 
   // Determine subdomain from hostname (e.g., precisionparts.indianindustrialplatform.com) or route/query
   const [targetSubdomain, setTargetSubdomain] = useState(() => {
@@ -24,10 +26,28 @@ export default function TenantWebsitePage() {
   });
 
   const [siteData, setSiteData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!isPreview);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (isPreview) {
+      const tmpl = previewTemplateId || "industrial_modern";
+      const sample = getSampleDataForTemplate(tmpl);
+      setSiteData({
+        website: {
+          template_id: tmpl,
+          theme_config: { primary_color: "#1e3a8a", accent_color: "#ea580c" }
+        },
+        company: sample.company,
+        products: sample.products,
+        posts: sample.posts,
+        reels: sample.reels,
+        seo: { title: `${sample.company.name} | Live Preview` }
+      });
+      setLoading(false);
+      return;
+    }
+
     const slug = paramSubdomain || querySubdomain || targetSubdomain;
     if (!slug) {
       setError("No company website subdomain specified.");
@@ -50,7 +70,7 @@ export default function TenantWebsitePage() {
       .finally(() => {
         setLoading(false);
       });
-  }, [paramSubdomain, querySubdomain, targetSubdomain]);
+  }, [paramSubdomain, querySubdomain, targetSubdomain, isPreview, previewTemplateId]);
 
   if (loading) {
     return (
