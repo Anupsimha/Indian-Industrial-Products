@@ -49,9 +49,10 @@ export default function AdminPage() {
 
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
+    { id: "leads", label: "Buyer Leads", icon: Inbox },
     { id: "templates", label: "Website Templates", icon: Globe },
     { id: "settlements", label: "Payout Settlements", icon: Landmark },
-    { id: "contact-enquiries", label: "Contact Inquiries", icon: Inbox },
+    { id: "contact-enquiries", label: "Contact Inquiries", icon: Mail },
     { id: "industrial-groups", label: "Industrial Groups", icon: Building2 },
     { id: "plans", label: "Plans", icon: Crown },
     { id: "slides", label: "Slides", icon: Image },
@@ -82,6 +83,7 @@ export default function AdminPage() {
       </div>
 
       {tab === "overview" && stats && analytics && <Overview stats={stats} analytics={analytics} />}
+      {tab === "leads" && <BuyerLeadsTab />}
       {tab === "templates" && <WebsiteTemplatesTab />}
       {tab === "contact-enquiries" && <ContactEnquiriesTab />}
       {tab === "industrial-groups" && <IndustrialGroupsTab />}
@@ -998,6 +1000,152 @@ const ContactEnquiriesTab = () => {
           </div>
         ))}
       </div>
+    </div>
+  );
+};
+
+const BuyerLeadsTab = () => {
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const loadLeads = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/requirements");
+      setLeads(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      toast.error("Failed to load buyer leads");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLeads();
+  }, []);
+
+  const handleDeleteLead = async (id, reqTitle) => {
+    if (!window.confirm(`Are you sure you want to permanently delete lead: "${reqTitle || id}"?`)) {
+      return;
+    }
+    try {
+      await api.delete(`/requirements/${id}`);
+      toast.success("Lead requirement deleted successfully");
+      setLeads((prev) => prev.filter((l) => l.id !== id));
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to delete lead");
+    }
+  };
+
+  const filtered = leads.filter((l) => {
+    if (statusFilter !== "all" && l.status !== statusFilter) return false;
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      (l.product_name || "").toLowerCase().includes(q) ||
+      (l.requirement || "").toLowerCase().includes(q) ||
+      (l.category || "").toLowerCase().includes(q) ||
+      (l.name || "").toLowerCase().includes(q) ||
+      (l.mobile || "").includes(q)
+    );
+  });
+
+  if (loading) return <div className="p-8 text-center text-xs text-slate-400">Loading buyer leads...</div>;
+
+  return (
+    <div className="mt-2 space-y-4" data-testid="admin-leads-tab">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+          <h3 className="font-display font-bold text-slate-900 text-sm">Buyer Requirements / Leads</h3>
+          <p className="text-xs text-slate-500">Manage and delete buyer leads across all categories</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search leads..."
+            className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 w-48"
+          />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white text-slate-700"
+          >
+            <option value="all">All Status</option>
+            <option value="new">New</option>
+            <option value="in_progress">In Progress</option>
+            <option value="closed">Closed</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-slate-500 font-semibold px-1">
+        <span>Total Leads: {filtered.length} (of {leads.length})</span>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl space-y-2">
+          <Inbox className="mx-auto text-slate-300" size={36} />
+          <h4 className="font-bold text-slate-700 text-sm">No Leads Found</h4>
+          <p className="text-xs text-slate-400">No buyer requirements matched your filter.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((l) => (
+            <div
+              key={l.id}
+              className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all space-y-3"
+              data-testid={`admin-lead-item-${l.id}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-slate-900 text-sm">{l.product_name || "Buyer Requirement"}</span>
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                      {l.category}
+                    </span>
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                      l.status === "closed" ? "bg-slate-100 text-slate-600" : l.status === "in_progress" ? "bg-blue-100 text-blue-800" : "bg-emerald-100 text-emerald-800"
+                    }`}>
+                      {l.status}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                    {l.requirement}
+                  </p>
+
+                  <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-3 pt-1">
+                    <span className="font-semibold text-slate-700">Buyer: {l.name}</span>
+                    <span>Phone: {l.mobile}</span>
+                    <span>Location: {l.location}</span>
+                    {l.quantity && <span>Qty: {l.quantity}</span>}
+                    {l.budget && <span>Budget: {l.budget}</span>}
+                    <span className="text-slate-400">
+                      {new Date(l.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => handleDeleteLead(l.id, l.product_name || l.requirement)}
+                    data-testid={`admin-delete-lead-btn-${l.id}`}
+                    className="p-2 text-rose-600 hover:text-white hover:bg-rose-600 bg-rose-50 rounded-xl transition-all inline-flex items-center gap-1 text-xs font-bold"
+                    title="Delete Lead"
+                  >
+                    <Trash2 size={15} />
+                    <span className="hidden sm:inline">Delete</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

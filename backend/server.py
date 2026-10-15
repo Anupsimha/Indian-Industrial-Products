@@ -3994,6 +3994,7 @@ async def list_my_requirements(
 
 
 @api.delete("/enquiries/{enquiry_id}")
+@api.delete("/requirements/{enquiry_id}")
 async def delete_enquiry(
     enquiry_id: str,
     user: dict = Depends(get_current_user),
@@ -4002,18 +4003,22 @@ async def delete_enquiry(
     stmt = select(Enquiry).where(Enquiry.id == enquiry_id)
     enq = (await db.execute(stmt)).scalar_one_or_none()
     if not enq:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="Lead not found")
         
     is_allowed = (
         user.get("role") == "admin" or
-        (enq.mobile == user.get("mobile"))
+        (enq.mobile == user.get("mobile")) or
+        (enq.user_id == user.get("id"))
     )
     if not is_allowed:
         raise HTTPException(status_code=403, detail="Forbidden")
         
+    # Also clean up any user lead interests tied to this lead
+    await db.execute(delete(UserLeadInterest).where(UserLeadInterest.lead_id == enquiry_id))
+
     await db.delete(enq)
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, "message": "Lead deleted successfully"}
 
 
 # -------------------- Notifications --------------------

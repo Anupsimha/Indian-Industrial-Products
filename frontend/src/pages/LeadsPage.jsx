@@ -4,7 +4,7 @@ import api from "../lib/api";
 import { whatsappLink } from "../lib/api";
 import {
   Phone, MapPin, Tag, Clock, MessageSquare, Play, Lock, Sparkles, X,
-  ShieldCheck, Loader2, CheckCircle, Mail, AlertTriangle, Search, ChevronDown, CheckCircle2, Image, Zap
+  ShieldCheck, Loader2, CheckCircle, Mail, AlertTriangle, Search, ChevronDown, CheckCircle2, Image, Zap, Trash2
 } from "lucide-react";
 import { Navigate, useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -399,6 +399,20 @@ export default function LeadsPage() {
     fetchStats();
   };
 
+  const handleDeleteLead = async (leadId, e) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this lead requirement? This cannot be undone.")) {
+      return;
+    }
+    try {
+      await api.delete(`/requirements/${leadId}`);
+      toast.success("Lead requirement deleted successfully");
+      setLeads((prev) => prev.filter((l) => l.id !== leadId));
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to delete lead");
+    }
+  };
+
   // Filter in Frontend for Status & Search
   const filteredLeads = leads.filter((l) => {
     // 1. Status Tab filter
@@ -686,6 +700,18 @@ export default function LeadsPage() {
                       }`}>
                         {isUnlocked ? "Unlocked" : "Locked"}
                       </span>
+
+                      {user?.role === "admin" && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteLead(lead.id, e)}
+                          data-testid={`admin-delete-lead-${lead.id}`}
+                          title="Delete Lead (Admin Only)"
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-200"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
