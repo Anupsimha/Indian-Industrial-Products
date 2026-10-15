@@ -7165,12 +7165,25 @@ async def _seed_plans_if_empty(db: AsyncSession):
     await db.commit()
 
 
-async def _seed_website_templates_if_empty(db: AsyncSession):
-    stmt = select(func.count(WebsiteTemplate.id))
-    if (await db.execute(stmt)).scalar_one() > 0:
-        return
-
     templates = [
+        {
+            "id": "bloom_pro",
+            "name": "Bloom Pro (Modern Light)",
+            "description": "Crisp, professional light-mode aesthetic tailored for high-precision manufacturers, aerospace suppliers, and export-oriented industrial firms.",
+            "badge": "New · Light Mode",
+            "category": "precision_engineering",
+            "thumbnail_url": "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&q=80",
+            "is_custom": False,
+            "sample_data": {
+                "tagline": "High-Tolerance Aerospace & Precision Components",
+                "stats": [
+                    {"label": "Years in Operation", "value": "14+"},
+                    {"label": "Machining Centers", "value": "20+"},
+                    {"label": "ISO Standards", "value": "9001 / AS9100"},
+                    {"label": "Global Delivery", "value": "Pan-India & Export"}
+                ]
+            }
+        },
         {
             "id": "industrial_modern",
             "name": "Industrial Modern",
@@ -7228,21 +7241,22 @@ async def _seed_website_templates_if_empty(db: AsyncSession):
 
     now = now_iso()
     for t in templates:
-        db.add(WebsiteTemplate(
-            id=t["id"],
-            name=t["name"],
-            description=t["description"],
-            badge=t["badge"],
-            thumbnail_url=t["thumbnail_url"],
-            category=t["category"],
-            is_active=True,
-            is_custom=t["is_custom"],
-            sample_data=t["sample_data"],
-            created_at=now,
-            updated_at=now
-        ))
+        existing = (await db.execute(select(WebsiteTemplate).where(WebsiteTemplate.id == t["id"]))).scalar_one_or_none()
+        if not existing:
+            db.add(WebsiteTemplate(
+                id=t["id"],
+                name=t["name"],
+                description=t["description"],
+                badge=t["badge"],
+                thumbnail_url=t["thumbnail_url"],
+                category=t["category"],
+                is_active=True,
+                is_custom=t["is_custom"],
+                sample_data=t["sample_data"],
+                created_at=now
+            ))
     await db.commit()
-    logger.info("Seeded 3 initial Website Templates.")
+    logger.info("Synchronized official Website Templates.")
 
 
 async def _seed_categories_if_empty(db: AsyncSession):

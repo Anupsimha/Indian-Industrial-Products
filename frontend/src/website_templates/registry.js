@@ -11,7 +11,26 @@ import { industrialModernSample } from "./sampleData/industrialModernSample";
 import { manufacturingProSample } from "./sampleData/manufacturingProSample";
 import { minimalCatalogSample } from "./sampleData/minimalCatalogSample";
 
+import BloomProTemplate from "./templates/BloomProTemplate";
+import { bloomProSample } from "./sampleData/bloomProSample";
+
 export const TEMPLATE_REGISTRY = {
+  bloom_pro: {
+    id: "bloom_pro",
+    name: "Bloom Pro (Modern Light)",
+    description: "Crisp, professional light-mode aesthetic tailored for high-precision manufacturers, aerospace suppliers, and export-oriented industrial firms.",
+    badge: "New · Light Mode",
+    category: "precision_engineering",
+    component: BloomProTemplate,
+    sampleData: bloomProSample,
+    thumbnailUrl: "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&q=80",
+    features: [
+      "Modern clean light-mode typography & crisp UI",
+      "Interactive category filtering and high-res product cards",
+      "ISO & AS9100 quality certifications showcase",
+      "Direct 1-click WhatsApp quote & RFQ drawer workflow"
+    ]
+  },
   industrial_modern: {
     id: "industrial_modern",
     name: "Industrial Modern",
