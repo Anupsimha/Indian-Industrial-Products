@@ -8,7 +8,7 @@ import {
   LogOut, Briefcase, Inbox, Bookmark, Bell, Star, ChevronRight,
   Building2, Verified, MapPin, Globe, Camera, FileText, Users,
   UserPlus, Package, BarChart3, Edit, Plus, Trash2, Calendar,
-  ShieldCheck, Phone, Mail, Target, Settings
+  ShieldCheck, Phone, Mail, Target, Settings, ExternalLink, Sparkles, Copy, Check
 } from "lucide-react";
 import { PostCard } from "../components/PostCard";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ import { AdminSetupModal } from "../components/AdminSetupModal";
 import { SingleImageUploader } from "../components/MediaUploader";
 import { FollowersDialog } from "../components/FollowersDialog";
 import { PlanBadge } from "../components/PlanBadge";
+import WebsiteSetupModal from "../components/WebsiteSetupModal";
 
 export default function ProfilePage() {
   const { user, loading, logout, updateUser } = useAuth();
@@ -35,6 +36,9 @@ export default function ProfilePage() {
   const [editOpen, setEditOpen] = useState(false);
   const [userEditOpen, setUserEditOpen] = useState(false);
   const [adminSetupOpen, setAdminSetupOpen] = useState(false);
+  const [myWebsite, setMyWebsite] = useState(null);
+  const [websiteModalOpen, setWebsiteModalOpen] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
   const [stats, setStats] = useState({ posts_count: 0, followers_count: 0, following_count: 0, enquiries_count: 0 });
   const [followersModalOpen, setFollowersModalOpen] = useState(false);
   const [followersInitialTab, setFollowersInitialTab] = useState("followers");
@@ -55,6 +59,10 @@ export default function ProfilePage() {
         setPosts(postsRes.data);
         setProducts(prodsRes.data);
         setReels(reelsRes.data);
+
+        api.get("/websites/my-website")
+          .then((r) => setMyWebsite(r.data))
+          .catch(() => setMyWebsite(null));
       }
     } catch (err) {
       console.error("Error loading company data", err);
@@ -172,11 +180,22 @@ export default function ProfilePage() {
                   {company?.description || "Manufacturer of precision machined components for industrial and engineering applications."}
                 </p>
 
-                <div className="flex items-center gap-1 text-xs text-blue-400 mt-2 hover:underline">
-                  <Globe size={12} className="shrink-0" />
-                  <a href={company?.website ? `http://${company.website}` : "https://www.precisionpartsindia.com"} target="_blank" rel="noreferrer" className="truncate">
-                    {company?.website || "www.precisionpartsindia.com"}
-                  </a>
+                <div className="flex items-center gap-1.5 text-xs text-blue-400 mt-2 flex-wrap">
+                  <Globe size={13} className="shrink-0" />
+                  {myWebsite ? (
+                    <Link
+                      to={`/site/${myWebsite.subdomain}`}
+                      className="font-bold text-amber-300 hover:text-amber-200 inline-flex items-center gap-1 bg-amber-400/10 px-2 py-0.5 rounded-full border border-amber-400/30 transition-colors"
+                      data-testid="profile-header-custom-website-link"
+                    >
+                      <span>{myWebsite.subdomain}.indianindustrialplatform.com</span>
+                      <ExternalLink size={11} />
+                    </Link>
+                  ) : (
+                    <a href={company?.website ? `http://${company.website}` : "https://www.precisionpartsindia.com"} target="_blank" rel="noreferrer" className="truncate hover:underline">
+                      {company?.website || "www.precisionpartsindia.com"}
+                    </a>
+                  )}
                 </div>
 
                 {/* Quick Action Edit Buttons */}
@@ -297,6 +316,108 @@ export default function ProfilePage() {
       </div>
 
 
+
+      {/* 3.5. Custom Website Management Section (For Businesses / Manufacturers / Suppliers) */}
+      {isBusiness && (
+        <div className="mt-4" data-testid="profile-website-section">
+          {myWebsite ? (
+            <div className="bg-gradient-to-r from-blue-950 via-[#0B213F] to-slate-900 border border-blue-900/60 rounded-2xl p-4 sm:p-5 text-white shadow-lg relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="p-1.5 rounded-lg bg-blue-600/30 border border-blue-400/30 text-blue-300">
+                      <Globe size={16} />
+                    </span>
+                    <h3 className="font-display font-bold text-base text-white">Custom Company Website</h3>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Live &amp; Indexed
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-300">
+                    Deployed with automatic Hostinger DNS, instant product catalog synchronization, and Google SEO discovery.
+                  </p>
+
+                  <div className="flex items-center gap-2 pt-1 flex-wrap">
+                    <div className="inline-flex items-center gap-1.5 bg-black/40 border border-slate-700/60 rounded-lg px-3 py-1.5 text-xs font-mono text-cyan-300">
+                      <span>https://{myWebsite.subdomain}.indianindustrialplatform.com</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`https://${myWebsite.subdomain}.indianindustrialplatform.com`);
+                          setCopiedUrl(true);
+                          toast.success("Website URL copied to clipboard!");
+                          setTimeout(() => setCopiedUrl(false), 2000);
+                        }}
+                        className="text-slate-400 hover:text-white transition-colors ml-1 p-0.5"
+                        title="Copy URL"
+                      >
+                        {copiedUrl ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                      </button>
+                    </div>
+
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      Template: <strong className="text-slate-200 capitalize">{myWebsite.template_name || myWebsite.template_id?.replace(/_/g, " ")}</strong>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <Link
+                    to={`/site/${myWebsite.subdomain}`}
+                    className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-sm"
+                    data-testid="profile-visit-website-btn"
+                  >
+                    <span>Visit Live Site</span>
+                    <ExternalLink size={13} />
+                  </Link>
+
+                  <button
+                    onClick={() => setWebsiteModalOpen(true)}
+                    className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all border border-white/15"
+                    data-testid="profile-manage-website-btn"
+                  >
+                    Manage / Reconfigure
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gradient-to-r from-amber-950/80 via-slate-900 to-blue-950 border border-amber-500/30 rounded-2xl p-4 sm:p-5 text-white shadow-md relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                      <Sparkles size={16} />
+                    </span>
+                    <h3 className="font-display font-bold text-base text-white">
+                      Launch Your Dedicated Company Website
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                      Included with Plan
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 max-w-2xl">
+                    Claim your unique subdomain (e.g., <code className="text-amber-300 font-mono">yourbrand.indianindustrialplatform.com</code>), select modern industrial templates, and get indexed on Google with zero maintenance.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setWebsiteModalOpen(true)}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-black text-xs transition-all shadow-lg flex items-center justify-center gap-1.5 shrink-0"
+                  data-testid="profile-setup-website-btn"
+                >
+                  <Sparkles size={14} className="fill-slate-950" />
+                  <span>Setup Website Now</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 4. Content Tabs */}
       <div className="mt-6 border-b border-slate-200">
@@ -592,6 +713,17 @@ export default function ProfilePage() {
         companyId={company?.id}
         initialTab={followersInitialTab}
       />
+      {company && (
+        <WebsiteSetupModal
+          isOpen={websiteModalOpen}
+          onClose={() => setWebsiteModalOpen(false)}
+          initialCompany={company}
+          onComplete={(site) => {
+            setMyWebsite(site);
+            loadCompanyData();
+          }}
+        />
+      )}
     </div>
   );
 }

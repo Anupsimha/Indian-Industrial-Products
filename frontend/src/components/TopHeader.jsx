@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown, Newspaper, Receipt, Sparkles, ExternalLink, Menu, X } from "lucide-react";
+import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown, Newspaper, Receipt, Sparkles, ExternalLink, Menu, X, Globe } from "lucide-react";
 import { Logo } from "./Logo";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
@@ -96,6 +96,20 @@ export const TopHeader = () => {
               >
                 Profile
               </Link>
+
+              {isSeller && (
+                <Link
+                  to="/profile"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-2 text-xs font-bold text-blue-900 bg-blue-50/70 hover:bg-blue-100/70 transition-colors"
+                  data-testid="dropdown-custom-website-link"
+                >
+                  <div className="flex items-center gap-2">
+                    <Globe size={15} className="text-blue-700 shrink-0" />
+                    <span>Company Website</span>
+                  </div>
+                </Link>
+              )}
 
               {user.role !== "admin" && (
                 <Link

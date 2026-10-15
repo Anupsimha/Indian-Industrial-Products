@@ -4,10 +4,11 @@ import { useAuth } from "../context/AuthContext";
 import { useSupportContact } from "../context/SupportContactContext";
 import { Navigate, Link } from "react-router-dom";
 
-import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone, Settings as SettingsIcon, Landmark } from "lucide-react";
+import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone, Settings as SettingsIcon, Landmark, Globe, Eye, Sparkles, Layers } from "lucide-react";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 import { SingleImageUploader } from "../components/MediaUploader";
+import TemplatePreviewModal from "../website_templates/components/TemplatePreviewModal";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -48,6 +49,7 @@ export default function AdminPage() {
 
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
+    { id: "templates", label: "Website Templates", icon: Globe },
     { id: "settlements", label: "Payout Settlements", icon: Landmark },
     { id: "contact-enquiries", label: "Contact Inquiries", icon: Inbox },
     { id: "industrial-groups", label: "Industrial Groups", icon: Building2 },
@@ -80,6 +82,7 @@ export default function AdminPage() {
       </div>
 
       {tab === "overview" && stats && analytics && <Overview stats={stats} analytics={analytics} />}
+      {tab === "templates" && <WebsiteTemplatesTab />}
       {tab === "contact-enquiries" && <ContactEnquiriesTab />}
       {tab === "industrial-groups" && <IndustrialGroupsTab />}
       {tab === "plans" && <PlansTab plans={plans} reload={reload} setPlanEdit={setPlanEdit} planEdit={planEdit} />}
@@ -1477,4 +1480,414 @@ const AdminSettlementsTab = ({ settlements = [], reload }) => {
     </div>
   );
 };
+
+const WebsiteTemplatesTab = () => {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [previewTemplateId, setPreviewTemplateId] = useState(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [form, setForm] = useState({
+    id: "",
+    name: "",
+    description: "",
+    category: "industrial",
+    features: "Responsive Hero, Live Product Catalog, SEO Discovery Engine, Direct WhatsApp RFQ",
+    preview_image: "",
+    accent_color: "#0F294A",
+    is_custom: false,
+    assigned_company_id: "",
+  });
+
+  const loadTemplates = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/websites/templates");
+      setTemplates(res.data);
+    } catch {
+      toast.error("Failed to load website templates");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!form.id.trim() || !form.name.trim() || !form.description.trim()) {
+      toast.error("Please fill in template ID, name, and description");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const payload = {
+        id: form.id.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "_"),
+        name: form.name.trim(),
+        description: form.description.trim(),
+        category: form.category.trim() || "industrial",
+        features: form.features.split(",").map((f) => f.trim()).filter(Boolean),
+        preview_image: form.preview_image.trim() || null,
+        accent_color: form.accent_color.trim() || "#0F294A",
+        is_custom: Boolean(form.is_custom),
+        assigned_company_id: form.assigned_company_id ? parseInt(form.assigned_company_id, 10) : null,
+      };
+
+      await api.post("/websites/admin/templates", payload);
+      toast.success(`Template "${payload.name}" created successfully!`);
+      setCreateModalOpen(false);
+      setForm({
+        id: "",
+        name: "",
+        description: "",
+        category: "industrial",
+        features: "Responsive Hero, Live Product Catalog, SEO Discovery Engine, Direct WhatsApp RFQ",
+        preview_image: "",
+        accent_color: "#0F294A",
+        is_custom: false,
+        assigned_company_id: "",
+      });
+      loadTemplates();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to create template");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (tmpl) => {
+    if (!window.confirm(`Are you sure you want to delete template "${tmpl.name}" (${tmpl.id})?`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/websites/admin/templates/${tmpl.id}`);
+      toast.success(`Template "${tmpl.name}" deleted.`);
+      loadTemplates();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to delete template");
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-4" data-testid="admin-website-templates-tab">
+      {/* Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="font-display font-bold text-lg text-slate-900">Custom Website Templates</h2>
+            <span className="px-2 py-0.5 rounded-full text-xs font-black bg-blue-50 text-blue-700 border border-blue-200">
+              {templates.length} Templates
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Manage public catalog templates and bespoke private templates assigned to specific client companies.
+          </p>
+        </div>
+
+        <button
+          onClick={() => setCreateModalOpen(true)}
+          className="px-4 py-2 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all shrink-0"
+          data-testid="admin-create-template-btn"
+        >
+          <Plus size={15} />
+          <span>Add New Template</span>
+        </button>
+      </div>
+
+      {/* Templates Grid */}
+      {loading ? (
+        <div className="p-12 text-center text-slate-400 font-semibold">Loading templates...</div>
+      ) : templates.length === 0 ? (
+        <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 text-slate-400 font-semibold">
+          No templates found. Click "Add New Template" to register one.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {templates.map((t) => (
+            <div
+              key={t.id}
+              className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between"
+              data-testid={`admin-template-card-${t.id}`}
+            >
+              <div>
+                {/* Thumbnail Image & Badges */}
+                <div className="relative aspect-video bg-slate-100 overflow-hidden border-b border-slate-100">
+                  {t.preview_image ? (
+                    <img src={t.preview_image} alt={t.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 bg-slate-900/5">
+                      <Layers size={32} />
+                      <span className="text-[10px] font-bold uppercase mt-1 tracking-wider">Industrial Template</span>
+                    </div>
+                  )}
+
+                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 flex-wrap">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-900/80 backdrop-blur-md text-white border border-white/20">
+                      {t.category || "General"}
+                    </span>
+                    {t.is_default && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-600/90 backdrop-blur-md text-white">
+                        Default
+                      </span>
+                    )}
+                    {t.is_custom && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-600/90 backdrop-blur-md text-white">
+                        Bespoke {t.assigned_company_id ? `(Co #${t.assigned_company_id})` : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Details */}
+                <div className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-display font-bold text-sm text-slate-900">{t.name}</h3>
+                      <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                        {t.id}
+                      </span>
+                    </div>
+                    {t.accent_color && (
+                      <div
+                        className="w-4 h-4 rounded-full border border-slate-300 shrink-0"
+                        style={{ backgroundColor: t.accent_color }}
+                        title={`Accent: ${t.accent_color}`}
+                      />
+                    )}
+                  </div>
+
+                  <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                    {t.description}
+                  </p>
+
+                  {/* Feature Tags */}
+                  {Array.isArray(t.features) && t.features.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {t.features.map((feat, idx) => (
+                        <span
+                          key={idx}
+                          className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-50 text-slate-600 border border-slate-200"
+                        >
+                          {feat}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions Footer */}
+              <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPreviewTemplateId(t.id)}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-blue-400 text-slate-700 text-xs font-bold transition-colors inline-flex items-center gap-1.5 shadow-2xs"
+                  data-testid={`admin-preview-template-${t.id}`}
+                >
+                  <Eye size={13} className="text-blue-600" />
+                  <span>Preview with Sample</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDelete(t)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                  title="Delete Template"
+                  data-testid={`admin-delete-template-${t.id}`}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Create Template Modal */}
+      {createModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-blue-50 text-blue-800">
+                  <Globe size={18} />
+                </span>
+                <h3 className="font-display font-bold text-base text-slate-900">Add New Website Template</h3>
+              </div>
+              <button
+                onClick={() => setCreateModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreate} className="mt-4 space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Template ID (Unique Identifier) *
+                </label>
+                <input
+                  required
+                  value={form.id}
+                  onChange={(e) => setForm({ ...form, id: e.target.value })}
+                  placeholder="e.g. precision_aerospace_dark"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-blue-300 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Template Name *
+                </label>
+                <input
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="e.g. Precision Aerospace & Defense"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-blue-300 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Description *
+                </label>
+                <textarea
+                  required
+                  rows={2}
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="High-contrast precision layout tailored for defense and precision aerospace manufacturers."
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-blue-300 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={form.category}
+                    onChange={(e) => setForm({ ...form, category: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs bg-white focus:ring-2 focus:ring-blue-300 outline-none"
+                  >
+                    <option value="industrial">Industrial</option>
+                    <option value="manufacturing">Manufacturing</option>
+                    <option value="catalog">Catalog</option>
+                    <option value="modern">Modern Minimal</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Accent Color
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={form.accent_color}
+                      onChange={(e) => setForm({ ...form, accent_color: e.target.value })}
+                      className="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 p-0.5"
+                    />
+                    <input
+                      value={form.accent_color}
+                      onChange={(e) => setForm({ ...form, accent_color: e.target.value })}
+                      className="flex-1 rounded-xl border border-slate-300 px-2 py-1.5 text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Preview Image URL (Thumbnail)
+                </label>
+                <input
+                  value={form.preview_image}
+                  onChange={(e) => setForm({ ...form, preview_image: e.target.value })}
+                  placeholder="https://images.unsplash.com/photo-..."
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-blue-300 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Features (Comma separated)
+                </label>
+                <input
+                  value={form.features}
+                  onChange={(e) => setForm({ ...form, features: e.target.value })}
+                  placeholder="Hero Section, RFQ Engine, SEO Indexing"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-blue-300 outline-none"
+                />
+              </div>
+
+              {/* Bespoke / Custom Assignment */}
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.is_custom}
+                    onChange={(e) => setForm({ ...form, is_custom: e.target.checked })}
+                    className="w-4 h-4 text-blue-600 rounded"
+                  />
+                  <span>Private / Bespoke Template (Exclusive to Lead/Company)</span>
+                </label>
+
+                {form.is_custom && (
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Assigned Company ID (Optional - Leave blank for platform-private)
+                    </label>
+                    <input
+                      type="number"
+                      value={form.assigned_company_id}
+                      onChange={(e) => setForm({ ...form, assigned_company_id: e.target.value })}
+                      placeholder="e.g. 42"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:ring-2 focus:ring-blue-300 outline-none"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setCreateModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-5 py-2 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs transition-colors shadow-sm disabled:opacity-50"
+                  data-testid="admin-submit-template-btn"
+                >
+                  {submitting ? "Saving..." : "Create Template"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Modal */}
+      {previewTemplateId && (
+        <TemplatePreviewModal
+          templateId={previewTemplateId}
+          onClose={() => setPreviewTemplateId(null)}
+        />
+      )}
+    </div>
+  );
+};
+
 

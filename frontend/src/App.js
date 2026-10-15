@@ -53,6 +53,7 @@ import ContactUsPage from "@/pages/ContactUsPage";
 import TermsAndConditionsPage from "@/pages/TermsAndConditionsPage";
 import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 import RefundPolicyPage from "@/pages/RefundPolicyPage";
+import TenantWebsitePage from "@/pages/TenantWebsitePage";
 
 const Layout = ({ children }) => {
   const { user } = useAuth();
@@ -66,6 +67,15 @@ const Layout = ({ children }) => {
       mainRef.current.scrollTop = 0;
     }
   }, [location.pathname, location.search]);
+
+  const isSiteRoute = location.pathname.startsWith("/site");
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+  const hostParts = hostname.split(".");
+  const isTenantSubdomain = hostParts.length > 2 && !["www", "staging", "billing", "api", "localhost", "127"].includes(hostParts[0]);
+
+  if (isTenantSubdomain || isSiteRoute) {
+    return <div className="min-h-screen bg-slate-950">{children}</div>;
+  }
 
   const isAdmin = user?.role === "admin";
   const fullscreen = location.pathname.startsWith("/reels")
@@ -146,6 +156,8 @@ function App() {
                   <Route path="/terms" element={<TermsAndConditionsPage />} />
                   <Route path="/privacy" element={<PrivacyPolicyPage />} />
                   <Route path="/refund-policy" element={<RefundPolicyPage />} />
+                  <Route path="/site/:subdomain" element={<TenantWebsitePage />} />
+                  <Route path="/site" element={<TenantWebsitePage />} />
                 </Routes>
               </Layout>
             </BrowserRouter>

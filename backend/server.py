@@ -483,6 +483,41 @@ class GroupMember(Base):
     created_at = Column(String(255), nullable=False)
 
 
+class CompanyWebsite(Base):
+    __tablename__ = "company_websites"
+    id = Column(String(36), primary_key=True)
+    company_id = Column(String(36), nullable=False, unique=True, index=True)
+    owner_id = Column(String(36), nullable=False, index=True)
+    subdomain = Column(String(63), nullable=False, unique=True, index=True)
+    custom_domain = Column(String(255), nullable=True, unique=True, index=True)
+    domain_type = Column(String(20), default="subdomain", nullable=False)
+    template_id = Column(String(50), nullable=False, default="industrial_modern")
+    status = Column(String(30), default="active", nullable=False)  # active, provisioning, suspended
+    theme_config = Column(JSON, default=dict, nullable=True)
+    seo_config = Column(JSON, default=dict, nullable=True)
+    hostinger_dns_synced = Column(Boolean, default=False, nullable=False)
+    published_at = Column(String(50), nullable=True)
+    created_at = Column(String(50), nullable=False)
+    updated_at = Column(String(50), nullable=False)
+
+
+class WebsiteTemplate(Base):
+    __tablename__ = "website_templates"
+    id = Column(String(50), primary_key=True)  # e.g., 'industrial_modern', 'manufacturing_pro', 'minimal_catalog'
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    badge = Column(String(50), nullable=True)
+    thumbnail_url = Column(String(1024), nullable=True)
+    category = Column(String(50), nullable=False, default="general_b2b")
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_custom = Column(Boolean, default=False, nullable=False)
+    assigned_company_id = Column(String(36), nullable=True, index=True)
+    assigned_user_id = Column(String(36), nullable=True, index=True)
+    sample_data = Column(JSON, default=dict, nullable=True)
+    created_at = Column(String(50), nullable=False)
+    updated_at = Column(String(50), nullable=False)
+
+
 # -------------------- Models Pydantic --------------------
 RoleType = Literal["manufacturer", "supplier", "buyer", "admin"]
 
@@ -6849,7 +6884,7 @@ async def _seed_plans_if_empty(db: AsyncSession):
          "badge": "Recommended", "color": "blue", "is_featured": True, "is_active": True, "sort_order": 1,
          "leads_per_month": 50, "unlocks_per_month": 30},
         {"name": "Premium", "description": "Unlock full visibility.", "monthly_price": 2999, "yearly_price": 29990,
-         "duration_days": 30, "features": ["Featured slot in hero", "Unlimited reels & posts", "Unlimited leads", "Priority support", "Lead CSV export", "Analytics dashboard"],
+         "duration_days": 30, "features": ["Custom Company Website", "Featured slot in hero", "Unlimited reels & posts", "Unlimited leads", "Priority support", "Lead CSV export", "Analytics dashboard"],
          "badge": "Best Value", "color": "orange", "is_featured": True, "is_active": True, "sort_order": 2,
          "leads_per_month": None, "unlocks_per_month": None},
         {"name": "SEO Boost", "description": "Search-rank acceleration.", "monthly_price": 4999, "yearly_price": 49990,
@@ -6857,11 +6892,11 @@ async def _seed_plans_if_empty(db: AsyncSession):
          "color": "indigo", "is_featured": False, "is_active": True, "sort_order": 3,
          "leads_per_month": None, "unlocks_per_month": 100},
         {"name": "Business Development", "description": "Hands-on growth team.", "monthly_price": 7999, "yearly_price": 79990,
-         "duration_days": 30, "features": ["Dedicated BD manager", "100 outbound enquiries / mo", "Lead qualification calls", "Weekly reports"],
+         "duration_days": 30, "features": ["Custom Company Website", "Dedicated BD manager", "100 outbound enquiries / mo", "Lead qualification calls", "Weekly reports"],
          "color": "emerald", "is_featured": False, "is_active": True, "sort_order": 4,
          "leads_per_month": 200, "unlocks_per_month": 200},
         {"name": "Enterprise", "description": "Custom for large orgs.", "monthly_price": 0, "yearly_price": 0,
-         "duration_days": 365, "features": ["Multi-user team logins", "API access", "White-label embeds", "Dedicated CSM", "Custom pricing — talk to sales"],
+         "duration_days": 365, "features": ["Custom Company Website", "Multi-user team logins", "API access", "White-label embeds", "Dedicated CSM", "Custom pricing — talk to sales"],
          "badge": "Custom", "color": "rose", "is_featured": False, "is_active": True, "sort_order": 5,
          "leads_per_month": None, "unlocks_per_month": None},
     ]
@@ -6876,6 +6911,86 @@ async def _seed_plans_if_empty(db: AsyncSession):
             unlocks_per_month=p["unlocks_per_month"], created_at=now_iso()
         ))
     await db.commit()
+
+
+async def _seed_website_templates_if_empty(db: AsyncSession):
+    stmt = select(func.count(WebsiteTemplate.id))
+    if (await db.execute(stmt)).scalar_one() > 0:
+        return
+
+    templates = [
+        {
+            "id": "industrial_modern",
+            "name": "Industrial Modern",
+            "description": "High-impact layout with dynamic machinery hero, real-time metrics counter, tabbed catalog highlights, and industrial reels showcase.",
+            "badge": "Most Popular",
+            "category": "heavy_machinery",
+            "thumbnail_url": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&q=80",
+            "is_custom": False,
+            "sample_data": {
+                "tagline": "Engineered For Peak Industrial Performance",
+                "stats": [
+                    {"label": "Years in Industry", "value": "24+"},
+                    {"label": "Installed Systems", "value": "1,450+"},
+                    {"label": "Global Reach", "value": "28 Countries"},
+                    {"label": "ISO Standards", "value": "9001 / 14001"}
+                ]
+            }
+        },
+        {
+            "id": "manufacturing_pro",
+            "name": "Manufacturing Pro",
+            "description": "Engineered for precision machining and component manufacturers. Features technical RFQ quote builder, specifications downloads, and ISO certification showcase.",
+            "badge": "B2B Recommended",
+            "category": "components",
+            "thumbnail_url": "https://images.unsplash.com/photo-1504917599217-d4dc5ebe6122?w=800&q=80",
+            "is_custom": False,
+            "sample_data": {
+                "tagline": "Micron-Level Tolerance, Mission-Critical Reliability",
+                "stats": [
+                    {"label": "Tolerance", "value": "±2 Microns"},
+                    {"label": "Machining Centers", "value": "35+"},
+                    {"label": "Annual Output", "value": "500k+ Units"},
+                    {"label": "On-Time Delivery", "value": "99.4%"}
+                ]
+            }
+        },
+        {
+            "id": "minimal_catalog",
+            "name": "Minimal Catalog",
+            "description": "Clean, ultra-fast browsing experience with whitespace focus, high-res photography, verified badges, and instant 1-click WhatsApp order routing.",
+            "badge": "Fast & Clean",
+            "category": "general_b2b",
+            "thumbnail_url": "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&q=80",
+            "is_custom": False,
+            "sample_data": {
+                "tagline": "Quality Industrial Fasteners & Tooling at Scale",
+                "stats": [
+                    {"label": "Catalog SKU Count", "value": "12,000+"},
+                    {"label": "Dispatch Time", "value": "Same Day"},
+                    {"label": "Verified Buyers", "value": "3,800+"}
+                ]
+            }
+        }
+    ]
+
+    now = now_iso()
+    for t in templates:
+        db.add(WebsiteTemplate(
+            id=t["id"],
+            name=t["name"],
+            description=t["description"],
+            badge=t["badge"],
+            thumbnail_url=t["thumbnail_url"],
+            category=t["category"],
+            is_active=True,
+            is_custom=t["is_custom"],
+            sample_data=t["sample_data"],
+            created_at=now,
+            updated_at=now
+        ))
+    await db.commit()
+    logger.info("Seeded 3 initial Website Templates.")
 
 
 async def _seed_categories_if_empty(db: AsyncSession):
@@ -7164,6 +7279,40 @@ async def startup():
             item_count INTEGER DEFAULT 0,
             last_error_message TEXT
         )""",
+        """CREATE TABLE IF NOT EXISTS company_websites (
+            id VARCHAR(36) PRIMARY KEY,
+            company_id VARCHAR(36) NOT NULL UNIQUE,
+            owner_id VARCHAR(36) NOT NULL,
+            subdomain VARCHAR(63) NOT NULL UNIQUE,
+            custom_domain VARCHAR(255) UNIQUE,
+            domain_type VARCHAR(20) DEFAULT 'subdomain',
+            template_id VARCHAR(50) DEFAULT 'industrial_modern',
+            status VARCHAR(30) DEFAULT 'active',
+            theme_config JSONB DEFAULT '{}'::jsonb,
+            seo_config JSONB DEFAULT '{}'::jsonb,
+            hostinger_dns_synced BOOLEAN DEFAULT FALSE,
+            published_at VARCHAR(50),
+            created_at VARCHAR(50) NOT NULL,
+            updated_at VARCHAR(50) NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS website_templates (
+            id VARCHAR(50) PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            description TEXT,
+            badge VARCHAR(50),
+            thumbnail_url VARCHAR(1024),
+            category VARCHAR(50) DEFAULT 'general_b2b',
+            is_active BOOLEAN DEFAULT TRUE,
+            is_custom BOOLEAN DEFAULT FALSE,
+            assigned_company_id VARCHAR(36),
+            assigned_user_id VARCHAR(36),
+            sample_data JSONB DEFAULT '{}'::jsonb,
+            created_at VARCHAR(50) NOT NULL,
+            updated_at VARCHAR(50) NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_company_websites_subdomain ON company_websites (subdomain)",
+        "CREATE INDEX IF NOT EXISTS idx_company_websites_company_id ON company_websites (company_id)",
+        "CREATE INDEX IF NOT EXISTS idx_website_templates_assigned_company ON website_templates (assigned_company_id)",
     ]
 
     for q in migrations:
@@ -7177,6 +7326,7 @@ async def startup():
         async with AsyncSessionLocal() as session:
             await seed_data(session)
             await _seed_plans_if_empty(session)
+            await _seed_website_templates_if_empty(session)
             await _seed_categories_if_empty(session)
             await _seed_areas_if_empty(session)
             await _seed_slides_if_empty(session)
@@ -7206,7 +7356,13 @@ try:
 except ImportError:
     from routers.recommendation_router import recommendation_router
 
+try:
+    from backend.routers.website_router import website_router
+except ImportError:
+    from routers.website_router import website_router
+
 api.include_router(recommendation_router)
+api.include_router(website_router)
 app.include_router(api)
 app.include_router(news_router)
 
