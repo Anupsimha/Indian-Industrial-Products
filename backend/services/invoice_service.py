@@ -18,13 +18,13 @@ from typing import Dict, Any, Optional
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether, Image
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 
 # Default Platform Tax / Supplier Details (from environment with fallbacks)
-PLATFORM_NAME = os.environ.get("PLATFORM_BUSINESS_NAME", "Indian Industrial Products").strip()
+PLATFORM_NAME = os.environ.get("PLATFORM_BUSINESS_NAME", "Indian Industrial Platform").strip()
 PLATFORM_GSTIN = os.environ.get("PLATFORM_GSTIN", "29AABCU9603R1ZM").strip()
 PLATFORM_ADDRESS = os.environ.get(
     "PLATFORM_REGISTERED_ADDRESS",
@@ -32,6 +32,15 @@ PLATFORM_ADDRESS = os.environ.get(
 ).strip()
 PLATFORM_EMAIL = os.environ.get("REACT_APP_SUPPORT_EMAIL", "support@indianindustrialplatform.com").strip()
 PLATFORM_PHONE = os.environ.get("REACT_APP_SUPPORT_PHONE", "+91 9380036328").strip()
+
+# Platform Logo Asset
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOGO_PATH = os.path.join(BASE_DIR, "assets", "logo.png")
+if not os.path.exists(LOGO_PATH):
+    # Fallback to frontend public logo if running locally without separate backend assets
+    alt_logo = os.path.join(os.path.dirname(BASE_DIR), "frontend", "public", "logo-gear.png")
+    if os.path.exists(alt_logo):
+        LOGO_PATH = alt_logo
 
 
 def generate_invoice_number(sequence_id: int | str, created_at: Optional[datetime] = None) -> str:
@@ -178,10 +187,35 @@ def generate_membership_invoice_pdf(invoice_data: Dict[str, Any]) -> bytes:
 
     story = []
 
-    # 1. Header Banner: TAX INVOICE & Meta
+    # 1. Header Banner: Brand Logo & Title + Tax Invoice Meta
+    logo_element = None
+    if os.path.exists(LOGO_PATH):
+        try:
+            logo_element = Image(LOGO_PATH, width=0.65 * inch, height=0.65 * inch)
+        except Exception:
+            logo_element = None
+
+    brand_heading_html = (
+        "<b><font size='16' color='#1e3a8a'>Indian Industrial Platform</font></b><br/>"
+        "<b><font size='11' color='#0f172a'>TAX INVOICE</font></b> "
+        "<font size='9' color='#64748b'>| Membership Subscription</font>"
+    )
+
+    if logo_element:
+        brand_block = Table(
+            [[logo_element, Paragraph(brand_heading_html, title_style)]],
+            colWidths=[0.75 * inch, 3.4 * inch]
+        )
+        brand_block.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("PADDING", (0, 0), (-1, -1), 0),
+        ]))
+    else:
+        brand_block = Paragraph(brand_heading_html, title_style)
+
     header_data = [
         [
-            Paragraph("<b>TAX INVOICE</b><br/><font color='#64748b' size='9'>Membership subscription</font>", title_style),
+            brand_block,
             Paragraph(
                 f"<b>Invoice No:</b> {invoice_data.get('invoice_number', 'INV-2026-0001')}<br/>"
                 f"<b>Date:</b> {invoice_data.get('invoice_date', datetime.now().strftime('%d %B %Y'))}<br/>"
@@ -190,9 +224,9 @@ def generate_membership_invoice_pdf(invoice_data: Dict[str, Any]) -> bytes:
             )
         ]
     ]
-    header_table = Table(header_data, colWidths=[3.2 * inch, 4.0 * inch])
+    header_table = Table(header_data, colWidths=[4.15 * inch, 3.05 * inch])
     header_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
     ]))

@@ -18,7 +18,7 @@ def test_generate_membership_invoice_pdf_content():
     sample_data = {
         "invoice_number": "INV-2026-0001",
         "invoice_date": "15 October 2026",
-        "supplier_name": "Indian Industrial Products",
+        "supplier_name": "Indian Industrial Platform",
         "supplier_gstin": "29AABCU9603R1ZM",
         "supplier_address": "No. 35 Suvarna Nagar Doddabidrekallu Nagasandra, Bengaluru, Karnataka - 560073",
         "customer_name": "Precision Engineering Works",
