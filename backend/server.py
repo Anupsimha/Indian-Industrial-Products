@@ -515,6 +515,7 @@ class WebsiteTemplate(Base):
     assigned_user_id = Column(String(36), nullable=True, index=True)
     sample_data = Column(JSON, default=dict, nullable=True)
     created_at = Column(String(50), nullable=False)
+    updated_at = Column(String(50), nullable=False)
 class MembershipInvoice(Base):
     __tablename__ = "membership_invoices"
     id = Column(String(36), primary_key=True)
@@ -7254,7 +7255,8 @@ async def _seed_website_templates_if_empty(db: AsyncSession):
                 is_active=True,
                 is_custom=t["is_custom"],
                 sample_data=t["sample_data"],
-                created_at=now
+                created_at=now,
+                updated_at=now
             ))
     await db.commit()
     logger.info("Synchronized official Website Templates.")
