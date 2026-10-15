@@ -116,6 +116,22 @@ const Layout = ({ children }) => {
 };
 
 function App() {
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+  const hostParts = hostname.split(".");
+  const isTenantSubdomain = hostParts.length > 2 && !["www", "staging", "billing", "api", "localhost", "127"].includes(hostParts[0]);
+
+  // If visitor is on a custom tenant website subdomain (e.g. https://sample.indianindustrialplatform.com),
+  // render the standalone, public landing page directly with NO authentication required!
+  if (isTenantSubdomain) {
+    return (
+      <BrowserRouter>
+        <div className="min-h-screen bg-slate-950">
+          <TenantWebsitePage />
+        </div>
+      </BrowserRouter>
+    );
+  }
+
   return (
     <AuthProvider>
       <SupportContactProvider>
@@ -175,6 +191,5 @@ function App() {
     </AuthProvider>
   );
 }
-
 
 export default App;
