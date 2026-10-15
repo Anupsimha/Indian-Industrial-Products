@@ -515,7 +515,27 @@ class WebsiteTemplate(Base):
     assigned_user_id = Column(String(36), nullable=True, index=True)
     sample_data = Column(JSON, default=dict, nullable=True)
     created_at = Column(String(50), nullable=False)
-    updated_at = Column(String(50), nullable=False)
+class MembershipInvoice(Base):
+    __tablename__ = "membership_invoices"
+    id = Column(String(36), primary_key=True)
+    invoice_number = Column(String(50), nullable=False, unique=True, index=True)
+    user_id = Column(String(36), nullable=False, index=True)
+    company_id = Column(String(36), nullable=True, index=True)
+    plan_id = Column(String(36), nullable=False)
+    plan_name = Column(String(255), nullable=False)
+    billing_cycle = Column(String(20), default="monthly", nullable=False)  # monthly, yearly
+    base_amount = Column(Float, nullable=False)
+    gst_rate = Column(Float, default=18.0, nullable=False)
+    gst_amount = Column(Float, nullable=False)
+    total_amount = Column(Float, nullable=False)
+    currency = Column(String(10), default="INR", nullable=False)
+    payment_id = Column(String(255), nullable=True)
+    razorpay_order_id = Column(String(255), nullable=True)
+    status = Column(String(30), default="paid", nullable=False)  # paid, refunded
+    supplier_details = Column(JSON, default=dict, nullable=True)
+    customer_details = Column(JSON, default=dict, nullable=True)
+    pdf_url = Column(String(1024), nullable=True)
+    created_at = Column(String(50), nullable=False)
 
 
 # -------------------- Models Pydantic --------------------
@@ -5595,20 +5615,157 @@ async def verify_payment(payload: VerifyPaymentIn, user: dict = Depends(get_curr
     usr_obj = (await db.execute(stmt_usr)).scalar_one_or_none()
     user_email = usr_obj.email if usr_obj else user.get("email")
 
+    # Fetch company if associated
+    comp_obj = None
+    if usr_obj and usr_obj.company_id:
+        stmt_comp = select(Company).where(Company.id == usr_obj.company_id)
+        comp_obj = (await db.execute(stmt_comp)).scalar_one_or_none()
+
+    # Calculate pricing and GST (18%)
+    base_price = plan.yearly_price if payload.billing_cycle == "yearly" else plan.monthly_price
+    gst_rate = 18.0
+    gst_amount = round(base_price * 0.18, 2)
+    total_price = round(base_price + gst_amount, 2)
+
+    # Generate sequential invoice count for user-facing invoice number
+    inv_count_stmt = select(func.count(MembershipInvoice.id))
+    inv_seq = (await db.execute(inv_count_stmt)).scalar() or 0
+    invoice_number = f"INV-{datetime.now().year}-{(inv_seq + 1):04d}"
+
+    invoice_id = str(uuid.uuid4())
+    invoice_date_str = datetime.now().strftime("%d %B %Y")
+
+    invoice_payload = {
+        "invoice_number": invoice_number,
+        "invoice_date": invoice_date_str,
+        "supplier_name": os.environ.get("PLATFORM_BUSINESS_NAME", "Indian Industrial Products").strip(),
+        "supplier_gstin": os.environ.get("PLATFORM_GSTIN", "29AABCU9603R1ZM").strip(),
+        "supplier_address": os.environ.get(
+            "PLATFORM_REGISTERED_ADDRESS",
+            "No. 35 Suvarna Nagar Doddabidrekallu Nagasandra, Bengaluru, Karnataka - 560073"
+        ).strip(),
+        "customer_name": usr_obj.name if usr_obj else user.get("name", "Valued Member"),
+        "customer_company": comp_obj.name if comp_obj else None,
+        "customer_gstin": comp_obj.gst if comp_obj else None,
+        "customer_address": (comp_obj.address or comp_obj.location) if comp_obj else None,
+        "plan_name": f"{plan.name} Plan ({'Annual' if payload.billing_cycle == 'yearly' else 'Monthly'})",
+        "description": f"{payload.billing_cycle.capitalize()} membership plan subscription",
+        "base_amount": base_price,
+        "gst_rate": gst_rate,
+        "gst_amount": gst_amount,
+        "total_amount": total_price,
+        "payment_id": payload.razorpay_payment_id or "Online",
+        "payment_method": "Razorpay / Online" if payload.razorpay_payment_id != "free_payment" else "Free Plan",
+    }
+
+    # Generate Tax Invoice PDF bytes
+    pdf_bytes = None
+    try:
+        from services.invoice_service import generate_membership_invoice_pdf
+        pdf_bytes = generate_membership_invoice_pdf(invoice_payload)
+    except Exception as pdf_err:
+        try:
+            from backend.services.invoice_service import generate_membership_invoice_pdf
+            pdf_bytes = generate_membership_invoice_pdf(invoice_payload)
+        except Exception as pdf_err2:
+            logger.error(f"Error generating invoice PDF: {pdf_err2}")
+
+    # Store MembershipInvoice in database
+    new_invoice = MembershipInvoice(
+        id=invoice_id,
+        invoice_number=invoice_number,
+        user_id=user["id"],
+        company_id=usr_obj.company_id if usr_obj else None,
+        plan_id=plan.id,
+        plan_name=plan.name,
+        billing_cycle=payload.billing_cycle,
+        base_amount=base_price,
+        gst_rate=gst_rate,
+        gst_amount=gst_amount,
+        total_amount=total_price,
+        currency="INR",
+        payment_id=payload.razorpay_payment_id,
+        razorpay_order_id=payload.razorpay_order_id,
+        status="paid",
+        supplier_details={
+            "name": invoice_payload["supplier_name"],
+            "gstin": invoice_payload["supplier_gstin"],
+            "address": invoice_payload["supplier_address"],
+        },
+        customer_details={
+            "name": invoice_payload["customer_name"],
+            "company": invoice_payload["customer_company"],
+            "gstin": invoice_payload["customer_gstin"],
+            "address": invoice_payload["customer_address"],
+        },
+        pdf_url=f"/api/invoices/{invoice_id}/download",
+        created_at=now_iso()
+    )
+    db.add(new_invoice)
+
+    # Construct branded confirmation email with PDF attached
+    email_html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 8px;">
+        <h2 style="color: #1e3a8a;">Tax Invoice - Membership Subscription</h2>
+        <p>Dear {invoice_payload['customer_name']},</p>
+        <p>Thank you for subscribing to the <strong>{plan.name} Plan</strong> on <strong>{invoice_payload['supplier_name']}</strong>.</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+            <tr><td style="padding: 6px 0; color: #64748b;">Invoice Number:</td><td style="font-weight: bold; text-align: right;">{invoice_number}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Invoice Date:</td><td style="font-weight: bold; text-align: right;">{invoice_date_str}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Plan Amount:</td><td style="text-align: right;">₹{base_price:,.2f}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">GST (18%):</td><td style="text-align: right;">₹{gst_amount:,.2f}</td></tr>
+            <tr style="border-top: 1px solid #cbd5e1;"><td style="padding: 8px 0; font-weight: bold;">Total Paid:</td><td style="font-weight: bold; color: #1e3a8a; text-align: right;">₹{total_price:,.2f}</td></tr>
+        </table>
+        <p>Your official Tax Invoice PDF is attached to this email for your records and GST compliance.</p>
+        <p>You can also download your invoice anytime from your IIP Membership dashboard.</p>
+        <br/>
+        <p style="font-size: 12px; color: #94a3b8;">Indian Industrial Products | B2B Marketplace & Networking</p>
+    </div>
+    """
+
+    attachments_list = []
+    if pdf_bytes:
+        attachments_list.append({
+            "filename": f"Tax_Invoice_{invoice_number}.pdf",
+            "content": pdf_bytes,
+            "mime_type": "application/pdf"
+        })
+
     await notify_user(
         db=db,
         user_id=user["id"],
         title="Thank you for choosing IIP!",
-        body=f"Your purchase of the {plan.name} plan is confirmed. Expiry: {expiry[:10]}.",
+        body=f"Your purchase of the {plan.name} plan is confirmed. Tax Invoice {invoice_number} has been generated.",
         notif_type="plan_purchase",
-        target_id=plan.id,
-        link_url="/settings",
+        target_id=invoice_id,
+        link_url="/membership",
         send_email_flag=True,
         email_to=user_email,
-        email_subject=f"Thank you for choosing IIP! Purchase Confirmation - {plan.name}",
+        email_subject=f"Tax Invoice {invoice_number} - {plan.name} Plan Purchase",
     )
+
+    # Send email with attachment directly via email_utils
+    if user_email and pdf_bytes:
+        try:
+            asyncio.create_task(
+                send_email(
+                    to=user_email,
+                    subject=f"Tax Invoice {invoice_number} - {plan.name} Plan Purchase",
+                    html_body=email_html,
+                    attachments=attachments_list
+                )
+            )
+        except Exception as e_err:
+            logger.error(f"Failed sending invoice email with attachment: {e_err}")
+
     await db.commit()
-    return {"ok": True}
+    return {
+        "ok": True,
+        "invoice_id": invoice_id,
+        "invoice_number": invoice_number,
+        "download_url": f"/api/invoices/{invoice_id}/download",
+        "plan_name": plan.name
+    }
 
 @api.post("/payments/create-order-cart")
 async def create_payment_order_cart(payload: CreateCartOrderIn, user: dict = Depends(get_current_user)):
@@ -5644,6 +5801,101 @@ async def verify_cart_payment(payload: VerifyCartPaymentIn, user: dict = Depends
     if not hmac.compare_digest(generated, payload.razorpay_signature):
         raise HTTPException(status_code=400, detail="Payment signature verification failed")
     return {"ok": True}
+
+@api.get("/invoices/my-invoices")
+async def get_my_membership_invoices(
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
+    """List all membership subscription tax invoices belonging to the authenticated user."""
+    stmt = (
+        select(MembershipInvoice)
+        .where(MembershipInvoice.user_id == user["id"])
+        .order_by(MembershipInvoice.created_at.desc())
+    )
+    res = await db.execute(stmt)
+    invoices = res.scalars().all()
+    
+    return [
+        {
+            "id": inv.id,
+            "invoice_number": inv.invoice_number,
+            "plan_name": inv.plan_name,
+            "billing_cycle": inv.billing_cycle,
+            "base_amount": inv.base_amount,
+            "gst_rate": inv.gst_rate,
+            "gst_amount": inv.gst_amount,
+            "total_amount": inv.total_amount,
+            "currency": inv.currency,
+            "status": inv.status,
+            "created_at": inv.created_at,
+            "download_url": f"/api/invoices/{inv.id}/download"
+        }
+        for inv in invoices
+    ]
+
+@api.get("/invoices/{invoice_id}/download")
+async def download_membership_invoice(
+    invoice_id: str,
+    token: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Download or stream the generated PDF for a membership invoice.
+    Accepts standard Authorization header or ?token= for direct browser download clicks.
+    """
+    # 1. Fetch invoice record
+    stmt = select(MembershipInvoice).where(MembershipInvoice.id == invoice_id)
+    inv = (await db.execute(stmt)).scalar_one_or_none()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # 2. Dynamic generation of clean PDF
+    try:
+        from services.invoice_service import generate_membership_invoice_pdf
+        
+        # Parse or format invoice date from created_at
+        try:
+            inv_dt = datetime.fromisoformat(inv.created_at.replace("Z", "+00:00"))
+            inv_date_str = inv_dt.strftime("%d %B %Y")
+        except Exception:
+            inv_date_str = datetime.now().strftime("%d %B %Y")
+
+        inv_payload = {
+            "invoice_number": inv.invoice_number,
+            "invoice_date": inv_date_str,
+            "supplier_name": (inv.supplier_details or {}).get("name") or os.environ.get("PLATFORM_BUSINESS_NAME", "Indian Industrial Products"),
+            "supplier_gstin": (inv.supplier_details or {}).get("gstin") or os.environ.get("PLATFORM_GSTIN", "29AABCU9603R1ZM"),
+            "supplier_address": (inv.supplier_details or {}).get("address") or os.environ.get("PLATFORM_REGISTERED_ADDRESS", "No. 35 Suvarna Nagar Doddabidrekallu Nagasandra, Bengaluru, Karnataka - 560073"),
+            "customer_name": (inv.customer_details or {}).get("name") or "Subscriber",
+            "customer_company": (inv.customer_details or {}).get("company") or "",
+            "customer_gstin": (inv.customer_details or {}).get("gstin") or "",
+            "customer_address": (inv.customer_details or {}).get("address") or "",
+            "plan_name": f"{inv.plan_name} ({inv.billing_cycle.capitalize()})",
+            "description": f"{inv.billing_cycle.capitalize()} membership plan subscription",
+            "base_amount": inv.base_amount,
+            "gst_rate": inv.gst_rate,
+            "gst_amount": inv.gst_amount,
+            "total_amount": inv.total_amount,
+            "payment_id": inv.payment_id or "Online",
+            "payment_method": "Razorpay / Online",
+        }
+
+        pdf_bytes = generate_membership_invoice_pdf(inv_payload)
+        
+        from fastapi.responses import Response
+        filename = f"Tax_Invoice_{inv.invoice_number}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "application/pdf"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error generating PDF on download: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate invoice PDF: {str(e)}")
 
 @api.post("/payments/webhook")
 async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db)):

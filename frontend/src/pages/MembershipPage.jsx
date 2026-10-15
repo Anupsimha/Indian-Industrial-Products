@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Crown, ShieldCheck, Zap, Sparkles, CheckCircle2, ArrowRight,
-  Clock, CreditCard, ChevronRight, AlertCircle, RefreshCw
+  Clock, CreditCard, ChevronRight, AlertCircle, RefreshCw, Download, FileText
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { BackButton } from "../components/BackButton";
@@ -13,14 +13,18 @@ export default function MembershipPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [unlockStats, setUnlockStats] = useState(null);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
-    api.get("/requirements/unlock-stats")
-      .then((r) => setUnlockStats(r.data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    Promise.all([
+      api.get("/requirements/unlock-stats").catch(() => null),
+      api.get("/invoices/my-invoices").catch(() => null)
+    ]).then(([statsRes, invRes]) => {
+      if (statsRes?.data) setUnlockStats(statsRes.data);
+      if (invRes?.data) setInvoices(invRes.data);
+    }).finally(() => setLoading(false));
   }, [user]);
 
   if (!user) {
@@ -156,6 +160,60 @@ export default function MembershipPage() {
               <p className="text-xs text-slate-600 leading-relaxed">
                 Your current account tier allows unlimited contact unlocks for verified buyer requirements across India.
               </p>
+            )}
+          </div>
+
+          {/* Card: Membership Tax Invoices */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText size={18} className="text-blue-900" />
+                <h3 className="font-display font-bold text-slate-900 text-base">Tax Invoices &amp; Receipts</h3>
+              </div>
+              <span className="text-xs font-semibold text-slate-500">
+                {invoices.length} {invoices.length === 1 ? "Invoice" : "Invoices"}
+              </span>
+            </div>
+
+            {invoices.length === 0 ? (
+              <div className="text-center py-6 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                <FileText size={28} className="mx-auto text-slate-300 mb-1.5" />
+                <p className="text-xs text-slate-500 font-medium">No tax invoices generated yet.</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Invoices for paid subscriptions will automatically appear here.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {invoices.map((inv) => (
+                  <div key={inv.id} className="py-3 flex items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-900">{inv.invoice_number}</span>
+                        <span className="text-[10px] uppercase font-extrabold px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">
+                          PAID
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        {inv.plan_name} ({inv.billing_cycle}) · ₹{inv.total_amount?.toLocaleString("en-IN")} (incl. 18% GST)
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {new Date(inv.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                      </div>
+                    </div>
+
+                    <a
+                      href={inv.download_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download={`Tax_Invoice_${inv.invoice_number}.pdf`}
+                      className="shrink-0 p-2 text-blue-900 hover:text-white bg-blue-50 hover:bg-blue-900 rounded-xl transition-colors inline-flex items-center gap-1.5 text-xs font-bold"
+                      title="Download PDF"
+                    >
+                      <Download size={15} />
+                      <span className="hidden sm:inline">PDF</span>
+                    </a>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 

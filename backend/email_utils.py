@@ -52,11 +52,14 @@ def _get_smtp_config() -> dict:
 # Core send function (synchronous — run in thread pool for async callers)
 # ---------------------------------------------------------------------------
 
+from email.mime.application import MIMEApplication
+
 def _send_email_sync(
     to: str | list[str],
     subject: str,
     html_body: str,
     text_body: str | None = None,
+    attachments: list[dict] | None = None,  # [{'filename': '...', 'content': bytes, 'mime_type': 'application/pdf'}]
 ) -> None:
     """
     Synchronous email sender. Raises on failure.
@@ -77,15 +80,28 @@ def _send_email_sync(
         )
         return
 
-    msg = MIMEMultipart("alternative")
+    # Use mixed multipart when attachments are present
+    if attachments:
+        msg = MIMEMultipart("mixed")
+        body_part = MIMEMultipart("alternative")
+        plain = text_body or _html_to_plain(html_body)
+        body_part.attach(MIMEText(plain, "plain", "utf-8"))
+        body_part.attach(MIMEText(html_body, "html", "utf-8"))
+        msg.attach(body_part)
+
+        for att in attachments:
+            part = MIMEApplication(att["content"], _subtype="pdf")
+            part.add_header("Content-Disposition", "attachment", filename=att.get("filename", "invoice.pdf"))
+            msg.attach(part)
+    else:
+        msg = MIMEMultipart("alternative")
+        plain = text_body or _html_to_plain(html_body)
+        msg.attach(MIMEText(plain, "plain", "utf-8"))
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+
     msg["Subject"] = subject
     msg["From"] = cfg["from_addr"]
     msg["To"] = ", ".join(recipients)
-
-    # Plain-text fallback
-    plain = text_body or _html_to_plain(html_body)
-    msg.attach(MIMEText(plain, "plain", "utf-8"))
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     password = cfg["password"].replace(" ", "")
     _, sender_email = parseaddr(cfg["from_addr"])
@@ -121,6 +137,7 @@ async def send_email(
     subject: str,
     html_body: str,
     text_body: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     """
     Async email sender — safe to call from FastAPI route handlers.
@@ -129,7 +146,7 @@ async def send_email(
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(
         None,
-        lambda: _send_email_sync(to, subject, html_body, text_body),
+        lambda: _send_email_sync(to, subject, html_body, text_body, attachments),
     )
 
 

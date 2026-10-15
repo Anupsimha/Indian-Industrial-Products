@@ -192,8 +192,7 @@ def test_website_management_api_flow():
                         is_active=True,
                         is_custom=False,
                         sample_data={"tagline": "Sample Tagline", "stats": [{"label": "Years", "value": "20+"}]},
-                        created_at=now,
-                        updated_at=now
+                        created_at=now
                     ))
 
                 await session.commit()

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import api from "../lib/api";
-import { Check, Crown, Zap, Sparkles, Building2 } from "lucide-react";
+import { Check, Crown, Zap, Sparkles, Building2, Download, FileText, CheckCircle2, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useSupportContact } from "../context/SupportContactContext";
 import { toast } from "sonner";
@@ -29,8 +29,13 @@ export default function PricingPage() {
   const { user } = useAuth();
   const { supportContact } = useSupportContact();
   const [plans, setPlans] = useState([]);
-
   const [billing, setBilling] = useState("monthly");
+  const [invoiceModal, setInvoiceModal] = useState({
+    open: false,
+    invoiceNumber: "",
+    downloadUrl: "",
+    planName: "",
+  });
 
   useEffect(() => {
     api.get("/plans").then((r) => setPlans(r.data)).catch(() => { });
@@ -109,7 +114,12 @@ export default function PricingPage() {
             });
             if (verifyRes.data.ok) {
               toast.success(`Successfully subscribed to ${p.name}!`);
-              window.location.reload();
+              setInvoiceModal({
+                open: true,
+                invoiceNumber: verifyRes.data.invoice_number,
+                downloadUrl: verifyRes.data.download_url,
+                planName: p.name,
+              });
             }
           } catch (e) {
             toast.error("Payment verification failed.");
@@ -207,6 +217,78 @@ export default function PricingPage() {
           );
         })}
       </div>
+
+      {/* Post-Payment Tax Invoice Success Modal */}
+      {invoiceModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative">
+            <button
+              onClick={() => {
+                setInvoiceModal({ open: false, invoiceNumber: "", downloadUrl: "", planName: "" });
+                window.location.reload();
+              }}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="text-center pt-2">
+              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 text-emerald-600">
+                <CheckCircle2 size={36} />
+              </div>
+
+              <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                Payment Successful
+              </span>
+
+              <h2 className="font-display text-2xl font-black text-slate-900 mt-3">
+                Subscription Confirmed!
+              </h2>
+
+              <p className="text-sm text-slate-600 mt-1">
+                You are now subscribed to the <strong>{invoiceModal.planName} Plan</strong>. An official GST Tax Invoice has been generated and emailed to your registered address.
+              </p>
+
+              <div className="mt-5 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-left space-y-1.5">
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>Document Type:</span>
+                  <span className="font-bold text-slate-700">Tax Invoice</span>
+                </div>
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>Invoice Number:</span>
+                  <span className="font-mono font-bold text-blue-900">{invoiceModal.invoiceNumber}</span>
+                </div>
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>GST Rate:</span>
+                  <span className="font-bold text-slate-700">18% (SAC 9983)</span>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-col gap-2.5">
+                <a
+                  href={invoiceModal.downloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download={`Tax_Invoice_${invoiceModal.invoiceNumber}.pdf`}
+                  className="w-full py-3.5 px-4 rounded-full bg-blue-900 text-white font-bold text-sm hover:bg-blue-950 transition-all shadow-md shadow-blue-950/20 flex items-center justify-center gap-2"
+                >
+                  <Download size={18} /> Download Tax Invoice (PDF)
+                </a>
+
+                <button
+                  onClick={() => {
+                    setInvoiceModal({ open: false, invoiceNumber: "", downloadUrl: "", planName: "" });
+                    window.location.reload();
+                  }}
+                  className="w-full py-2.5 px-4 rounded-full bg-slate-100 text-slate-700 font-semibold text-xs hover:bg-slate-200 transition-colors"
+                >
+                  Go to Dashboard
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
