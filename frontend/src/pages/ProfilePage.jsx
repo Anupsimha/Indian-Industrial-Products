@@ -62,8 +62,7 @@ export default function ProfilePage() {
 
         api.get("/websites/my-website")
           .then((r) => {
-            const site = r.data?.website || (r.data?.subdomain ? r.data : null);
-            setMyWebsite(site);
+            setMyWebsite(r.data);
           })
           .catch(() => setMyWebsite(null));
       }
@@ -185,15 +184,15 @@ export default function ProfilePage() {
 
                 <div className="flex items-center gap-1.5 text-xs text-blue-400 mt-2 flex-wrap">
                   <Globe size={13} className="shrink-0" />
-                  {myWebsite?.subdomain ? (
+                  {myWebsite?.website?.subdomain ? (
                     <a
-                      href={`https://${myWebsite.subdomain}.indianindustrialplatform.com`}
+                      href={`https://${myWebsite.website.subdomain}.indianindustrialplatform.com`}
                       target="_blank"
                       rel="noreferrer"
                       className="font-bold text-amber-300 hover:text-amber-200 inline-flex items-center gap-1 bg-amber-400/10 px-2 py-0.5 rounded-full border border-amber-400/30 transition-colors"
                       data-testid="profile-header-custom-website-link"
                     >
-                      <span>{myWebsite.subdomain}.indianindustrialplatform.com</span>
+                      <span>{myWebsite.website.subdomain}.indianindustrialplatform.com</span>
                       <ExternalLink size={11} />
                     </a>
                   ) : (
@@ -325,7 +324,7 @@ export default function ProfilePage() {
       {/* 3.5. Custom Website Management Section (For Businesses / Manufacturers / Suppliers) */}
       {isBusiness && (
         <div className="mt-4" data-testid="profile-website-section">
-          {myWebsite ? (
+          {myWebsite?.website ? (
             <div className="bg-gradient-to-r from-blue-950 via-[#0B213F] to-slate-900 border border-blue-900/60 rounded-2xl p-4 sm:p-5 text-white shadow-lg relative overflow-hidden">
               <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -348,11 +347,11 @@ export default function ProfilePage() {
 
                   <div className="flex items-center gap-2 pt-1 flex-wrap">
                     <div className="inline-flex items-center gap-1.5 bg-black/40 border border-slate-700/60 rounded-lg px-3 py-1.5 text-xs font-mono text-cyan-300">
-                      <span>https://{myWebsite.subdomain}.indianindustrialplatform.com</span>
+                      <span>https://{myWebsite.website.subdomain}.indianindustrialplatform.com</span>
                       <button
                         type="button"
                         onClick={() => {
-                          navigator.clipboard.writeText(`https://${myWebsite.subdomain}.indianindustrialplatform.com`);
+                          navigator.clipboard.writeText(`https://${myWebsite.website.subdomain}.indianindustrialplatform.com`);
                           setCopiedUrl(true);
                           toast.success("Website URL copied to clipboard!");
                           setTimeout(() => setCopiedUrl(false), 2000);
@@ -365,14 +364,14 @@ export default function ProfilePage() {
                     </div>
 
                     <span className="text-[11px] text-slate-400 font-medium">
-                      Template: <strong className="text-slate-200 capitalize">{myWebsite.template_name || myWebsite.template_id?.replace(/_/g, " ")}</strong>
+                      Template: <strong className="text-slate-200 capitalize">{myWebsite.website.template_name || myWebsite.website.template_id?.replace(/_/g, " ")}</strong>
                     </span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
                   <a
-                    href={`https://${myWebsite.subdomain}.indianindustrialplatform.com`}
+                    href={`https://${myWebsite.website.subdomain}.indianindustrialplatform.com`}
                     target="_blank"
                     rel="noreferrer"
                     className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-sm"
@@ -389,6 +388,48 @@ export default function ProfilePage() {
                   >
                     Manage / Reconfigure
                   </button>
+                </div>
+              </div>
+            </div>
+          ) : myWebsite?.can_create === false ? (
+            <div className="bg-gradient-to-r from-slate-900 via-rose-950/40 to-slate-900 border border-rose-500/30 rounded-2xl p-4 sm:p-5 text-white shadow-md relative overflow-hidden" data-testid="profile-website-locked-card">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-400/30">
+                      <Globe size={16} />
+                    </span>
+                    <h3 className="font-display font-bold text-base text-white">
+                      Custom Company Website
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                      Plan Upgrade Needed
+                    </span>
+                  </div>
+                  <p className="text-xs text-rose-200/90 max-w-2xl font-medium">
+                    {myWebsite?.message || "Your plan does not include the company website feature. Please buy a plan with the website feature to avail this."}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => {
+                      toast.error("Your plan does not include the company website feature. Please buy a plan with the website feature to avail this.");
+                      setWebsiteModalOpen(true);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition-all border border-slate-700"
+                    data-testid="profile-manage-website-locked-btn"
+                  >
+                    Manage Website
+                  </button>
+                  <Link
+                    to="/pricing"
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-black text-xs transition-all shadow-lg flex items-center justify-center gap-1.5 shrink-0"
+                    data-testid="profile-upgrade-website-btn"
+                  >
+                    <Sparkles size={14} className="fill-slate-950" />
+                    <span>Upgrade Plan</span>
+                  </Link>
                 </div>
               </div>
             </div>

@@ -210,25 +210,30 @@ async def get_my_company_website(
 
     is_eligible = False
     plan_name = user_obj.plan_name if user_obj else None
+    
     if current_user.get("role") == "admin":
-        is_eligible = True
-    elif plan_name and any(p in plan_name.lower() for p in ["premium", "business", "enterprise"]):
         is_eligible = True
     elif user_obj and user_obj.plan_id:
         plan_stmt = select(Plan).where(Plan.id == user_obj.plan_id)
         plan_obj = (await db.execute(plan_stmt)).scalars().first()
-        if plan_obj and plan_obj.features:
-            for feat in plan_obj.features:
-                if "website" in str(feat).lower() or "custom" in str(feat).lower():
-                    is_eligible = True
-                    break
+        if plan_obj:
+            if getattr(plan_obj, "has_website", False):
+                is_eligible = True
+            elif plan_obj.features:
+                for feat in plan_obj.features:
+                    if "website" in str(feat).lower() or "custom" in str(feat).lower():
+                        is_eligible = True
+                        break
+    elif plan_name and any(p in plan_name.lower() for p in ["premium", "business", "enterprise"]):
+        is_eligible = True
 
     if not website:
         return {
             "has_website": False,
             "can_create": is_eligible,
             "plan_name": plan_name,
-            "website": None
+            "website": None,
+            "message": None if is_eligible else "Your plan does not include the company website feature. Please buy a plan with the website feature to avail this."
         }
 
     full_domain = f"{website.subdomain}.{ZONE_DOMAIN}" if website.subdomain else None
@@ -284,6 +289,32 @@ async def setup_company_website(
     company = (await db.execute(comp_stmt)).scalars().first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found.")
+
+    # 1b. Verify user plan website entitlement
+    user_stmt = select(User).where(User.id == current_user["id"])
+    user_obj = (await db.execute(user_stmt)).scalars().first()
+    is_eligible = False
+    if current_user.get("role") == "admin":
+        is_eligible = True
+    elif user_obj and user_obj.plan_id:
+        plan_stmt = select(Plan).where(Plan.id == user_obj.plan_id)
+        plan_obj = (await db.execute(plan_stmt)).scalars().first()
+        if plan_obj:
+            if getattr(plan_obj, "has_website", False):
+                is_eligible = True
+            elif plan_obj.features:
+                for feat in plan_obj.features:
+                    if "website" in str(feat).lower() or "custom" in str(feat).lower():
+                        is_eligible = True
+                        break
+    elif user_obj and user_obj.plan_name and any(p in user_obj.plan_name.lower() for p in ["premium", "business", "enterprise"]):
+        is_eligible = True
+
+    if not is_eligible:
+        raise HTTPException(
+            status_code=403,
+            detail="Your plan does not include the company website feature. Please buy a plan with the website feature to avail this."
+        )
 
     # 2. Validate Subdomain
     sanitized = sanitize_subdomain(payload.subdomain)

@@ -22,11 +22,119 @@ function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, on
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
 
+  // Top-Up states
+  const [topupRate, setTopupRate] = useState(null);
+  const [topupLoading, setTopupLoading] = useState(false);
+  const [buyingTopup, setBuyingTopup] = useState(false);
+
   const usedCount = stats?.used_this_month ?? 0;
   const totalLimit = stats?.unlocks_per_month;
   const remaining = stats?.remaining;
   const isUnlimited = totalLimit == null;
   const quotaFull = !isUnlimited && remaining === 0;
+
+  useEffect(() => {
+    if (quotaFull && enqId) {
+      setTopupLoading(true);
+      api.get(`/topup-plans/lead-rate/${enqId}`)
+        .then((res) => setTopupRate(res.data))
+        .catch(() => {})
+        .finally(() => setTopupLoading(false));
+    }
+  }, [quotaFull, enqId]);
+
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handlePayTopup = async () => {
+    setBuyingTopup(true);
+    try {
+      const loaded = await loadRazorpayScript();
+      if (!loaded) {
+        toast.error("Failed to load Razorpay payment gateway.");
+        setBuyingTopup(false);
+        return;
+      }
+
+      const orderRes = await api.post("/payments/create-order-topup", {
+        lead_id: enqId,
+      });
+      const orderData = orderRes.data;
+
+      const options = {
+        key: orderData.key,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "Indian Industrial Platform",
+        description: `Lead Unlock Top-Up (₹${orderData.base_price} + ₹${orderData.gst} 18% GST = ₹${orderData.total})`,
+        order_id: orderData.order_id,
+        handler: async function (response) {
+          try {
+            const verifyRes = await api.post("/payments/verify-topup", {
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+              lead_id: enqId,
+            });
+            if (verifyRes.data.ok) {
+              toast.success("Lead unlocked via top-up purchase!");
+              if (verifyRes.data.download_url) {
+                // Offer invoice download
+                toast("Tax Invoice ready", {
+                  action: {
+                    label: "Download Invoice",
+                    onClick: () => window.open(verifyRes.data.download_url, "_blank"),
+                  },
+                  duration: 8000,
+                });
+              }
+              onSuccess(enqId, {
+                mobile: verifyRes.data.mobile,
+                name: verifyRes.data.name,
+              });
+            }
+          } catch (err) {
+            toast.error(err.response?.data?.detail || "Payment verification failed.");
+          } finally {
+            setBuyingTopup(false);
+          }
+        },
+        prefill: {
+          name: "Subscriber",
+        },
+        modal: {
+          ondismiss: () => {
+            setBuyingTopup(false);
+            toast.info("Payment cancelled.");
+          },
+        },
+        theme: {
+          color: "#ea580c"
+        }
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", function (response) {
+        toast.error(response.error?.description || "Transaction failed");
+        setBuyingTopup(false);
+      });
+      rzp.open();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to create payment order");
+      setBuyingTopup(false);
+    }
+  };
 
   const handleRequestOtp = async () => {
     setSending(true);
@@ -131,20 +239,55 @@ function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, on
               <div className="rounded-xl p-4 border bg-blue-50 border-blue-200">
                 <div className="flex items-center gap-2">
                   <ShieldCheck size={15} className="text-blue-600" />
-                  <span className="text-xs font-bold uppercase tracking-wide text-blue-700">Admin — Unlimited Unlocks</span>
+                  <span className="text-xs font-bold uppercase tracking-wide text-blue-700">Unlimited Lead Unlocks Available</span>
                 </div>
               </div>
             )}
-            {!quotaFull && <p className="text-sm text-slate-600">An OTP will be sent to your registered email to confirm this unlock.</p>}
+            
+            {quotaFull ? (
+              <div className="p-3.5 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-orange-800 bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
+                    Lead Top-Up Unlock
+                  </span>
+                  {topupLoading && <Loader2 size={12} className="animate-spin text-orange-600" />}
+                </div>
+                <h4 className="font-display font-bold text-sm text-slate-900">
+                  {topupRate ? `Unlock this lead for ₹${topupRate.price_inr}` : "Purchase Individual Lead Unlock"}
+                </h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Your monthly quota is exhausted. Based on this buyer lead's valuation ({topupRate?.valuation_range || "standard"}), you can buy an instant single lead unlock. Includes 18% GST Tax Invoice.
+                </p>
+                {topupRate && (
+                  <div className="pt-1 text-xs text-slate-700 font-semibold flex items-center justify-between border-t border-orange-200/60">
+                    <span>Rate: ₹{topupRate.price_inr} + ₹{Math.round(topupRate.price_inr * 0.18)} (18% GST)</span>
+                    <span className="font-black text-blue-900">Total: ₹{Math.round(topupRate.price_inr * 1.18)}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-600">An OTP will be sent to your registered email to confirm this unlock.</p>
+            )}
+
             <div className="flex gap-2">
-              <button onClick={onClose} disabled={sending} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={onClose} disabled={sending || buyingTopup} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
               {!quotaFull ? (
                 <button onClick={handleRequestOtp} disabled={sending}
                   className="flex-1 py-2.5 rounded-xl bg-orange-600 text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60">
                   {sending ? <><Loader2 size={15} className="animate-spin" /> Sending…</> : <><Mail size={14} /> Send OTP</>}
                 </button>
               ) : (
-                <Link to="/pricing" onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-blue-700 text-white text-sm font-semibold text-center">Upgrade Plan</Link>
+                <button
+                  onClick={handlePayTopup}
+                  disabled={buyingTopup || topupLoading}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white text-sm font-bold flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all disabled:opacity-60"
+                >
+                  {buyingTopup ? (
+                    <><Loader2 size={15} className="animate-spin" /> Processing…</>
+                  ) : (
+                    <><Sparkles size={14} /> Buy Top-Up Lead</>
+                  )}
+                </button>
               )}
             </div>
           </div>
@@ -467,42 +610,51 @@ export default function LeadsPage() {
         <>
           {/* Quota Usage Banner (for paid users) */}
           {unlockStats && (
-            <div className={`mt-3 rounded-xl px-4 py-3 flex items-center gap-3 border ${
+            <div className={`mt-3 rounded-xl px-4 py-3 flex items-center justify-between gap-3 border ${
               unlockStats.remaining === 0
                 ? "bg-red-50 border-red-200"
                 : unlockStats.remaining <= 5
                 ? "bg-amber-50 border-amber-200"
                 : "bg-emerald-50 border-emerald-200"
             }`}>
-              <ShieldCheck size={16} className={
-                unlockStats.remaining === 0 ? "text-red-500 shrink-0"
-                : unlockStats.remaining <= 5 ? "text-amber-500 shrink-0"
-                : "text-emerald-500 shrink-0"
-              } />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-slate-700">
-                  {unlockStats.unlocks_per_month == null
-                    ? "Unlimited unlocks (Admin)"
-                    : `${unlockStats.used_this_month} / ${unlockStats.unlocks_per_month} unlocks used this month`}
-                </p>
-                {unlockStats.unlocks_per_month != null && (
-                  <div className="mt-1 h-1.5 bg-white/70 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        unlockStats.remaining === 0 ? "bg-red-500"
-                        : unlockStats.remaining <= 5 ? "bg-amber-500"
-                        : "bg-emerald-500"
-                      }`}
-                      style={{
-                        width: `${Math.min(100, (unlockStats.used_this_month / unlockStats.unlocks_per_month) * 100)}%`
-                      }}
-                    />
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <ShieldCheck size={18} className={
+                  unlockStats.remaining === 0 ? "text-red-500 shrink-0"
+                  : unlockStats.remaining <= 5 ? "text-amber-500 shrink-0"
+                  : "text-emerald-500 shrink-0"
+                } />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-bold text-slate-800">
+                      {unlockStats.unlocks_per_month == null
+                        ? "Unlimited Lead Unlocks Available"
+                        : `Lead Balance: ${unlockStats.remaining} remaining (${unlockStats.used_this_month} / ${unlockStats.unlocks_per_month} used)`}
+                    </p>
                   </div>
-                )}
+                  {unlockStats.unlocks_per_month != null && (
+                    <div className="mt-1.5 h-1.5 bg-white/80 rounded-full overflow-hidden max-w-xs">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          unlockStats.remaining === 0 ? "bg-red-500"
+                          : unlockStats.remaining <= 5 ? "bg-amber-500"
+                          : "bg-emerald-500"
+                        }`}
+                        style={{
+                          width: `${Math.min(100, (unlockStats.used_this_month / unlockStats.unlocks_per_month) * 100)}%`
+                        }}
+                      />
+                    </div>
+                  )}
+                  {unlockStats.remaining === 0 && (
+                    <p className="text-[10px] text-red-600 font-semibold mt-1">
+                      Monthly plan unlock balance is over. You can purchase instant lead top-ups based on lead value!
+                    </p>
+                  )}
+                </div>
               </div>
               {unlockStats.remaining === 0 && (
-                <Link to="/pricing" className="text-xs font-bold text-blue-700 shrink-0 hover:underline">
-                  Upgrade
+                <Link to="/pricing" className="text-xs font-extrabold text-blue-700 bg-white px-3 py-1.5 rounded-lg border border-blue-200 shrink-0 hover:bg-blue-50 shadow-sm">
+                  Upgrade Plan
                 </Link>
               )}
             </div>

@@ -371,10 +371,23 @@ class Plan(Base):
     color = Column(String(50), nullable=False)
     is_featured = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    sort_order = Column(Integer, default=0, nullable=False)
     leads_per_month = Column(Integer, nullable=True)
     unlocks_per_month = Column(Integer, nullable=True)
+    has_website = Column(Boolean, default=False, nullable=False)
     created_at = Column(String(255), nullable=False)
+
+
+class LeadTopupPlan(Base):
+    __tablename__ = "lead_topup_plans"
+    id = Column(String(36), primary_key=True)
+    valuation_range = Column(String(100), nullable=False)  # e.g., '₹0 - ₹10,000'
+    min_valuation = Column(Integer, default=0, nullable=False)
+    max_valuation = Column(Integer, nullable=True)  # None or -1 for upper unbounded
+    price_inr = Column(Integer, nullable=False)  # rate in rupees
+    is_active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(String(255), nullable=False)
+    updated_at = Column(String(255), nullable=False)
 
 
 class Order(Base):
@@ -4363,6 +4376,7 @@ class PlanIn(BaseModel):
     sort_order: int = 0
     leads_per_month: Optional[int] = None
     unlocks_per_month: Optional[int] = None
+    has_website: bool = False
 
 
 class PlanOut(PlanIn):
@@ -4381,7 +4395,8 @@ async def list_plans(db: AsyncSession = Depends(get_db)):
         features=d.features or [], badge=d.badge, color=d.color,
         is_featured=d.is_featured, is_active=d.is_active,
         sort_order=d.sort_order, leads_per_month=d.leads_per_month,
-        unlocks_per_month=d.unlocks_per_month, created_at=d.created_at
+        unlocks_per_month=d.unlocks_per_month, has_website=bool(getattr(d, "has_website", False)),
+        created_at=d.created_at
     ) for d in docs]
 
 
@@ -4398,7 +4413,8 @@ async def admin_list_plans(user: dict = Depends(get_current_user), db: AsyncSess
         features=d.features or [], badge=d.badge, color=d.color,
         is_featured=d.is_featured, is_active=d.is_active,
         sort_order=d.sort_order, leads_per_month=d.leads_per_month,
-        unlocks_per_month=d.unlocks_per_month, created_at=d.created_at
+        unlocks_per_month=d.unlocks_per_month, has_website=bool(getattr(d, "has_website", False)),
+        created_at=d.created_at
     ) for d in docs]
 
 
@@ -4414,7 +4430,8 @@ async def admin_create_plan(payload: PlanIn, user: dict = Depends(get_current_us
         features=payload.features, badge=payload.badge, color=payload.color,
         is_featured=payload.is_featured, is_active=payload.is_active,
         sort_order=payload.sort_order, leads_per_month=payload.leads_per_month,
-        unlocks_per_month=payload.unlocks_per_month, created_at=now_iso()
+        unlocks_per_month=payload.unlocks_per_month, has_website=payload.has_website,
+        created_at=now_iso()
     )
     db.add(doc)
     await db.commit()
@@ -4425,7 +4442,8 @@ async def admin_create_plan(payload: PlanIn, user: dict = Depends(get_current_us
         features=doc.features or [], badge=doc.badge, color=doc.color,
         is_featured=doc.is_featured, is_active=doc.is_active,
         sort_order=doc.sort_order, leads_per_month=doc.leads_per_month,
-        unlocks_per_month=doc.unlocks_per_month, created_at=doc.created_at
+        unlocks_per_month=doc.unlocks_per_month, has_website=bool(getattr(doc, "has_website", False)),
+        created_at=doc.created_at
     )
 
 
@@ -4455,8 +4473,116 @@ async def admin_update_plan(plan_id: str, payload: PlanIn, user: dict = Depends(
         features=doc.features or [], badge=doc.badge, color=doc.color,
         is_featured=doc.is_featured, is_active=doc.is_active,
         sort_order=doc.sort_order, leads_per_month=doc.leads_per_month,
-        unlocks_per_month=doc.unlocks_per_month, created_at=doc.created_at
+        unlocks_per_month=doc.unlocks_per_month, has_website=bool(getattr(doc, "has_website", False)),
+        created_at=doc.created_at
     )
+
+
+# -------------------- Lead Top-Up Plans --------------------
+VALUATION_RANGE_OPTIONS = [
+    {"label": "₹0 - ₹10,000", "min": 0, "max": 10000, "default_price": 300},
+    {"label": "₹10,000 - ₹50,000", "min": 10000, "max": 50000, "default_price": 500},
+    {"label": "₹50,000 - ₹1,00,000", "min": 50000, "max": 100000, "default_price": 1000},
+    {"label": "₹1,00,000 - ₹5,00,000", "min": 100000, "max": 500000, "default_price": 2000},
+    {"label": "₹5,00,000+", "min": 500000, "max": None, "default_price": 3500},
+]
+
+class LeadTopupPlanIn(BaseModel):
+    valuation_range: str
+    min_valuation: int = 0
+    max_valuation: Optional[int] = None
+    price_inr: int  # integer in rupees
+    is_active: bool = True
+    sort_order: int = 0
+
+class LeadTopupPlanOut(LeadTopupPlanIn):
+    id: str
+    created_at: str
+    updated_at: str
+
+@api.get("/topup-plans", response_model=List[LeadTopupPlanOut])
+async def list_active_topup_plans(db: AsyncSession = Depends(get_db)):
+    stmt = select(LeadTopupPlan).where(LeadTopupPlan.is_active == True).order_by(LeadTopupPlan.sort_order.asc(), LeadTopupPlan.min_valuation.asc())
+    docs = (await db.execute(stmt)).scalars().all()
+    return [LeadTopupPlanOut(
+        id=d.id, valuation_range=d.valuation_range,
+        min_valuation=d.min_valuation, max_valuation=d.max_valuation,
+        price_inr=d.price_inr, is_active=d.is_active,
+        sort_order=d.sort_order, created_at=d.created_at, updated_at=d.updated_at
+    ) for d in docs]
+
+@api.get("/admin/topup-plans", response_model=List[LeadTopupPlanOut])
+async def admin_list_topup_plans(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    stmt = select(LeadTopupPlan).order_by(LeadTopupPlan.sort_order.asc(), LeadTopupPlan.min_valuation.asc())
+    docs = (await db.execute(stmt)).scalars().all()
+    return [LeadTopupPlanOut(
+        id=d.id, valuation_range=d.valuation_range,
+        min_valuation=d.min_valuation, max_valuation=d.max_valuation,
+        price_inr=d.price_inr, is_active=d.is_active,
+        sort_order=d.sort_order, created_at=d.created_at, updated_at=d.updated_at
+    ) for d in docs]
+
+@api.post("/admin/topup-plans", response_model=LeadTopupPlanOut)
+async def admin_create_topup_plan(payload: LeadTopupPlanIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    topup_id = str(uuid.uuid4())
+    doc = LeadTopupPlan(
+        id=topup_id,
+        valuation_range=payload.valuation_range,
+        min_valuation=payload.min_valuation,
+        max_valuation=payload.max_valuation,
+        price_inr=int(payload.price_inr),
+        is_active=payload.is_active,
+        sort_order=payload.sort_order,
+        created_at=now_iso(),
+        updated_at=now_iso()
+    )
+    db.add(doc)
+    await db.commit()
+    return LeadTopupPlanOut(
+        id=doc.id, valuation_range=doc.valuation_range,
+        min_valuation=doc.min_valuation, max_valuation=doc.max_valuation,
+        price_inr=doc.price_inr, is_active=doc.is_active,
+        sort_order=doc.sort_order, created_at=doc.created_at, updated_at=doc.updated_at
+    )
+
+@api.patch("/admin/topup-plans/{topup_id}", response_model=LeadTopupPlanOut)
+async def admin_update_topup_plan(topup_id: str, payload: LeadTopupPlanIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    stmt = select(LeadTopupPlan).where(LeadTopupPlan.id == topup_id)
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Top-up plan not found")
+    
+    update_data = payload.model_dump(exclude_none=True)
+    update_data["updated_at"] = now_iso()
+    stmt_upd = update(LeadTopupPlan).where(LeadTopupPlan.id == topup_id).values(**update_data)
+    await db.execute(stmt_upd)
+    await db.commit()
+
+    stmt_r = select(LeadTopupPlan).where(LeadTopupPlan.id == topup_id)
+    doc = (await db.execute(stmt_r)).scalar_one()
+    return LeadTopupPlanOut(
+        id=doc.id, valuation_range=doc.valuation_range,
+        min_valuation=doc.min_valuation, max_valuation=doc.max_valuation,
+        price_inr=doc.price_inr, is_active=doc.is_active,
+        sort_order=doc.sort_order, created_at=doc.created_at, updated_at=doc.updated_at
+    )
+
+@api.delete("/admin/topup-plans/{topup_id}")
+async def admin_delete_topup_plan(topup_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    stmt = select(LeadTopupPlan).where(LeadTopupPlan.id == topup_id)
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if doc:
+        await db.delete(doc)
+        await db.commit()
+    return {"ok": True}
 
 
 @api.delete("/admin/plans/{plan_id}")
@@ -4659,8 +4785,98 @@ def _clean_expired_otps() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Helpers for monthly unlock tracking
+# Helpers for monthly unlock tracking & Lead Top-ups
 # ---------------------------------------------------------------------------
+
+def parse_lead_valuation_inr(budget_str: Optional[str]) -> int:
+    """
+    Extracts an approximate numeric INR valuation from freeform budget strings.
+    E.g.
+    '₹10,000 - 50,000' -> 30000
+    '₹50,000 - 1 Lakh' -> 75000
+    '₹1 Lakh - 5 Lakh' -> 300000
+    '₹5 Lakh+' -> 500000
+    '₹20,000' -> 20000
+    Fallback: 25000
+    """
+    if not budget_str:
+        return 25000
+    s = str(budget_str).lower().replace(",", "").replace("₹", "").replace("rs.", "").replace("rs", "").strip()
+    
+    # Check for Lakh patterns
+    if "lakh" in s:
+        # e.g., '50000 - 1 lakh' or '1 lakh - 5 lakh' or '5 lakh+'
+        import re
+        nums = re.findall(r"(\d+(?:\.\d+)?)", s)
+        if len(nums) >= 2:
+            val1 = float(nums[0])
+            val2 = float(nums[1])
+            # If first number < 100 and followed by lakh, multiply by 100000
+            val1_inr = val1 * 100000 if val1 < 100 else val1
+            val2_inr = val2 * 100000 if val2 < 100 else val2
+            return int((val1_inr + val2_inr) / 2)
+        elif len(nums) == 1:
+            val = float(nums[0])
+            return int(val * 100000) if val < 100 else int(val)
+        return 200000
+
+    # Range without lakh, e.g. '10000 - 50000'
+    import re
+    nums = re.findall(r"(\d+)", s)
+    if len(nums) >= 2:
+        return int((int(nums[0]) + int(nums[1])) / 2)
+    elif len(nums) == 1:
+        return int(nums[0])
+
+    return 25000
+
+
+async def get_applicable_topup_for_lead(lead_id: str, db: AsyncSession) -> dict:
+    """
+    Finds the active LeadTopupPlan corresponding to the lead's budget valuation.
+    Falls back to default pricing if no custom ranges match.
+    """
+    stmt_enq = select(Enquiry).where(Enquiry.id == lead_id)
+    enq = (await db.execute(stmt_enq)).scalars().first()
+    if not enq:
+        raise HTTPException(status_code=404, detail="Lead not found")
+        
+    valuation = parse_lead_valuation_inr(enq.budget)
+    
+    # Query all active topup plans ordered by min_valuation asc
+    stmt = select(LeadTopupPlan).where(LeadTopupPlan.is_active == True).order_by(LeadTopupPlan.sort_order.asc(), LeadTopupPlan.min_valuation.asc())
+    plans = (await db.execute(stmt)).scalars().all()
+    
+    matched_plan = None
+    for p in plans:
+        min_v = p.min_valuation or 0
+        max_v = p.max_valuation
+        if max_v is None or max_v < 0:
+            if valuation >= min_v:
+                matched_plan = p
+                break
+        else:
+            if min_v <= valuation <= max_v:
+                matched_plan = p
+                break
+                
+    if not matched_plan and plans:
+        matched_plan = plans[0]
+        
+    price = matched_plan.price_inr if matched_plan else 500
+    range_lbl = matched_plan.valuation_range if matched_plan else "Standard (₹0 - ₹50,000)"
+    plan_id = matched_plan.id if matched_plan else None
+
+    return {
+        "lead_id": lead_id,
+        "lead_category": enq.category,
+        "lead_budget": enq.budget or "Standard",
+        "estimated_valuation": valuation,
+        "topup_plan_id": plan_id,
+        "valuation_range": range_lbl,
+        "price_inr": price,
+    }
+
 
 def _current_month_key() -> str:
     """Returns a key like '2026-07' for the current UTC month."""
@@ -4673,33 +4889,50 @@ def _get_monthly_used(u: User) -> list:
     return list(monthly.get(_current_month_key(), []))
 
 
-async def _get_plan_monthly_limit(plan_name: str, db: AsyncSession) -> int:
+async def _get_plan_monthly_limit(plan_name: str, db: AsyncSession) -> Optional[int]:
     """
     Fetch unlocks_per_month from the Plan table.
-    Falls back to a hardcoded map if the plan row has no limit set.
+    Returns:
+    - 0 for Free or 0-quota plans
+    - None for Unlimited plans
+    - Positive int for capped plans
     """
     if not plan_name or plan_name.lower() in ("free", ""):
         return 0
     stmt = select(Plan).where(Plan.name.ilike(plan_name))
     plan_row = (await db.execute(stmt)).scalars().first()
-    if plan_row and plan_row.unlocks_per_month is not None:
+    if plan_row:
+        # None means unlimited!
         return plan_row.unlocks_per_month
+
     # Fallback hardcoded map
     p = plan_name.lower()
-    fallback = {"basic": 30, "seo boost": 100, "business development": 200,
-                "premium": 999999, "enterprise": 999999, "admin": 999999}
-    return fallback.get(p, 50)  # default 50 for unknown paid plans
+    fallback = {
+        "basic": 30,
+        "seo boost": 100,
+        "business development": 200,
+        "premium": None,       # Unlimited
+        "enterprise": None,    # Unlimited
+        "admin": None          # Unlimited
+    }
+    return fallback.get(p, 50)
 
 
-def get_plan_unlock_limit(plan_name: str) -> int:
+def get_plan_unlock_limit(plan_name: str) -> Optional[int]:
     """Sync fallback — kept for compatibility."""
     if not plan_name:
         return 0
     p = plan_name.lower()
     if p == "free":
         return 0
-    fallback = {"basic": 30, "seo boost": 100, "business development": 200,
-                "premium": 999999, "enterprise": 999999, "admin": 999999}
+    fallback = {
+        "basic": 30,
+        "seo boost": 100,
+        "business development": 200,
+        "premium": None,
+        "enterprise": None,
+        "admin": None
+    }
     return fallback.get(p, 50)
 
 
@@ -4722,13 +4955,15 @@ async def unlock_stats(
     used_this_month = _get_monthly_used(u)
     limit = await _get_plan_monthly_limit(plan_name, db)
     is_admin = user.get("role") == "admin"
+    is_unlimited = is_admin or (limit is None)
 
     return {
         "plan_name": plan_name,
-        "unlocks_per_month": None if is_admin else limit,
+        "unlocks_per_month": None if is_unlimited else limit,
         "used_this_month": len(used_this_month),
-        "remaining": None if is_admin else max(0, limit - len(used_this_month)),
+        "remaining": None if is_unlimited else max(0, limit - len(used_this_month)),
         "total_all_time": len(u.unlocked_enquiries or []),
+        "is_unlimited": is_unlimited,
     }
 
 
@@ -4788,16 +5023,17 @@ async def request_unlock(
 
     # Monthly quota check
     if not is_admin:
-        monthly_used = _get_monthly_used(u)
         limit = await _get_plan_monthly_limit(plan_name, db)
-        if len(monthly_used) >= limit:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    f"You have used all {limit} unlock(s) for this month on the "
-                    f"{plan_name} plan. Your quota resets on the 1st of next month."
+        if limit is not None:
+            monthly_used = _get_monthly_used(u)
+            if len(monthly_used) >= limit:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"You have used all {limit} unlock(s) for this month on the "
+                        f"{plan_name} plan. Quota exhausted. You can buy top-up lead unlocks."
+                    )
                 )
-            )
 
     # Generate OTP + token
     _clean_expired_otps()
@@ -5771,6 +6007,276 @@ async def verify_payment(payload: VerifyPaymentIn, user: dict = Depends(get_curr
         "invoice_number": invoice_number,
         "download_url": f"/api/invoices/{invoice_id}/download",
         "plan_name": plan.name
+    }
+
+
+# -------------------- Lead Top-Up Purchase & Invoicing --------------------
+
+class CreateTopupOrderIn(BaseModel):
+    lead_id: str
+
+class VerifyTopupPaymentIn(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str
+    razorpay_signature: str
+    lead_id: str
+
+
+@api.get("/topup-plans/lead-rate/{lead_id}")
+async def get_lead_topup_rate(
+    lead_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns the valuation range and admin-set topup price (INR) for unlocking this lead.
+    """
+    return await get_applicable_topup_for_lead(lead_id, db)
+
+
+@api.post("/payments/create-order-topup")
+async def create_topup_payment_order(
+    payload: CreateTopupOrderIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Creates a Razorpay order for purchasing a single lead unlock based on the lead's valuation.
+    """
+    info = await get_applicable_topup_for_lead(payload.lead_id, db)
+    base_price = float(info["price_inr"])
+    
+    # 18% GST for B2B service compliance
+    gst_amount = round(base_price * 0.18, 2)
+    total_price = round(base_price + gst_amount, 2)
+    amount_paise = int(round(total_price * 100))
+    
+    import requests
+    auth = (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
+    order_payload = {
+        "amount": amount_paise,
+        "currency": "INR",
+        "receipt": f"receipt_lead_{payload.lead_id[:8]}"
+    }
+    try:
+        r = requests.post("https://api.razorpay.com/v1/orders", json=order_payload, auth=auth, timeout=10)
+        if r.status_code != 200:
+            logger.error(f"Razorpay topup error: {r.text}")
+            raise HTTPException(status_code=500, detail="Failed to create lead topup order with payment gateway")
+        order_data = r.json()
+        return {
+            "order_id": order_data["id"],
+            "amount": amount_paise,
+            "base_price": base_price,
+            "gst": gst_amount,
+            "total": total_price,
+            "key": RAZORPAY_KEY_ID,
+            "currency": "INR",
+            "lead_id": payload.lead_id,
+            "valuation_range": info["valuation_range"],
+            "estimated_valuation": info["estimated_valuation"],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed calling Razorpay for lead topup: {str(e)}")
+        raise HTTPException(status_code=500, detail="Payment gateway connection error")
+
+
+@api.post("/payments/verify-topup")
+async def verify_topup_payment(
+    payload: VerifyTopupPaymentIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Verifies Razorpay signature for lead topup, records invoice, unlocks the lead for the user,
+    and returns contact information along with invoice download link.
+    """
+    import hmac
+    import hashlib
+    msg = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
+    generated = hmac.new(RAZORPAY_KEY_SECRET.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(generated, payload.razorpay_signature):
+        raise HTTPException(status_code=400, detail="Payment signature verification failed")
+
+    # Fetch enquiry
+    stmt_enq = select(Enquiry).where(Enquiry.id == payload.lead_id)
+    enq = (await db.execute(stmt_enq)).scalars().first()
+    if not enq:
+        raise HTTPException(status_code=404, detail="Lead enquiry not found")
+
+    # Fetch user & company
+    stmt_usr = select(User).where(User.id == user["id"])
+    usr_obj = (await db.execute(stmt_usr)).scalar_one_or_none()
+    if not usr_obj:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    comp_obj = None
+    if usr_obj.company_id:
+        stmt_comp = select(Company).where(Company.id == usr_obj.company_id)
+        comp_obj = (await db.execute(stmt_comp)).scalar_one_or_none()
+
+    # Rate and pricing
+    rate_info = await get_applicable_topup_for_lead(payload.lead_id, db)
+    base_price = float(rate_info["price_inr"])
+    gst_rate = 18.0
+    gst_amount = round(base_price * 0.18, 2)
+    total_price = round(base_price + gst_amount, 2)
+
+    # Generate sequential invoice number
+    inv_count_stmt = select(func.count(MembershipInvoice.id))
+    inv_seq = (await db.execute(inv_count_stmt)).scalar() or 0
+    invoice_number = f"INV-{datetime.now().year}-{(inv_seq + 1):04d}"
+    invoice_id = str(uuid.uuid4())
+    invoice_date_str = datetime.now().strftime("%d %B %Y")
+
+    invoice_payload = {
+        "invoice_number": invoice_number,
+        "invoice_date": invoice_date_str,
+        "supplier_name": os.environ.get("PLATFORM_BUSINESS_NAME", "Indian Industrial Products").strip(),
+        "supplier_gstin": os.environ.get("PLATFORM_GSTIN", "29AABCU9603R1ZM").strip(),
+        "supplier_address": os.environ.get(
+            "PLATFORM_REGISTERED_ADDRESS",
+            "No. 35 Suvarna Nagar Doddabidrekallu Nagasandra, Bengaluru, Karnataka - 560073"
+        ).strip(),
+        "customer_name": usr_obj.name,
+        "customer_company": comp_obj.name if comp_obj else None,
+        "customer_gstin": comp_obj.gst if comp_obj else None,
+        "customer_address": (comp_obj.address or comp_obj.location) if comp_obj else None,
+        "plan_name": f"Lead Unlock Top-Up ({rate_info['valuation_range']})",
+        "description": f"Lead unlock purchase for category '{enq.category}' (Valuation: {rate_info['valuation_range']})",
+        "base_amount": base_price,
+        "gst_rate": gst_rate,
+        "gst_amount": gst_amount,
+        "total_amount": total_price,
+        "payment_id": payload.razorpay_payment_id,
+        "payment_method": "Razorpay / Online",
+    }
+
+    # Generate Tax Invoice PDF
+    pdf_bytes = None
+    try:
+        from services.invoice_service import generate_membership_invoice_pdf
+        pdf_bytes = generate_membership_invoice_pdf(invoice_payload)
+    except Exception as pdf_err:
+        try:
+            from backend.services.invoice_service import generate_membership_invoice_pdf
+            pdf_bytes = generate_membership_invoice_pdf(invoice_payload)
+        except Exception as pdf_err2:
+            logger.error(f"Error generating lead topup invoice PDF: {pdf_err2}")
+
+    # Store MembershipInvoice in DB
+    new_invoice = MembershipInvoice(
+        id=invoice_id,
+        invoice_number=invoice_number,
+        user_id=user["id"],
+        company_id=usr_obj.company_id if usr_obj else None,
+        plan_id=rate_info.get("topup_plan_id") or "lead_topup",
+        plan_name=f"Lead Top-Up ({rate_info['valuation_range']})",
+        billing_cycle="one-time",
+        base_amount=base_price,
+        gst_rate=gst_rate,
+        gst_amount=gst_amount,
+        total_amount=total_price,
+        currency="INR",
+        payment_id=payload.razorpay_payment_id,
+        razorpay_order_id=payload.razorpay_order_id,
+        status="paid",
+        supplier_details={
+            "name": invoice_payload["supplier_name"],
+            "gstin": invoice_payload["supplier_gstin"],
+            "address": invoice_payload["supplier_address"],
+        },
+        customer_details={
+            "name": invoice_payload["customer_name"],
+            "company": invoice_payload["customer_company"],
+            "gstin": invoice_payload["customer_gstin"],
+            "address": invoice_payload["customer_address"],
+        },
+        pdf_url=f"/api/invoices/{invoice_id}/download",
+        created_at=now_iso()
+    )
+    db.add(new_invoice)
+
+    # Unlock the lead for user
+    current_unlocked = list(usr_obj.unlocked_enquiries or [])
+    if payload.lead_id not in current_unlocked:
+        current_unlocked.append(payload.lead_id)
+        usr_obj.unlocked_enquiries = current_unlocked
+
+    email_html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 8px;">
+        <h2 style="color: #1e3a8a;">Tax Invoice - Lead Unlock Top-Up</h2>
+        <p>Dear {invoice_payload['customer_name']},</p>
+        <p>Thank you for purchasing a lead unlock on <strong>{invoice_payload['supplier_name']}</strong>.</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+            <tr><td style="padding: 6px 0; color: #64748b;">Invoice Number:</td><td style="font-weight: bold; text-align: right;">{invoice_number}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Invoice Date:</td><td style="font-weight: bold; text-align: right;">{invoice_date_str}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Lead Category:</td><td style="text-align: right;">{enq.category}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Valuation Range:</td><td style="text-align: right;">{rate_info['valuation_range']}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Amount:</td><td style="text-align: right;">₹{base_price:,.2f}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">GST (18%):</td><td style="text-align: right;">₹{gst_amount:,.2f}</td></tr>
+            <tr style="border-top: 1px solid #cbd5e1;"><td style="padding: 8px 0; font-weight: bold;">Total Paid:</td><td style="font-weight: bold; color: #1e3a8a; text-align: right;">₹{total_price:,.2f}</td></tr>
+        </table>
+        <p>Your official Tax Invoice PDF is attached to this email for your records and GST compliance.</p>
+        <br/>
+        <p style="font-size: 12px; color: #94a3b8;">Indian Industrial Products | B2B Marketplace & Networking</p>
+    </div>
+    """
+
+    attachments_list = []
+    if pdf_bytes:
+        attachments_list.append({
+            "filename": f"Tax_Invoice_{invoice_number}.pdf",
+            "content": pdf_bytes,
+            "mime_type": "application/pdf"
+        })
+
+    if usr_obj.email and pdf_bytes:
+        try:
+            asyncio.create_task(
+                send_email(
+                    to=usr_obj.email,
+                    subject=f"Tax Invoice {invoice_number} - Lead Unlock Purchase",
+                    html_body=email_html,
+                    attachments=attachments_list
+                )
+            )
+        except Exception as e_err:
+            logger.error(f"Failed sending topup invoice email: {e_err}")
+
+    # Notify creator if applicable
+    try:
+        creator_id = getattr(enq, "user_id", None)
+        if creator_id and creator_id != user["id"]:
+            stmt_creator = select(User).where(User.id == creator_id)
+            creator = (await db.execute(stmt_creator)).scalars().first()
+            if creator:
+                await notify_user(
+                    db=db,
+                    user_id=creator.id,
+                    title="Supplier Unlocked Your Lead!",
+                    body=f"A verified supplier on IIP unlocked your contact details for requirement '{enq.category}'.",
+                    notif_type="lead_unlocked",
+                    target_id=payload.lead_id,
+                    link_url="/requirements",
+                    send_email_flag=True,
+                    email_to=creator.email,
+                    email_subject=f"A Verified Supplier Contacted Your IIP Requirement ({enq.category})",
+                )
+    except Exception as e_c:
+        logger.error(f"Failed to notify lead creator: {e_c}")
+
+    await db.commit()
+    return {
+        "ok": True,
+        "already_unlocked": True,
+        "mobile": enq.mobile,
+        "name": enq.name,
+        "invoice_id": invoice_id,
+        "invoice_number": invoice_number,
+        "download_url": f"/api/invoices/{invoice_id}/download",
     }
 
 @api.post("/payments/create-order-cart")
@@ -7136,27 +7642,27 @@ async def _seed_plans_if_empty(db: AsyncSession):
         {"name": "Free", "description": "Browse the marketplace.", "monthly_price": 0, "yearly_price": 0,
          "duration_days": 365, "features": ["Browse feed & reels", "Send unlimited enquiries", "Save & follow", "Basic notifications"],
          "color": "slate", "is_featured": False, "is_active": True, "sort_order": 0,
-         "leads_per_month": 0, "unlocks_per_month": 0},
+         "leads_per_month": 0, "unlocks_per_month": 0, "has_website": False},
         {"name": "Basic", "description": "For growing businesses.", "monthly_price": 999, "yearly_price": 9990,
          "duration_days": 30, "features": ["Verified profile", "50 leads/month", "WhatsApp routing", "5 reels uploads/mo"],
          "badge": "Recommended", "color": "blue", "is_featured": True, "is_active": True, "sort_order": 1,
-         "leads_per_month": 50, "unlocks_per_month": 30},
+         "leads_per_month": 50, "unlocks_per_month": 30, "has_website": False},
         {"name": "Premium", "description": "Unlock full visibility.", "monthly_price": 2999, "yearly_price": 29990,
          "duration_days": 30, "features": ["Custom Company Website", "Featured slot in hero", "Unlimited reels & posts", "Unlimited leads", "Priority support", "Lead CSV export", "Analytics dashboard"],
          "badge": "Best Value", "color": "orange", "is_featured": True, "is_active": True, "sort_order": 2,
-         "leads_per_month": None, "unlocks_per_month": None},
+         "leads_per_month": None, "unlocks_per_month": None, "has_website": True},
         {"name": "SEO Boost", "description": "Search-rank acceleration.", "monthly_price": 4999, "yearly_price": 49990,
          "duration_days": 30, "features": ["Top placement in search", "5x indexing priority", "Schema markup support", "Dedicated SEO advisor"],
          "color": "indigo", "is_featured": False, "is_active": True, "sort_order": 3,
-         "leads_per_month": None, "unlocks_per_month": 100},
+         "leads_per_month": None, "unlocks_per_month": 100, "has_website": False},
         {"name": "Business Development", "description": "Hands-on growth team.", "monthly_price": 7999, "yearly_price": 79990,
          "duration_days": 30, "features": ["Custom Company Website", "Dedicated BD manager", "100 outbound enquiries / mo", "Lead qualification calls", "Weekly reports"],
          "color": "emerald", "is_featured": False, "is_active": True, "sort_order": 4,
-         "leads_per_month": 200, "unlocks_per_month": 200},
+         "leads_per_month": 200, "unlocks_per_month": 200, "has_website": True},
         {"name": "Enterprise", "description": "Custom for large orgs.", "monthly_price": 0, "yearly_price": 0,
          "duration_days": 365, "features": ["Custom Company Website", "Multi-user team logins", "API access", "White-label embeds", "Dedicated CSM", "Custom pricing — talk to sales"],
          "badge": "Custom", "color": "rose", "is_featured": False, "is_active": True, "sort_order": 5,
-         "leads_per_month": None, "unlocks_per_month": None},
+         "leads_per_month": None, "unlocks_per_month": None, "has_website": True},
     ]
     for p in plans:
         db.add(Plan(
@@ -7166,7 +7672,35 @@ async def _seed_plans_if_empty(db: AsyncSession):
             features=p["features"], badge=p.get("badge"), color=p["color"],
             is_featured=p["is_featured"], is_active=p["is_active"],
             sort_order=p["sort_order"], leads_per_month=p["leads_per_month"],
-            unlocks_per_month=p["unlocks_per_month"], created_at=now_iso()
+            unlocks_per_month=p["unlocks_per_month"], has_website=p["has_website"],
+            created_at=now_iso()
+        ))
+    await db.commit()
+
+
+async def _seed_topup_plans_if_empty(db: AsyncSession):
+    stmt = select(func.count(LeadTopupPlan.id))
+    if (await db.execute(stmt)).scalar_one() > 0:
+        return
+    now = now_iso()
+    default_topups = [
+        {"valuation_range": "₹0 - ₹10,000", "min_valuation": 0, "max_valuation": 10000, "price_inr": 300, "sort_order": 0},
+        {"valuation_range": "₹10,000 - ₹50,000", "min_valuation": 10000, "max_valuation": 50000, "price_inr": 500, "sort_order": 1},
+        {"valuation_range": "₹50,000 - ₹1,00,000", "min_valuation": 50000, "max_valuation": 100000, "price_inr": 1000, "sort_order": 2},
+        {"valuation_range": "₹1,00,000 - ₹5,00,000", "min_valuation": 100000, "max_valuation": 500000, "price_inr": 2000, "sort_order": 3},
+        {"valuation_range": "₹5,00,000+", "min": 500000, "max_valuation": None, "price_inr": 3500, "sort_order": 4},
+    ]
+    for i, t in enumerate(default_topups):
+        db.add(LeadTopupPlan(
+            id=str(uuid.uuid4()),
+            valuation_range=t["valuation_range"],
+            min_valuation=t.get("min_valuation", 0) if "min_valuation" in t else t.get("min", 0),
+            max_valuation=t["max_valuation"],
+            price_inr=t["price_inr"],
+            is_active=True,
+            sort_order=t["sort_order"],
+            created_at=now,
+            updated_at=now
         ))
     await db.commit()
 
@@ -7584,6 +8118,18 @@ async def startup():
             created_at VARCHAR(50) NOT NULL,
             updated_at VARCHAR(50) NOT NULL
         )""",
+        "ALTER TABLE plans ADD COLUMN IF NOT EXISTS has_website BOOLEAN DEFAULT FALSE",
+        """CREATE TABLE IF NOT EXISTS lead_topup_plans (
+            id VARCHAR(36) PRIMARY KEY,
+            valuation_range VARCHAR(100) NOT NULL,
+            min_valuation INTEGER DEFAULT 0 NOT NULL,
+            max_valuation INTEGER,
+            price_inr INTEGER NOT NULL,
+            is_active BOOLEAN DEFAULT TRUE NOT NULL,
+            sort_order INTEGER DEFAULT 0 NOT NULL,
+            created_at VARCHAR(255) NOT NULL,
+            updated_at VARCHAR(255) NOT NULL
+        )""",
         "CREATE INDEX IF NOT EXISTS idx_company_websites_subdomain ON company_websites (subdomain)",
         "CREATE INDEX IF NOT EXISTS idx_company_websites_company_id ON company_websites (company_id)",
         "CREATE INDEX IF NOT EXISTS idx_website_templates_assigned_company ON website_templates (assigned_company_id)",
@@ -7600,6 +8146,7 @@ async def startup():
         async with AsyncSessionLocal() as session:
             await seed_data(session)
             await _seed_plans_if_empty(session)
+            await _seed_topup_plans_if_empty(session)
             await _seed_website_templates_if_empty(session)
             await _seed_categories_if_empty(session)
             await _seed_areas_if_empty(session)

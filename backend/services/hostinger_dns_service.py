@@ -91,7 +91,7 @@ class HostingerDNSService:
         zone_domain: Optional[str] = None,
         server_ip: Optional[str] = None,
     ):
-        self.api_token = api_token or os.environ.get("HOSTINGER_API_TOKEN", "").strip()
+        self.api_token = os.environ.get("HOSTINGER_API_TOKEN", "").strip() if api_token is None else api_token
         self.base_url = (base_url or os.environ.get("HOSTINGER_BASE_URL", "https://developers.hostinger.com")).rstrip("/")
         self.zone_domain = zone_domain or os.environ.get("HOSTINGER_ZONE_DOMAIN", "indianindustrialplatform.com").strip()
         self.server_ip = server_ip or os.environ.get("SERVER_PUBLIC_IP", "200.141.14.101").strip()

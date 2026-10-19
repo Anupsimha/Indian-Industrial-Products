@@ -189,7 +189,28 @@ export default function PricingPage() {
                 <div className="font-display text-2xl font-bold text-slate-900">{p.name}</div>
               </div>
               {p.description && <p className="text-xs text-slate-500 mt-1">{p.description}</p>}
-              <div className="mt-2 space-y-0.5">
+
+              {/* Highlights: Lead Unlocks and Company Website */}
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                  <Sparkles size={12} className="text-orange-500" />
+                  {p.unlocks_per_month === null || p.unlocks_per_month === undefined
+                    ? "Unlimited Lead Unlocks"
+                    : `${p.unlocks_per_month} Lead Unlocks / mo`}
+                </span>
+                {p.has_website ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                    <Check size={12} className="text-blue-600" />
+                    Company Website Included
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-50 text-slate-400 border border-slate-200 line-through">
+                    Company Website
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-3 space-y-0.5">
                 <div className="flex items-baseline gap-1">
                   <span className="font-display text-3xl font-bold text-slate-900">
                     {basePrice > 0 ? `₹${totalPrice.toLocaleString("en-IN")}` : (p.name === "Enterprise" ? "Custom" : "₹0")}

@@ -55,6 +55,7 @@ export default function AdminPage() {
     { id: "contact-enquiries", label: "Contact Inquiries", icon: Mail },
     { id: "industrial-groups", label: "Industrial Groups", icon: Building2 },
     { id: "plans", label: "Plans", icon: Crown },
+    { id: "topup-plans", label: "Top-Up Plans", icon: Sparkles },
     { id: "slides", label: "Slides", icon: Image },
     { id: "categories", label: "Categories", icon: Tag },
     { id: "areas", label: "Areas", icon: MapPin },
@@ -88,6 +89,7 @@ export default function AdminPage() {
       {tab === "contact-enquiries" && <ContactEnquiriesTab />}
       {tab === "industrial-groups" && <IndustrialGroupsTab />}
       {tab === "plans" && <PlansTab plans={plans} reload={reload} setPlanEdit={setPlanEdit} planEdit={planEdit} />}
+      {tab === "topup-plans" && <TopupPlansTab />}
       {tab === "settlements" && <AdminSettlementsTab settlements={settlements} reload={reload} />}
       {tab === "slides" && <SlidesTab />}
       {tab === "categories" && <CategoriesTab />}
@@ -343,12 +345,23 @@ const PlansTab = ({ plans, reload, setPlanEdit, planEdit }) => {
   const blank = {
     name: "", description: "", monthly_price: 0, yearly_price: 0,
     duration_days: 30, features: [], color: "blue", is_featured: false, is_active: true, sort_order: plans.length,
+    unlocks_per_month: 30, is_unlimited_unlocks: false, has_website: false,
   };
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blank);
 
   useEffect(() => {
-    if (planEdit) { setForm({ ...planEdit, features: planEdit.features || [] }); setOpen(true); setPlanEdit(null); }
+    if (planEdit) {
+      setForm({
+        ...planEdit,
+        features: planEdit.features || [],
+        is_unlimited_unlocks: planEdit.unlocks_per_month === null || planEdit.unlocks_per_month === undefined,
+        unlocks_per_month: planEdit.unlocks_per_month ?? 50,
+        has_website: Boolean(planEdit.has_website),
+      });
+      setOpen(true);
+      setPlanEdit(null);
+    }
   }, [planEdit, setPlanEdit]);
 
   const submit = async (e) => {
@@ -359,6 +372,8 @@ const PlansTab = ({ plans, reload, setPlanEdit, planEdit }) => {
       yearly_price: Number(form.yearly_price),
       duration_days: Number(form.duration_days),
       sort_order: Number(form.sort_order || 0),
+      unlocks_per_month: form.is_unlimited_unlocks ? null : Number(form.unlocks_per_month || 0),
+      has_website: Boolean(form.has_website),
       features: typeof form.features === "string" ? form.features.split("\n").map((s) => s.trim()).filter(Boolean) : form.features,
     };
     try {
@@ -388,19 +403,40 @@ const PlansTab = ({ plans, reload, setPlanEdit, planEdit }) => {
         <div key={p.id} className="bg-white border border-slate-200 rounded-xl p-3" data-testid={`admin-plan-${p.id}`}>
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-display font-bold text-base text-slate-900">{p.name}</span>
                 {p.badge && <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-orange-100 text-orange-700">{p.badge}</span>}
+                {p.has_website ? (
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                    Website Included
+                  </span>
+                ) : (
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                    No Website
+                  </span>
+                )}
+                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  {p.unlocks_per_month === null || p.unlocks_per_month === undefined ? "Unlimited Unlocks" : `${p.unlocks_per_month} Unlocks/mo`}
+                </span>
                 {!p.is_active && <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">Disabled</span>}
               </div>
-              <div className="text-xs text-slate-500 mt-0.5">₹{p.monthly_price}/mo • ₹{p.yearly_price}/yr • {p.duration_days}d</div>
+              <div className="text-xs text-slate-500 mt-1">₹{p.monthly_price}/mo • ₹{p.yearly_price}/yr • {p.duration_days}d</div>
               <div className="text-[11px] text-slate-600 mt-1 line-clamp-2">{(p.features || []).join(" · ")}</div>
             </div>
             <div className="flex items-center gap-1">
               <button onClick={() => toggleActive(p)} data-testid={`admin-plan-toggle-${p.id}`} className="p-1.5 text-slate-600 hover:text-blue-700">
                 {p.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
               </button>
-              <button onClick={() => { setForm({ ...p, features: (p.features || []).join("\n") }); setOpen(true); }}
+              <button onClick={() => {
+                setForm({
+                  ...p,
+                  features: (p.features || []).join("\n"),
+                  is_unlimited_unlocks: p.unlocks_per_month === null || p.unlocks_per_month === undefined,
+                  unlocks_per_month: p.unlocks_per_month ?? 50,
+                  has_website: Boolean(p.has_website),
+                });
+                setOpen(true);
+              }}
                 data-testid={`admin-plan-edit-${p.id}`} className="p-1.5 text-blue-700 hover:text-blue-900"><Edit size={16} /></button>
               <button onClick={() => del(p.id)} data-testid={`admin-plan-delete-${p.id}`} className="p-1.5 text-rose-600 hover:text-rose-800"><Trash2 size={16} /></button>
             </div>
@@ -426,6 +462,57 @@ const PlansTab = ({ plans, reload, setPlanEdit, planEdit }) => {
                 <Input label="Duration (days)" type="number" value={form.duration_days} onChange={(v) => setForm({ ...form, duration_days: v })} testid="plan-days" />
                 <Input label="Sort order" type="number" value={form.sort_order} onChange={(v) => setForm({ ...form, sort_order: v })} testid="plan-order" />
               </div>
+
+              {/* Lead Unlock Quota Configuration */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-800 uppercase tracking-wider">Lead Unlocks Quota</label>
+                  <label className="text-xs inline-flex items-center gap-1.5 cursor-pointer font-semibold text-blue-900">
+                    <input
+                      type="checkbox"
+                      checked={form.is_unlimited_unlocks}
+                      onChange={(e) => setForm({ ...form, is_unlimited_unlocks: e.target.checked })}
+                      data-testid="plan-unlimited-unlocks"
+                    />
+                    Unlimited Leads
+                  </label>
+                </div>
+                {!form.is_unlimited_unlocks && (
+                  <Input
+                    label="Leads unlocked per month"
+                    type="number"
+                    value={form.unlocks_per_month}
+                    onChange={(v) => setForm({ ...form, unlocks_per_month: v })}
+                    testid="plan-unlocks-count"
+                    placeholder="e.g. 30"
+                  />
+                )}
+                <p className="text-[10px] text-slate-500">
+                  {form.is_unlimited_unlocks
+                    ? "Subscribers can unlock unlimited buyer leads every month."
+                    : `Subscribers can unlock ${form.unlocks_per_month || 0} leads per month. Once exhausted, they can buy individual lead top-ups.`}
+                </p>
+              </div>
+
+              {/* Company Website Included Feature Checkbox */}
+              <div className="p-3 bg-blue-50/50 border border-blue-200 rounded-xl">
+                <label className="text-xs inline-flex items-start gap-2 cursor-pointer font-bold text-blue-950">
+                  <input
+                    type="checkbox"
+                    checked={form.has_website}
+                    onChange={(e) => setForm({ ...form, has_website: e.target.checked })}
+                    data-testid="plan-has-website"
+                    className="mt-0.5 rounded border-blue-300 text-blue-800"
+                  />
+                  <div>
+                    <span>Company Website Included</span>
+                    <p className="text-[10px] font-normal text-slate-600 mt-0.5">
+                      Enable subscribers of this plan to launch and manage a custom company landing website on their subdomain.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
               <Input label="Badge (optional)" value={form.badge || ""} onChange={(v) => setForm({ ...form, badge: v })} testid="plan-badge" placeholder="Recommended / Best Value" />
               <div>
                 <label className="text-[11px] font-semibold text-slate-600">Color</label>
@@ -446,6 +533,259 @@ const PlansTab = ({ plans, reload, setPlanEdit, planEdit }) => {
               </div>
               <button type="submit" data-testid="plan-save-btn" className="w-full py-3 rounded-full bg-orange-600 text-white font-semibold hover:bg-orange-700">
                 <Check size={14} className="inline mr-1" /> Save Plan
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TopupPlansTab = () => {
+  const [topups, setTopups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  
+  const RANGES = [
+    { label: "₹0 - ₹10,000", min: 0, max: 10000, default_price: 300 },
+    { label: "₹10,000 - ₹50,000", min: 10000, max: 50000, default_price: 500 },
+    { label: "₹50,000 - ₹1,00,000", min: 50000, max: 100000, default_price: 1000 },
+    { label: "₹1,00,000 - ₹5,00,000", min: 100000, max: 500000, default_price: 2000 },
+    { label: "₹5,00,000+", min: 500000, max: null, default_price: 3500 },
+  ];
+
+  const blank = {
+    valuation_range: RANGES[0].label,
+    min_valuation: RANGES[0].min,
+    max_valuation: RANGES[0].max,
+    price_inr: RANGES[0].default_price,
+    is_active: true,
+    sort_order: 0,
+  };
+
+  const [form, setForm] = useState(blank);
+
+  const fetchTopups = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/admin/topup-plans");
+      setTopups(res.data || []);
+    } catch (err) {
+      toast.error("Failed to load topup plans");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTopups();
+  }, []);
+
+  const handleRangeChange = (label) => {
+    const matched = RANGES.find((r) => r.label === label);
+    if (matched) {
+      setForm((prev) => ({
+        ...prev,
+        valuation_range: matched.label,
+        min_valuation: matched.min,
+        max_valuation: matched.max,
+        price_inr: prev.price_inr || matched.default_price,
+      }));
+    }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        ...form,
+        min_valuation: Number(form.min_valuation),
+        max_valuation: form.max_valuation !== null && form.max_valuation !== undefined ? Number(form.max_valuation) : null,
+        price_inr: parseInt(form.price_inr, 10),
+        sort_order: Number(form.sort_order || 0),
+        is_active: Boolean(form.is_active),
+      };
+      if (form.id) {
+        await api.patch(`/admin/topup-plans/${form.id}`, payload);
+        toast.success("Top-up pricing updated");
+      } else {
+        await api.post("/admin/topup-plans", payload);
+        toast.success("New top-up pricing created");
+      }
+      setOpen(false);
+      setForm(blank);
+      fetchTopups();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to save top-up plan");
+    }
+  };
+
+  const del = async (id) => {
+    if (!window.confirm("Delete this top-up plan?")) return;
+    try {
+      await api.delete(`/admin/topup-plans/${id}`);
+      toast.success("Top-up plan deleted");
+      fetchTopups();
+    } catch {
+      toast.error("Failed to delete");
+    }
+  };
+
+  const toggleActive = async (t) => {
+    try {
+      await api.patch(`/admin/topup-plans/${t.id}`, { ...t, is_active: !t.is_active });
+      fetchTopups();
+    } catch {
+      toast.error("Failed to update status");
+    }
+  };
+
+  return (
+    <div className="mt-2 space-y-3">
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex items-center justify-between gap-4">
+        <div>
+          <h2 className="font-display font-bold text-base text-slate-900">Lead Top-Up Pricing by Lead Valuation</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Configure rates in ₹ charged when a subscriber exhausts their plan unlock balance and purchases an individual lead.
+          </p>
+        </div>
+        <button
+          onClick={() => { setForm(blank); setOpen(true); }}
+          data-testid="admin-add-topup-btn"
+          className="px-4 py-2 bg-blue-850 hover:bg-blue-900 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-sm shrink-0"
+        >
+          <Plus size={14} /> Add Top-Up Rate
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="p-8 text-center text-xs text-slate-400">Loading top-up plans...</div>
+      ) : topups.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-xs text-slate-500">
+          No top-up pricing configured yet. Click above to add lead valuation ranges.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {topups.map((t) => (
+            <div key={t.id} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col justify-between" data-testid={`admin-topup-${t.id}`}>
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-200">
+                    Valuation Range
+                  </span>
+                  {!t.is_active && (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-600">
+                      Inactive
+                    </span>
+                  )}
+                </div>
+                <h3 className="font-display font-black text-lg text-slate-900 mt-2">
+                  {t.valuation_range}
+                </h3>
+                <div className="mt-1 flex items-baseline gap-1">
+                  <span className="font-display font-extrabold text-2xl text-blue-900">
+                    ₹{Number(t.price_inr).toLocaleString("en-IN")}
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-medium">+ 18% GST</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2">
+                  Min Valuation: ₹{t.min_valuation?.toLocaleString("en-IN") || 0}
+                  {t.max_valuation ? ` — Max: ₹${t.max_valuation?.toLocaleString("en-IN")}` : " (Unbounded)"}
+                </p>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                <button
+                  onClick={() => toggleActive(t)}
+                  className="text-xs font-semibold text-slate-600 hover:text-blue-800 inline-flex items-center gap-1"
+                >
+                  {t.is_active ? <ToggleRight size={20} className="text-emerald-600" /> : <ToggleLeft size={20} className="text-slate-400" />}
+                  <span>{t.is_active ? "Active" : "Disabled"}</span>
+                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => { setForm(t); setOpen(true); }}
+                    className="p-1.5 text-blue-700 hover:text-blue-900 rounded-lg hover:bg-blue-50"
+                  >
+                    <Edit size={15} />
+                  </button>
+                  <button
+                    onClick={() => del(t.id)}
+                    className="p-1.5 text-rose-600 hover:text-rose-800 rounded-lg hover:bg-rose-50"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {open && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn" onClick={() => setOpen(false)}>
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50/50">
+              <h3 className="font-display font-bold text-lg text-slate-900">
+                {form.id ? "Edit Top-Up Pricing" : "New Lead Top-Up Pricing"}
+              </h3>
+              <button onClick={() => setOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 rounded-lg"><X size={18} /></button>
+            </div>
+            <form onSubmit={submit} className="p-5 space-y-4">
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                  Lead Valuation Range
+                </label>
+                <select
+                  value={form.valuation_range}
+                  onChange={(e) => handleRangeChange(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 font-semibold"
+                >
+                  {RANGES.map((r) => (
+                    <option key={r.label} value={r.label}>{r.label}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Select a standardized buyer lead requirement valuation bracket.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                  Top-Up Unlock Price (in ₹ Rupees)
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  step="1"
+                  value={form.price_inr}
+                  onChange={(e) => setForm({ ...form, price_inr: e.target.value })}
+                  placeholder="e.g. 500"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 font-bold text-slate-900"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Integer rate in INR. 18% GST will be automatically calculated on top for tax invoice generation.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-4 pt-1">
+                <label className="text-xs inline-flex items-center gap-1.5 cursor-pointer font-semibold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={form.is_active}
+                    onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                  />
+                  Active & Available for Users
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm shadow-md transition-all active:scale-95"
+              >
+                <Check size={16} className="inline mr-1" /> Save Top-Up Rate
               </button>
             </form>
           </div>

@@ -29,11 +29,32 @@ export default function WebsiteSetupModal({ isOpen, onClose, onComplete, initial
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [previewTemplateId, setPreviewTemplateId] = useState(null);
 
+  // Entitlement checking
+  const [entitlement, setEntitlement] = useState({ loading: true, can_create: true, message: null, website: null });
+
   // Step 3: Deployment Progress Bar
   const [deployStepIndex, setDeployStepIndex] = useState(0);
   const [deployProgress, setDeployProgress] = useState(15);
   const [deployedWebsite, setDeployedWebsite] = useState(null);
   const hasAutoPopulatedRef = React.useRef(false);
+
+  // Check plan entitlement on modal open
+  useEffect(() => {
+    if (!isOpen) return;
+    setEntitlement((prev) => ({ ...prev, loading: true }));
+    api.get("/websites/my-website")
+      .then((res) => {
+        setEntitlement({
+          loading: false,
+          can_create: res.data?.can_create !== false,
+          message: res.data?.message,
+          website: res.data?.website
+        });
+      })
+      .catch(() => {
+        setEntitlement({ loading: false, can_create: true, message: null, website: null });
+      });
+  }, [isOpen]);
 
   // Default suggested subdomain from company name (only once upon modal opening)
   useEffect(() => {
@@ -195,9 +216,50 @@ export default function WebsiteSetupModal({ isOpen, onClose, onComplete, initial
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
           
-          {/* STEP 1: Domain Selection */}
-          {currentStep === 1 && (
-            <div className="space-y-6">
+          {/* Entitlement Locked Guard */}
+          {!entitlement.loading && !entitlement.can_create && !entitlement.website ? (
+            <div className="py-8 text-center space-y-6 max-w-lg mx-auto" data-testid="website-modal-locked-state">
+              <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 mx-auto">
+                <AlertCircle size={32} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-white">Company Website Feature Not Included</h3>
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  {entitlement.message || "Your plan does not include the company website feature. Please buy a plan with the website feature to avail this."}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-800/60 border border-slate-750 text-xs text-slate-400 text-left space-y-2">
+                <p className="font-semibold text-slate-200">With the company website feature you get:</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Your own custom branded subdomain (e.g. yourbrand.indianindustrialplatform.com)</li>
+                  <li>Instant catalog & product synchronization</li>
+                  <li>Automated Hostinger DNS provisioning & SSL encryption</li>
+                </ul>
+              </div>
+
+              <div className="pt-2 flex items-center justify-center gap-3">
+                <a
+                  href="/pricing"
+                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-black text-xs transition-all shadow-lg flex items-center gap-2"
+                >
+                  <Sparkles size={14} className="fill-slate-950" />
+                  <span>View Membership Plans</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-semibold text-xs transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* STEP 1: Domain Selection */}
+              {currentStep === 1 && (
+                <div className="space-y-6">
               <div>
                 <label className="block text-xs font-bold text-slate-200 mb-1.5 uppercase tracking-wider">
                   Choose Your Company Subdomain
@@ -496,6 +558,8 @@ export default function WebsiteSetupModal({ isOpen, onClose, onComplete, initial
               </div>
             </div>
           )}
+          </>
+        )}
 
         </div>
 
