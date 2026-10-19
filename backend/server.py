@@ -373,6 +373,7 @@ class Plan(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     leads_per_month = Column(Integer, nullable=True)
     unlocks_per_month = Column(Integer, nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
     has_website = Column(Boolean, default=False, nullable=False)
     created_at = Column(String(255), nullable=False)
 
@@ -8119,6 +8120,7 @@ async def startup():
             updated_at VARCHAR(50) NOT NULL
         )""",
         "ALTER TABLE plans ADD COLUMN IF NOT EXISTS has_website BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE plans ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS lead_topup_plans (
             id VARCHAR(36) PRIMARY KEY,
             valuation_range VARCHAR(100) NOT NULL,
