@@ -530,6 +530,47 @@ class WebsiteTemplate(Base):
     sample_data = Column(JSON, default=dict, nullable=True)
     created_at = Column(String(50), nullable=False)
     updated_at = Column(String(50), nullable=False)
+
+
+class CustomWebsiteRequest(Base):
+    __tablename__ = "custom_website_requests"
+    id = Column(String(36), primary_key=True)
+    company_id = Column(String(36), nullable=False, index=True)
+    user_id = Column(String(36), nullable=False, index=True)
+    requested_domain = Column(String(255), nullable=True)
+    assigned_domain = Column(String(255), nullable=True, index=True)
+    status = Column(String(50), default="PENDING_REVIEW", nullable=False)  # PENDING_REVIEW, CONTACTED, DOMAIN_CONFIGURED, CODE_VALIDATED, DEPLOYED, REJECTED
+    dns_status = Column(String(50), default="PENDING", nullable=False)  # PENDING, VERIFIED, FAILED
+    dns_checked_at = Column(String(50), nullable=True)
+    ssl_status = Column(String(50), default="PENDING", nullable=False)  # PENDING, ACTIVE, FAILED
+    deployment_status = Column(String(50), default="PENDING", nullable=False)  # PENDING, VALIDATED, DEPLOYED
+    code_archive_path = Column(String(500), nullable=True)
+    admin_notes = Column(Text, nullable=True)
+    created_at = Column(String(50), nullable=False)
+    updated_at = Column(String(50), nullable=False)
+
+
+class CustomWebsiteConfig(Base):
+    __tablename__ = "custom_website_configs"
+    id = Column(String(36), primary_key=True, default="global_config")
+    benefits_list = Column(JSON, default=list, nullable=False)
+    maintenance_months = Column(Integer, default=6, nullable=False)
+    additional_benefits = Column(Text, nullable=True)
+    created_at = Column(String(50), nullable=False)
+    updated_at = Column(String(50), nullable=False)
+
+
+class WebsiteDeploymentLog(Base):
+    __tablename__ = "website_deployment_logs"
+    id = Column(String(36), primary_key=True)
+    request_id = Column(String(36), nullable=False, index=True)
+    stage = Column(String(50), nullable=False)  # DOMAIN_SANITY_CHECK, DNS_CONFIGURATION, ZIP_VALIDATION, DEPLOYMENT_SSL
+    status = Column(String(30), nullable=False)  # SUCCESS, FAILED, INFO, WARNING
+    message = Column(Text, nullable=False)
+    details = Column(JSON, default=dict, nullable=True)
+    created_at = Column(String(50), nullable=False)
+
+
 class MembershipInvoice(Base):
     __tablename__ = "membership_invoices"
     id = Column(String(36), primary_key=True)
@@ -7820,6 +7861,29 @@ async def _seed_website_templates_if_empty(db: AsyncSession):
     logger.info("Synchronized official Website Templates.")
 
 
+async def _seed_custom_website_config_if_empty(db: AsyncSession):
+    stmt = select(CustomWebsiteConfig).where(CustomWebsiteConfig.id == "global_config")
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if not existing:
+        now = now_iso()
+        db.add(CustomWebsiteConfig(
+            id="global_config",
+            benefits_list=[
+                "Dedicated Custom Domain (.com / .in / .org / .co.in)",
+                "Bespoke AI-Engineered Tailored Layout & Architecture",
+                "6 Months Free Priority Hosting, Maintenance & SSL",
+                "Direct WhatsApp & Technical Drawing RFQ Routing",
+                "Dedicated Company CMS Admin Panel"
+            ],
+            maintenance_months=6,
+            additional_benefits="Includes comprehensive SEO setup, Google Search indexing, automated DNS management on Hostinger, and free maintenance for 6 months. For renewal or custom enterprise inquiries, our dedicated team will assist you personally.",
+            created_at=now,
+            updated_at=now
+        ))
+        await db.commit()
+        logger.info("Synchronized default Custom Website configuration.")
+
+
 async def _seed_categories_if_empty(db: AsyncSession):
     stmt = select(func.count(Category.id))
     if (await db.execute(stmt)).scalar_one() > 0:
@@ -8168,6 +8232,7 @@ async def startup():
             await _seed_plans_if_empty(session)
             await _seed_topup_plans_if_empty(session)
             await _seed_website_templates_if_empty(session)
+            await _seed_custom_website_config_if_empty(session)
             await _seed_categories_if_empty(session)
             await _seed_areas_if_empty(session)
             await _seed_slides_if_empty(session)

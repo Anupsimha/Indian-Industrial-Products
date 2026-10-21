@@ -54,6 +54,7 @@ import TermsAndConditionsPage from "@/pages/TermsAndConditionsPage";
 import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 import RefundPolicyPage from "@/pages/RefundPolicyPage";
 import TenantWebsitePage from "@/pages/TenantWebsitePage";
+import CompanyAdminPage from "@/pages/CompanyAdminPage";
 
 const Layout = ({ children }) => {
   const { user } = useAuth();
@@ -91,7 +92,8 @@ const Layout = ({ children }) => {
     || location.pathname.startsWith("/register")
     || location.pathname.startsWith("/verify-otp")
     || location.pathname.startsWith("/complete-profile")
-    || location.pathname.startsWith("/forgot-password");
+    || location.pathname.startsWith("/forgot-password")
+    || location.pathname.startsWith("/company-admin");
 
   if (!isAdmin && user && user.is_verified === false && !fullscreen) {
     return <Navigate to="/verify-otp" replace />;
@@ -168,6 +170,7 @@ function App() {
                   <Route path="/product/:id" element={<ProductDetailPage />} />
                   <Route path="/jobs" element={<JobsPage />} />
                   <Route path="/admin" element={<AdminPage />} />
+                  <Route path="/company-admin" element={<CompanyAdminPage />} />
                   <Route path="/requirements" element={<RequirementsPage />} />
                   <Route path="/my-vacancies" element={<MyVacanciesPage />} />
                   <Route path="/manage-vacancies" element={<ManageVacanciesPage />} />

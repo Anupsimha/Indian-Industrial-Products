@@ -8,7 +8,7 @@ import {
   LogOut, Briefcase, Inbox, Bookmark, Bell, Star, ChevronRight,
   Building2, Verified, MapPin, Globe, Camera, FileText, Users,
   UserPlus, Package, BarChart3, Edit, Plus, Trash2, Calendar,
-  ShieldCheck, Phone, Mail, Target, Settings, ExternalLink, Sparkles, Copy, Check
+  ShieldCheck, Phone, Mail, Target, Settings, ExternalLink, Sparkles, Copy, Check, LayoutDashboard
 } from "lucide-react";
 import { PostCard } from "../components/PostCard";
 import { toast } from "sonner";
@@ -212,13 +212,22 @@ export default function ProfilePage() {
                     <Edit size={13} /> Edit Profile
                   </button>
                   {isBusiness && (
-                    <button
-                      onClick={() => setEditOpen(true)}
-                      className="px-3 py-1.5 rounded-full bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 border border-blue-400/30"
-                      data-testid="profile-edit-company-btn"
-                    >
-                      <Building2 size={13} /> Edit Company
-                    </button>
+                    <>
+                      <button
+                        onClick={() => setEditOpen(true)}
+                        className="px-3 py-1.5 rounded-full bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 border border-blue-400/30"
+                        data-testid="profile-edit-company-btn"
+                      >
+                        <Building2 size={13} /> Edit Company
+                      </button>
+                      <Link
+                        to="/company-admin"
+                        className="px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black transition-all inline-flex items-center gap-1.5 shadow-sm"
+                        data-testid="profile-header-company-admin-btn"
+                      >
+                        <LayoutDashboard size={13} /> Admin Panel
+                      </Link>
+                    </>
                   )}
                 </div>
               </>
@@ -369,9 +378,9 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
                   <a
-                    href={`https://${myWebsite.website.subdomain}.indianindustrialplatform.com`}
+                    href={myWebsite.website.custom_domain ? `https://${myWebsite.website.custom_domain}` : `https://${myWebsite.website.subdomain}.indianindustrialplatform.com`}
                     target="_blank"
                     rel="noreferrer"
                     className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-sm"
@@ -380,6 +389,15 @@ export default function ProfilePage() {
                     <span>Visit Live Site</span>
                     <ExternalLink size={13} />
                   </a>
+
+                  <Link
+                    to="/company-admin"
+                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black transition-all inline-flex items-center gap-1.5 shadow-sm"
+                    data-testid="profile-website-admin-panel-btn"
+                  >
+                    <LayoutDashboard size={13} />
+                    <span>Admin Panel</span>
+                  </Link>
 
                   <button
                     onClick={() => setWebsiteModalOpen(true)}

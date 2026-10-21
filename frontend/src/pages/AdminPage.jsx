@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSupportContact } from "../context/SupportContactContext";
 import { Navigate, Link } from "react-router-dom";
 
-import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone, Settings as SettingsIcon, Landmark, Globe, Eye, Sparkles, Layers } from "lucide-react";
+import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone, Settings as SettingsIcon, Landmark, Globe, Eye, Sparkles, Layers, Upload, Terminal, FileCode, CheckCircle2, AlertTriangle, ShieldCheck, ExternalLink, HelpCircle, FileText, Server, Clock, Loader2, ArrowRight, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 import { SingleImageUploader } from "../components/MediaUploader";
@@ -51,6 +51,7 @@ export default function AdminPage() {
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "leads", label: "Buyer Leads", icon: Inbox },
     { id: "templates", label: "Website Templates", icon: Globe },
+    { id: "custom-websites", label: "Custom Websites", icon: Layers },
     { id: "settlements", label: "Payout Settlements", icon: Landmark },
     { id: "contact-enquiries", label: "Contact Inquiries", icon: Mail },
     { id: "industrial-groups", label: "Industrial Groups", icon: Building2 },
@@ -86,6 +87,7 @@ export default function AdminPage() {
       {tab === "overview" && stats && analytics && <Overview stats={stats} analytics={analytics} />}
       {tab === "leads" && <BuyerLeadsTab />}
       {tab === "templates" && <WebsiteTemplatesTab />}
+      {tab === "custom-websites" && <CustomWebsitesAdminTab />}
       {tab === "contact-enquiries" && <ContactEnquiriesTab />}
       {tab === "industrial-groups" && <IndustrialGroupsTab />}
       {tab === "plans" && <PlansTab plans={plans} reload={reload} setPlanEdit={setPlanEdit} planEdit={planEdit} />}
@@ -2375,7 +2377,706 @@ const WebsiteTemplatesTab = () => {
         />
       )}
     </div>
+// ----------------------------------------------------
+// Custom Websites Admin Tab & Multi-Stage Deployment Wizard
+// ----------------------------------------------------
+const CustomWebsitesAdminTab = () => {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState({
+    benefits_list: [],
+    maintenance_months: 6,
+    additional_benefits: ""
+  });
+  const [editingConfig, setEditingConfig] = useState(false);
+  const [configForm, setConfigForm] = useState({
+    benefits: "",
+    maintenance_months: 6,
+    additional_benefits: ""
+  });
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  // Active request for deployment wizard
+  const [activeReq, setActiveReq] = useState(null);
+  const [wizardStage, setWizardStage] = useState(1);
+  const [stageDomain, setStageDomain] = useState("");
+  const [syncHostinger, setSyncHostinger] = useState(true);
+  const [checkingDomain, setCheckingDomain] = useState(false);
+  const [domainCheckResult, setDomainCheckResult] = useState(null);
+
+  // Stage 2: Zip upload & AI guide
+  const [zipFile, setZipFile] = useState(null);
+  const [uploadingZip, setUploadingZip] = useState(false);
+  const [zipUploadResult, setZipUploadResult] = useState(null);
+  const [showAiGuide, setShowAiGuide] = useState(false);
+
+  // Stage 3: Live deploy
+  const [deploying, setDeploying] = useState(false);
+  const [deployResult, setDeployResult] = useState(null);
+
+  // Audit logs
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [reqRes, cfgRes] = await Promise.all([
+        api.get("/admin/websites/custom-requests"),
+        api.get("/websites/custom-config")
+      ]);
+      setRequests(reqRes.data || []);
+      if (cfgRes.data) {
+        setConfig(cfgRes.data);
+        setConfigForm({
+          benefits: (cfgRes.data.benefits_list || []).join("\n"),
+          maintenance_months: cfgRes.data.maintenance_months || 6,
+          additional_benefits: cfgRes.data.additional_benefits || ""
+        });
+      }
+    } catch (err) {
+      toast.error("Failed to load custom website data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleSaveConfig = async (e) => {
+    e.preventDefault();
+    setSavingConfig(true);
+    try {
+      const benefitsList = configForm.benefits
+        .split("\n")
+        .map((b) => b.trim())
+        .filter(Boolean);
+
+      const res = await api.patch("/admin/websites/custom-config", {
+        benefits_list: benefitsList,
+        maintenance_months: parseInt(configForm.maintenance_months, 10) || 6,
+        additional_benefits: configForm.additional_benefits.trim()
+      });
+      setConfig(res.data);
+      setEditingConfig(false);
+      toast.success("Custom website benefits & maintenance configuration updated!");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to update config");
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const openWizard = async (req) => {
+    setActiveReq(req);
+    setWizardStage(
+      req.status === "DEPLOYED" ? 3 :
+      req.status === "IN_DEVELOPMENT" ? 2 :
+      req.status === "DOMAIN_PURCHASED" ? 2 : 1
+    );
+    setStageDomain(req.assigned_domain || req.requested_domain || "");
+    setDomainCheckResult(null);
+    setZipFile(null);
+    setZipUploadResult(null);
+    setDeployResult(null);
+
+    loadLogs(req.id);
+  };
+
+  const loadLogs = async (reqId) => {
+    setLoadingLogs(true);
+    try {
+      const res = await api.get(`/admin/websites/custom-requests/${reqId}/logs`);
+      setAuditLogs(res.data || []);
+    } catch {
+      setAuditLogs([]);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  // Stage 1: Domain check
+  const handleStageDomain = async (e) => {
+    e.preventDefault();
+    if (!stageDomain.trim()) {
+      toast.error("Please enter a domain name");
+      return;
+    }
+    setCheckingDomain(true);
+    try {
+      const res = await api.post(`/admin/websites/custom-requests/${activeReq.id}/stage-domain`, {
+        domain: stageDomain.trim().toLowerCase(),
+        sync_hostinger: syncHostinger
+      });
+      setDomainCheckResult(res.data);
+      if (res.data.ok) {
+        toast.success(`Domain sanity check passed! Resolved to target IP ${res.data.target_ip}`);
+        loadData();
+        loadLogs(activeReq.id);
+      } else {
+        toast.warning(res.data.message || "DNS did not resolve to 200.141.14.101 yet.");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Stage 1 domain check failed");
+    } finally {
+      setCheckingDomain(false);
+    }
+  };
+
+  // Stage 2: Upload zip
+  const handleStageUploadZip = async (e) => {
+    e.preventDefault();
+    if (!zipFile) {
+      toast.error("Please choose a frontend .zip file");
+      return;
+    }
+    setUploadingZip(true);
+    try {
+      const form = new FormData();
+      form.append("file", zipFile);
+      const res = await api.post(`/admin/websites/custom-requests/${activeReq.id}/stage-upload-zip`, form);
+      setZipUploadResult(res.data);
+      toast.success(res.data.message || "Frontend zip extracted & verified successfully!");
+      loadData();
+      loadLogs(activeReq.id);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Zip sandbox upload failed");
+    } finally {
+      setUploadingZip(false);
+    }
+  };
+
+  // Stage 3: Deploy & SSL
+  const handleStageDeploy = async () => {
+    setDeploying(true);
+    try {
+      const res = await api.post(`/admin/websites/custom-requests/${activeReq.id}/stage-deploy`);
+      setDeployResult(res.data);
+      toast.success("Custom website deployed and marked LIVE!");
+      loadData();
+      loadLogs(activeReq.id);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Stage 3 deployment failed");
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-5" data-testid="admin-custom-websites-tab">
+      {/* 1. Header & Configuration Card */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="font-display font-bold text-lg text-slate-900">Bespoke Custom Websites</h2>
+              <span className="px-2 py-0.5 rounded-full text-xs font-black bg-amber-50 text-amber-700 border border-amber-200">
+                {requests.length} Requests
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Multi-stage custom website deployment with Hostinger DNS sanity validation, AI frontend upload, Nginx vhost setup, and audit logging.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setEditingConfig(!editingConfig)}
+            className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs inline-flex items-center gap-1.5 transition-colors shrink-0"
+            data-testid="admin-edit-custom-config-btn"
+          >
+            <Edit size={14} />
+            <span>{editingConfig ? "Close Settings" : "Configure Benefits & Terms"}</span>
+          </button>
+        </div>
+
+        {/* Benefits Config Editor (Collapsible) */}
+        {editingConfig ? (
+          <form onSubmit={handleSaveConfig} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Configure Custom Website Package</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700">Benefits List (One per line)</label>
+                <textarea
+                  rows={4}
+                  value={configForm.benefits}
+                  onChange={(e) => setConfigForm({ ...configForm, benefits: e.target.value })}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 font-sans text-xs focus:ring-2 focus:ring-blue-300 outline-none resize-none"
+                  placeholder="Custom Domain Name&#10;Bespoke UI Design&#10;6 Months Maintenance"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700">Included Free Maintenance Period (Months)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={configForm.maintenance_months}
+                    onChange={(e) => setConfigForm({ ...configForm, maintenance_months: e.target.value })}
+                    className="w-full p-2 rounded-lg border border-slate-300 text-xs focus:ring-2 focus:ring-blue-300 outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700">Additional Terms &amp; Guarantees</label>
+                  <input
+                    type="text"
+                    value={configForm.additional_benefits}
+                    onChange={(e) => setConfigForm({ ...configForm, additional_benefits: e.target.value })}
+                    className="w-full p-2 rounded-lg border border-slate-300 text-xs focus:ring-2 focus:ring-blue-300 outline-none"
+                    placeholder="e.g. Integrated with IIP marketplace & realtime RFQs."
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditingConfig(false)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-200 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingConfig}
+                className="px-4 py-1.5 bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs rounded-lg transition-colors shadow-sm disabled:opacity-50"
+              >
+                {savingConfig ? "Saving..." : "Save Settings"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-slate-50 p-3 rounded-xl border border-slate-100">
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase block">Hostinger Target Server IP</span>
+              <span className="font-mono font-bold text-slate-800">200.141.14.101</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase block">Standard Maintenance</span>
+              <span className="font-bold text-emerald-700">{config.maintenance_months || 6} Months Free Included</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase block">CMS Admin Panel</span>
+              <span className="font-bold text-blue-700">Synchronized on /company-admin</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 2. Custom Requests Table */}
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+        {loading ? (
+          <div className="p-12 text-center text-slate-400 font-semibold">Loading custom website requests...</div>
+        ) : requests.length === 0 ? (
+          <div className="p-12 text-center text-slate-400 font-semibold">
+            No bespoke custom website requests received yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-700">
+              <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4">Company</th>
+                  <th className="py-3 px-4">Requested Domain</th>
+                  <th className="py-3 px-4">Assigned / Live Domain</th>
+                  <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-3 px-4">Submitted Date</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {requests.map((r) => (
+                  <tr key={r.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="py-3 px-4">
+                      <span className="font-bold text-slate-900 block">{r.company_name || r.company_id}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">ID: {r.id.slice(0, 8)}</span>
+                    </td>
+                    <td className="py-3 px-4 font-mono font-bold text-blue-700">
+                      {r.requested_domain}
+                    </td>
+                    <td className="py-3 px-4 font-mono">
+                      {r.assigned_domain ? (
+                        <a
+                          href={`https://${r.assigned_domain}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-emerald-700 hover:underline font-bold inline-flex items-center gap-1"
+                        >
+                          {r.assigned_domain} <ExternalLink size={11} />
+                        </a>
+                      ) : (
+                        <span className="text-slate-400 italic">Not deployed yet</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                          r.status === "DEPLOYED" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
+                          r.status === "IN_DEVELOPMENT" ? "bg-blue-50 text-blue-700 border border-blue-200" :
+                          r.status === "DOMAIN_PURCHASED" ? "bg-indigo-50 text-indigo-700 border border-indigo-200" :
+                          r.status === "REJECTED" ? "bg-rose-50 text-rose-700 border border-rose-200" :
+                          "bg-amber-50 text-amber-700 border border-amber-200"
+                        }`}
+                      >
+                        {r.status?.replace(/_/g, " ")}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
+                      {new Date(r.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        onClick={() => openWizard(r)}
+                        className="px-3 py-1.5 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs inline-flex items-center gap-1 shadow-sm transition-all"
+                        data-testid={`admin-open-wizard-${r.id}`}
+                      >
+                        <Layers size={13} />
+                        <span>Deploy Wizard</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* 3. Multi-Stage Deployment Wizard Modal */}
+      {activeReq && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-3xl bg-white border border-slate-200 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-800 flex items-center justify-center font-bold">
+                  <Layers size={18} />
+                </div>
+                <div>
+                  <h3 className="font-display font-bold text-slate-900 text-sm">
+                    Deployment Pipeline: {activeReq.company_name || activeReq.company_id}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Requested Domain: <strong className="font-mono text-blue-700">{activeReq.requested_domain}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setActiveReq(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Stage Selector Pills */}
+            <div className="px-6 py-3 border-b border-slate-100 bg-white flex items-center gap-2 overflow-x-auto">
+              {[
+                { s: 1, title: "1. Domain & DNS Sanity" },
+                { s: 2, title: "2. AI Prompt & Zip Upload" },
+                { s: 3, title: "3. Live Vhost Deploy" },
+                { s: 4, title: "Audit Logs" }
+              ].map((step) => (
+                <button
+                  key={step.s}
+                  onClick={() => setWizardStage(step.s)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                    wizardStage === step.s
+                      ? "bg-blue-800 text-white shadow-sm"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {step.title}
+                </button>
+              ))}
+            </div>
+
+            {/* Wizard Body */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
+              {/* STAGE 1: DOMAIN & DNS SANITY */}
+              {wizardStage === 1 && (
+                <form onSubmit={handleStageDomain} className="space-y-4">
+                  <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 space-y-1">
+                    <h4 className="font-bold flex items-center gap-1.5 text-xs">
+                      <Server size={14} /> Stage 1: Hostinger Domain &amp; DNS Resolution Verification
+                    </h4>
+                    <p className="text-[11px] text-blue-800 leading-relaxed">
+                      Verify that the domain bought on Hostinger points its A-record to our production server at <code className="font-mono font-bold">200.141.14.101</code>.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
+                      Target Custom Domain
+                    </label>
+                    <input
+                      type="text"
+                      value={stageDomain}
+                      onChange={(e) => setStageDomain(e.target.value.toLowerCase().replace(/[^a-z0-9.-]/g, ""))}
+                      placeholder="e.g. saisamtools.com"
+                      className="w-full p-2.5 rounded-xl border border-slate-300 font-mono text-xs focus:ring-2 focus:ring-blue-300 outline-none"
+                      required
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={syncHostinger}
+                      onChange={(e) => setSyncHostinger(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 rounded"
+                    />
+                    <span>Automatically configure A-record via Hostinger DNS API (if domain managed in account)</span>
+                  </label>
+
+                  {domainCheckResult && (
+                    <div
+                      className={`p-3 rounded-xl border space-y-1.5 ${
+                        domainCheckResult.ok
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                          : "bg-amber-50 border-amber-200 text-amber-900"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold">
+                        {domainCheckResult.ok ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+                        <span>{domainCheckResult.message}</span>
+                      </div>
+                      <div className="font-mono text-[11px] space-y-0.5">
+                        <div>Target Server IP: {domainCheckResult.target_ip}</div>
+                        <div>Resolved IP(s): {JSON.stringify(domainCheckResult.resolved_ips)}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-2 flex justify-between items-center">
+                    <button
+                      type="button"
+                      onClick={() => setWizardStage(2)}
+                      className="text-slate-500 hover:text-slate-800 text-xs font-bold"
+                    >
+                      Skip to Stage 2 &rarr;
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={checkingDomain}
+                      className="px-5 py-2.5 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+                      data-testid="admin-verify-dns-sanity-btn"
+                    >
+                      {checkingDomain ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
+                      <span>Verify DNS Sanity Resolution</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* STAGE 2: AI GUIDE & ZIP SANDBOX UPLOAD */}
+              {wizardStage === 2 && (
+                <div className="space-y-4">
+                  {/* AI Generation Guidelines Accordion */}
+                  <div className="rounded-xl border border-purple-200 bg-purple-50/60 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowAiGuide(!showAiGuide)}
+                      className="w-full p-3 flex items-center justify-between text-purple-950 font-bold text-xs hover:bg-purple-100/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={15} className="text-purple-600" />
+                        <span>AI Code Prompting &amp; Export Instructions (Emergent / Claude)</span>
+                      </div>
+                      <span className="text-[11px] text-purple-700">{showAiGuide ? "Hide Guide ▲" : "Show Guide ▼"}</span>
+                    </button>
+                    {showAiGuide && (
+                      <div className="p-4 pt-1 border-t border-purple-200/60 text-[11px] text-purple-900 space-y-2 leading-relaxed">
+                        <p>
+                          <strong>Single Source of Truth Architecture:</strong> You do <em>not</em> need to configure or pay for MongoDB/Atlas/external DBs for custom sites.
+                        </p>
+                        <ul className="list-disc pl-5 space-y-1">
+                          <li>
+                            Prompt the AI to generate a pure static Vite/React/HTML single-page application.
+                          </li>
+                          <li>
+                            The frontend must query our backend API at:
+                            <code className="block mt-1 font-mono bg-purple-100 p-1.5 rounded text-purple-950">
+                              GET https://indianindustrialplatform.com/api/public/site/{activeReq.assigned_domain || activeReq.requested_domain}
+                            </code>
+                            This endpoint returns full company profile, categories, live products, posts, and reels.
+                          </li>
+                          <li>
+                            RFQ and quote submission buttons must call:
+                            <code className="block mt-1 font-mono bg-purple-100 p-1.5 rounded text-purple-950">
+                              POST https://indianindustrialplatform.com/api/enquiries
+                            </code>
+                          </li>
+                          <li>
+                            Run <code className="font-mono bg-purple-100 px-1 py-0.5 rounded">npm run build</code> and zip the contents of the output folder (must contain <code className="font-mono">index.html</code> at root).
+                          </li>
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Sandbox Zip Upload Form */}
+                  <form onSubmit={handleStageUploadZip} className="space-y-3">
+                    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                      <label className="font-bold text-slate-800 block">Upload Frontend Bundle (.zip)</label>
+                      <p className="text-[11px] text-slate-500">
+                        The backend scans for path traversal vulnerabilities, rejects executables, and extracts static assets into sandboxed vhost directory.
+                      </p>
+                      <input
+                        type="file"
+                        accept=".zip"
+                        onChange={(e) => setZipFile(e.target.files?.[0] || null)}
+                        className="w-full p-2 bg-white rounded-lg border border-slate-300 text-xs"
+                        required
+                        data-testid="admin-upload-zip-input"
+                      />
+                    </div>
+
+                    {zipUploadResult && (
+                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <CheckCircle2 size={15} />
+                          <span>Zip Sandbox Scanned &amp; Validated</span>
+                        </div>
+                        <p className="font-mono text-[10px] text-emerald-800">
+                          {zipUploadResult.files_count} files extracted to {zipUploadResult.destination_path}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="pt-2 flex justify-between items-center">
+                      <button
+                        type="button"
+                        onClick={() => setWizardStage(1)}
+                        className="text-slate-500 hover:text-slate-800 text-xs font-bold"
+                      >
+                        &larr; Back to Stage 1
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={uploadingZip || !zipFile}
+                        className="px-5 py-2.5 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+                        data-testid="admin-submit-zip-btn"
+                      >
+                        {uploadingZip ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                        <span>Upload &amp; Sandbox Validate</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* STAGE 3: LIVE VHOST DEPLOY & SSL */}
+              {wizardStage === 3 && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-1">
+                    <h4 className="font-bold flex items-center gap-1.5 text-xs">
+                      <ShieldCheck size={15} /> Stage 3: Automated Nginx VHost &amp; SSL Activation
+                    </h4>
+                    <p className="text-[11px] text-emerald-800 leading-relaxed">
+                      Generates server virtual host configuration, provisions Let's Encrypt SSL certificate, links domain in database, and notifies the company owner.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 font-mono text-[11px] space-y-1 text-slate-700">
+                    <div><strong>Target Domain:</strong> {activeReq.assigned_domain || activeReq.requested_domain}</div>
+                    <div><strong>Server IP:</strong> 200.141.14.101</div>
+                    <div><strong>Webroot:</strong> /var/www/custom-sites/{activeReq.assigned_domain || activeReq.requested_domain}/dist</div>
+                    <div><strong>SSL Engine:</strong> certbot --nginx -d {activeReq.assigned_domain || activeReq.requested_domain}</div>
+                  </div>
+
+                  {deployResult && (
+                    <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-2">
+                      <div className="flex items-center gap-2 font-bold text-sm">
+                        <CheckCircle2 size={16} />
+                        <span>Website Successfully Deployed Live!</span>
+                      </div>
+                      <a
+                        href={deployResult.live_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono font-bold text-blue-700 underline text-xs inline-flex items-center gap-1"
+                      >
+                        {deployResult.live_url} <ExternalLink size={12} />
+                      </a>
+                    </div>
+                  )}
+
+                  <div className="pt-2 flex justify-between items-center">
+                    <button
+                      type="button"
+                      onClick={() => setWizardStage(2)}
+                      className="text-slate-500 hover:text-slate-800 text-xs font-bold"
+                    >
+                      &larr; Back to Stage 2
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleStageDeploy}
+                      disabled={deploying}
+                      className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+                      data-testid="admin-execute-deploy-btn"
+                    >
+                      {deploying ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                      <span>Deploy Live &amp; Provision SSL</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* AUDIT LOGS VIEWER */}
+              {wizardStage === 4 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-slate-800 uppercase tracking-wider text-[10px]">
+                      Deployment Audit Logs
+                    </h4>
+                    <button
+                      onClick={() => loadLogs(activeReq.id)}
+                      className="text-[11px] text-blue-700 hover:underline font-semibold inline-flex items-center gap-1"
+                    >
+                      <RefreshCw size={11} /> Refresh
+                    </button>
+                  </div>
+
+                  {loadingLogs ? (
+                    <div className="p-8 text-center text-slate-400">Loading audit log entries...</div>
+                  ) : auditLogs.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 italic">No deployment audit records yet.</div>
+                  ) : (
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                      {auditLogs.map((log) => (
+                        <div
+                          key={log.id}
+                          className={`p-2.5 rounded-xl border text-[11px] font-mono space-y-0.5 ${
+                            log.level === "ERROR" ? "bg-rose-50 border-rose-200 text-rose-900" :
+                            log.level === "WARNING" ? "bg-amber-50 border-amber-200 text-amber-900" :
+                            "bg-slate-50 border-slate-200 text-slate-800"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between font-bold text-[10px]">
+                            <span>[{log.stage}] {log.level}</span>
+                            <span className="text-slate-400">{new Date(log.created_at).toLocaleTimeString()}</span>
+                          </div>
+                          <div>{log.message}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
+
 
 
