@@ -6,20 +6,38 @@
 import IndustrialModernTemplate from "./templates/IndustrialModernTemplate";
 import ManufacturingProTemplate from "./templates/ManufacturingProTemplate";
 import MinimalCatalogTemplate from "./templates/MinimalCatalogTemplate";
+import BloomProTemplate from "./templates/BloomProTemplate";
+import ApexPrecisionTemplate from "./templates/ApexPrecisionTemplate";
 
 import { industrialModernSample } from "./sampleData/industrialModernSample";
 import { manufacturingProSample } from "./sampleData/manufacturingProSample";
 import { minimalCatalogSample } from "./sampleData/minimalCatalogSample";
-
-import BloomProTemplate from "./templates/BloomProTemplate";
 import { bloomProSample } from "./sampleData/bloomProSample";
+import { apexPrecisionSample } from "./sampleData/apexPrecisionSample";
 
 export const TEMPLATE_REGISTRY = {
+  apex_precision: {
+    id: "apex_precision",
+    name: "Apex Precision (Navy & Steel)",
+    description: "High-contrast precision tooling layout with deep navy backdrop, safety orange accents, tabbed category blocks (A, B, C), and engineering job-work showcase.",
+    badge: "New · High Contrast",
+    category: "precision_tools",
+    component: ApexPrecisionTemplate,
+    sampleData: apexPrecisionSample,
+    thumbnailUrl: "/template_assets/apex_precision/showcase.jpg",
+    features: [
+      "Bold industrial typography with safety orange & steel accents",
+      "Categorized product blocks with custom letter codes (A, B, C...)",
+      "Dedicated engineering & precision job-work services showcase",
+      "4-Step structured quotation workflow (From Requirement to Dispatch)",
+      "Direct WhatsApp RFQ and technical drawing inquiry modal"
+    ]
+  },
   bloom_pro: {
     id: "bloom_pro",
     name: "Bloom Pro (Modern Light)",
     description: "Crisp, professional light-mode aesthetic tailored for high-precision manufacturers, aerospace suppliers, and export-oriented industrial firms.",
-    badge: "New · Light Mode",
+    badge: "Light Mode",
     category: "precision_engineering",
     component: BloomProTemplate,
     sampleData: bloomProSample,
@@ -82,7 +100,7 @@ export const TEMPLATE_REGISTRY = {
 };
 
 /**
- * Retrieve template by ID with safe fallback to industrial_modern
+ * Retrieve template by ID with safe fallback to apex_precision or industrial_modern
  */
 export function getTemplate(templateId) {
   return TEMPLATE_REGISTRY[templateId] || TEMPLATE_REGISTRY.industrial_modern;
@@ -101,4 +119,68 @@ export function getAllTemplates() {
 export function getSampleDataForTemplate(templateId) {
   const tmpl = getTemplate(templateId);
   return tmpl ? tmpl.sampleData : industrialModernSample;
+}
+
+/**
+ * Merges user company & product data with template sample data for realistic live previews.
+ * If user has no data for a field, gracefully falls back to template sample defaults.
+ */
+export function mergePreviewData(sampleData, userCompany = null, userProducts = [], userPosts = [], userReels = []) {
+  if (!userCompany || !userCompany.name) {
+    return {
+      ...sampleData,
+      hasUserCompany: false,
+      hasUserProducts: false
+    };
+  }
+
+  const mergedCompany = {
+    ...sampleData.company,
+    ...userCompany,
+    name: userCompany.name || sampleData.company.name,
+    tagline: userCompany.tagline || userCompany.category || sampleData.company.tagline,
+    headline: userCompany.headline || sampleData.company.headline,
+    description: userCompany.description || sampleData.company.description,
+    about: userCompany.about || userCompany.description || sampleData.company.about,
+    logo_url: userCompany.logo_url || sampleData.company.logo_url,
+    cover_url: userCompany.cover_url || sampleData.company.cover_url,
+    location: userCompany.location || (userCompany.city ? `${userCompany.city}, India` : null) || sampleData.company.location,
+    city: userCompany.city || sampleData.company.city,
+    address: userCompany.address || sampleData.company.address,
+    mobile: userCompany.mobile || sampleData.company.mobile,
+    phone: userCompany.phone || userCompany.mobile || sampleData.company.phone,
+    whatsapp: userCompany.whatsapp || userCompany.mobile || sampleData.company.whatsapp,
+    email: userCompany.email || sampleData.company.email,
+    gst: userCompany.gst || sampleData.company.gst,
+    year_established: userCompany.year_established || sampleData.company.year_established,
+    certifications: (userCompany.certifications && userCompany.certifications.length > 0)
+      ? userCompany.certifications
+      : sampleData.company.certifications,
+  };
+
+  const formattedUserProducts = (userProducts || []).map((p) => ({
+    ...p,
+    id: p.id || String(Math.random()),
+    name: p.name || "Precision Component",
+    category: p.category || "General",
+    image_url: p.image_url || (p.images && p.images[0]) || p.image || (sampleData.products && sampleData.products[0] ? sampleData.products[0].image_url : null),
+    price: p.price ? (typeof p.price === "number" ? `₹${p.price.toLocaleString("en-IN")}` : p.price) : "Contact for Pricing",
+    moq: p.moq ? `${p.moq} Units` : "1 Piece",
+    description: p.description || "Manufactured to high-precision engineering specifications."
+  }));
+
+  const mergedProducts = formattedUserProducts.length > 0 ? formattedUserProducts : sampleData.products;
+  const mergedPosts = (userPosts && userPosts.length > 0) ? userPosts : sampleData.posts;
+  const mergedReels = (userReels && userReels.length > 0) ? userReels : sampleData.reels;
+
+  return {
+    company: mergedCompany,
+    products: mergedProducts,
+    posts: mergedPosts,
+    reels: mergedReels,
+    services: sampleData.services || [],
+    steps: sampleData.steps || [],
+    hasUserCompany: true,
+    hasUserProducts: formattedUserProducts.length > 0
+  };
 }

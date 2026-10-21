@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Loader2, AlertCircle, Building2, ExternalLink } from "lucide-react";
 import api from "../lib/api";
-import { getTemplate, getSampleDataForTemplate } from "../website_templates/registry";
+import { getTemplate, getSampleDataForTemplate, mergePreviewData } from "../website_templates/registry";
 
 export default function TenantWebsitePage() {
   const { subdomain: paramSubdomain } = useParams();
@@ -26,22 +26,81 @@ export default function TenantWebsitePage() {
   });
 
   const [siteData, setSiteData] = useState(null);
-  const [loading, setLoading] = useState(!isPreview);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (isPreview) {
-      const tmpl = previewTemplateId || "industrial_modern";
+      const tmpl = previewTemplateId || "apex_precision";
       const sample = getSampleDataForTemplate(tmpl);
+
+      // Check if user is logged in to merge actual company & products
+      const token = localStorage.getItem("token");
+      if (token) {
+        setLoading(true);
+        api
+          .get("/users/me")
+          .then(async (userRes) => {
+            const user = userRes.data;
+            if (user?.company_id) {
+              const [compRes, prodRes, postRes, reelRes] = await Promise.allSettled([
+                api.get(`/companies/${user.company_id}`),
+                api.get(`/companies/${user.company_id}/products`),
+                api.get(`/companies/${user.company_id}/posts`),
+                api.get(`/companies/${user.company_id}/reels`),
+              ]);
+
+              const uComp = compRes.status === "fulfilled" ? compRes.value.data : null;
+              const uProds = prodRes.status === "fulfilled" ? prodRes.value.data : [];
+              const uPosts = postRes.status === "fulfilled" ? postRes.value.data : [];
+              const uReels = reelRes.status === "fulfilled" ? reelRes.value.data : [];
+
+              const merged = mergePreviewData(sample, uComp, uProds, uPosts, uReels);
+              setSiteData({
+                website: {
+                  template_id: tmpl,
+                  theme_config: { primary_color: "#0a1f44", accent_color: "#f26b1d" }
+                },
+                company: merged.company,
+                products: merged.products,
+                posts: merged.posts,
+                reels: merged.reels,
+                services: merged.services,
+                seo: { title: `${merged.company.name} | Live Preview` }
+              });
+              setLoading(false);
+              return;
+            }
+            throw new Error("No company id");
+          })
+          .catch(() => {
+            setSiteData({
+              website: {
+                template_id: tmpl,
+                theme_config: { primary_color: "#0a1f44", accent_color: "#f26b1d" }
+              },
+              company: sample.company,
+              products: sample.products,
+              posts: sample.posts,
+              reels: sample.reels,
+              services: sample.services,
+              seo: { title: `${sample.company.name} | Live Preview` }
+            });
+            setLoading(false);
+          });
+        return;
+      }
+
       setSiteData({
         website: {
           template_id: tmpl,
-          theme_config: { primary_color: "#1e3a8a", accent_color: "#ea580c" }
+          theme_config: { primary_color: "#0a1f44", accent_color: "#f26b1d" }
         },
         company: sample.company,
         products: sample.products,
         posts: sample.posts,
         reels: sample.reels,
+        services: sample.services,
         seo: { title: `${sample.company.name} | Live Preview` }
       });
       setLoading(false);
@@ -114,6 +173,7 @@ export default function TenantWebsitePage() {
       products={siteData.products || []}
       posts={siteData.posts || []}
       reels={siteData.reels || []}
+      services={siteData.services}
       theme={siteData.website?.theme_config || {}}
       seo={siteData.seo || {}}
     />

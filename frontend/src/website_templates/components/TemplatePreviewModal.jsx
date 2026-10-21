@@ -1,14 +1,45 @@
-import React, { useState } from "react";
-import { X, Smartphone, Monitor, Sparkles, Check, ExternalLink } from "lucide-react";
-import { getTemplate, getSampleDataForTemplate } from "../registry";
+import React, { useState, useMemo } from "react";
+import { X, Smartphone, Monitor, Sparkles, Check, ExternalLink, Building2, Eye } from "lucide-react";
+import { getTemplate, getSampleDataForTemplate, mergePreviewData } from "../registry";
 
-export default function TemplatePreviewModal({ templateId, isOpen = true, onClose, onSelectTemplate }) {
+export default function TemplatePreviewModal({
+  templateId,
+  isOpen = true,
+  onClose,
+  onSelectTemplate,
+  userCompany = null,
+  userProducts = [],
+  userPosts = [],
+  userReels = []
+}) {
   const [viewMode, setViewMode] = useState("desktop"); // desktop | mobile
+
+  // Check if real user company data is available
+  const hasUserCompanyData = Boolean(userCompany && userCompany.name);
+
+  // Allow user to toggle between their real company data vs sample demo data
+  const [useRealData, setUseRealData] = useState(hasUserCompanyData);
+
+  // Sync state if userCompany changes
+  React.useEffect(() => {
+    if (hasUserCompanyData) {
+      setUseRealData(true);
+    }
+  }, [hasUserCompanyData]);
+
+  const templateConfig = getTemplate(templateId);
+  const rawSampleData = getSampleDataForTemplate(templateId);
+
+  // Computed preview data based on user toggle
+  const activeData = useMemo(() => {
+    if (useRealData && hasUserCompanyData) {
+      return mergePreviewData(rawSampleData, userCompany, userProducts, userPosts, userReels);
+    }
+    return rawSampleData;
+  }, [useRealData, hasUserCompanyData, rawSampleData, userCompany, userProducts, userPosts, userReels]);
 
   if (!isOpen || !templateId) return null;
 
-  const templateConfig = getTemplate(templateId);
-  const sampleData = getSampleDataForTemplate(templateId);
   const TemplateComponent = templateConfig.component;
 
   return (
@@ -16,20 +47,67 @@ export default function TemplatePreviewModal({ templateId, isOpen = true, onClos
       <div className="relative w-full max-w-7xl h-[95vh] bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         
         {/* Modal Toolbar */}
-        <div className="px-6 py-3.5 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between gap-4 z-10 shrink-0">
+        <div className="px-4 sm:px-6 py-3 border-b border-slate-800 bg-slate-900/95 flex flex-wrap items-center justify-between gap-3 z-10 shrink-0">
           <div className="flex items-center gap-3">
             <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              Live Interactive Preview
+              Live Preview
             </span>
             <div>
-              <h3 className="text-sm font-bold text-white">{templateConfig.name}</h3>
-              <p className="text-[11px] text-slate-400">Populated with sample industrial machinery & catalog data</p>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-white">{templateConfig.name}</h3>
+                {useRealData && hasUserCompanyData && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    <Building2 size={11} />
+                    {userCompany.name}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400">
+                {useRealData && hasUserCompanyData
+                  ? `Populated with your company profile${
+                      activeData.hasUserProducts
+                        ? ` & ${activeData.products.length} catalog products`
+                        : " (sample products shown until you add items)"
+                    }`
+                  : "Populated with demo industrial machinery & catalog data"}
+              </p>
             </div>
           </div>
 
-          {/* Viewport Switcher & Actions */}
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center p-1 rounded-xl bg-slate-800 border border-slate-700">
+          {/* Controls: Data Mode Switcher, Viewport Switcher & Actions */}
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+            {/* Real Data vs Sample Data Toggle (only when user company is present) */}
+            {hasUserCompanyData && (
+              <div className="flex items-center p-0.5 rounded-xl bg-slate-800 border border-slate-700 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setUseRealData(true)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all ${
+                    useRealData
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                  title="Preview using your actual company name, address, contact and products"
+                >
+                  <Building2 size={12} /> My Company
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUseRealData(false)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all ${
+                    !useRealData
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                  title="Preview using sample demo data"
+                >
+                  <Eye size={12} /> Sample Demo
+                </button>
+              </div>
+            )}
+
+            {/* Viewport switch: Desktop vs Mobile */}
+            <div className="hidden sm:flex items-center p-0.5 rounded-xl bg-slate-800 border border-slate-700">
               <button
                 onClick={() => setViewMode("desktop")}
                 className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
@@ -56,7 +134,7 @@ export default function TemplatePreviewModal({ templateId, isOpen = true, onClos
               title="Open full preview in a new tab"
             >
               <ExternalLink size={13} />
-              <span>Open in New Tab</span>
+              <span>New Tab</span>
             </a>
 
             {onSelectTemplate && (
@@ -65,9 +143,9 @@ export default function TemplatePreviewModal({ templateId, isOpen = true, onClos
                   onSelectTemplate(templateId);
                   onClose();
                 }}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md transition-all"
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md transition-all"
               >
-                <Check size={14} /> Select Template
+                <Check size={14} /> Select
               </button>
             )}
 
@@ -88,13 +166,14 @@ export default function TemplatePreviewModal({ templateId, isOpen = true, onClos
             }`}
           >
             <TemplateComponent
-              company={sampleData.company}
-              products={sampleData.products}
-              posts={sampleData.posts}
-              reels={sampleData.reels}
-              stats={sampleData.stats}
-              theme={{ primary_color: "#1e3a8a", accent_color: "#ea580c" }}
-              seo={{ title: `${sampleData.company.name} | Preview` }}
+              company={activeData.company}
+              products={activeData.products || []}
+              posts={activeData.posts || []}
+              reels={activeData.reels || []}
+              stats={activeData.stats || []}
+              services={activeData.services}
+              theme={{ primary_color: "#0a1f44", accent_color: "#f26b1d" }}
+              seo={{ title: `${activeData.company.name} | Live Preview` }}
             />
           </div>
         </div>

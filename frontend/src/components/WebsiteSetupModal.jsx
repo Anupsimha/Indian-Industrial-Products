@@ -15,8 +15,27 @@ const PROVISIONING_STEPS = [
   { step: 5, title: "Publishing Live", desc: "Broadcasting to search index & activating website" },
 ];
 
-export default function WebsiteSetupModal({ isOpen, onClose, onComplete, initialCompany = {} }) {
+export default function WebsiteSetupModal({
+  isOpen,
+  onClose,
+  onComplete,
+  initialCompany = {},
+  products = [],
+  posts = [],
+  reels = []
+}) {
   const [currentStep, setCurrentStep] = useState(1); // 1: Subdomain, 2: Template, 3: Deploying, 4: Done
+  const [companyProducts, setCompanyProducts] = useState(products);
+
+  useEffect(() => {
+    if (products && products.length > 0) {
+      setCompanyProducts(products);
+    } else if (initialCompany?.id) {
+      api.get(`/companies/${initialCompany.id}/products`)
+        .then((r) => setCompanyProducts(r.data || []))
+        .catch(() => {});
+    }
+  }, [initialCompany?.id, products]);
 
   // Step 1: Subdomain
   const [subdomain, setSubdomain] = useState("");
@@ -565,12 +584,16 @@ export default function WebsiteSetupModal({ isOpen, onClose, onComplete, initial
 
       </div>
 
-      {/* Interactive Sample Data Preview Modal */}
+      {/* Interactive Live / Sample Data Preview Modal */}
       <TemplatePreviewModal
         templateId={previewTemplateId}
         isOpen={!!previewTemplateId}
         onClose={() => setPreviewTemplateId(null)}
         onSelectTemplate={(tid) => setSelectedTemplateId(tid)}
+        userCompany={initialCompany}
+        userProducts={companyProducts}
+        userPosts={posts}
+        userReels={reels}
       />
     </div>
   );

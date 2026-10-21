@@ -766,6 +766,9 @@ export default function ProfilePage() {
           isOpen={websiteModalOpen}
           onClose={() => setWebsiteModalOpen(false)}
           initialCompany={company}
+          products={products}
+          posts={posts}
+          reels={reels}
           onComplete={(site) => {
             setMyWebsite(site);
             loadCompanyData();

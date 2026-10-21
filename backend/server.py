@@ -7709,6 +7709,24 @@ async def _seed_topup_plans_if_empty(db: AsyncSession):
 async def _seed_website_templates_if_empty(db: AsyncSession):
     templates = [
         {
+            "id": "apex_precision",
+            "name": "Apex Precision (Navy & Steel)",
+            "description": "High-contrast precision tooling layout with deep navy backdrop, safety orange accents, tabbed category blocks (A, B, C), and engineering job-work showcase.",
+            "badge": "New · High Contrast",
+            "category": "precision_tools",
+            "thumbnail_url": "/template_assets/apex_precision/showcase.jpg",
+            "is_custom": False,
+            "sample_data": {
+                "tagline": "Carbide Cutting Tools, Industrial Identification & Custom Insulator Parts",
+                "stats": [
+                    {"label": "Years in Operation", "value": "12+"},
+                    {"label": "Precision Tolerances", "value": "±3 Microns"},
+                    {"label": "ISO Standards", "value": "9001:2015"},
+                    {"label": "Production Output", "value": "100k+ Units"}
+                ]
+            }
+        },
+        {
             "id": "bloom_pro",
             "name": "Bloom Pro (Modern Light)",
             "description": "Crisp, professional light-mode aesthetic tailored for high-precision manufacturers, aerospace suppliers, and export-oriented industrial firms.",
