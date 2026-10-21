@@ -102,6 +102,7 @@ class HostingerDNSService:
             "Authorization": f"Bearer {self.api_token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         }
 
     async def get_zone_records(self, domain: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -288,7 +289,84 @@ class HostingerDNSService:
                 logger.error(f"Error deleting Hostinger DNS record for {target_subdomain}: {e}")
                 return {"success": False, "error": str(e)}
 
-        return await asyncio.to_thread(_delete)
+    async def sync_custom_domain_dns(
+        self,
+        domain: str,
+        target_ip: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Configure apex (@ -> A) and www (www -> CNAME) DNS records for a custom domain
+        directly in Hostinger Developer API.
+        """
+        ip = target_ip or self.server_ip
+        clean_domain = domain.strip().lower().replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+        if clean_domain.startswith("www."):
+            clean_domain = clean_domain[4:]
+
+        if not self.api_token:
+            return {
+                "success": False,
+                "mode": "no_token",
+                "message": "Hostinger API token not configured."
+            }
+
+        url = f"{self.base_url}/api/dns/v1/zones/{clean_domain}"
+        payload = {
+            "zone": [
+                {
+                    "name": "@",
+                    "type": "A",
+                    "ttl": 300,
+                    "records": [{"content": ip, "is_disabled": False}]
+                },
+                {
+                    "name": "www",
+                    "type": "CNAME",
+                    "ttl": 300,
+                    "records": [{"content": f"{clean_domain}.", "is_disabled": False}]
+                }
+            ]
+        }
+
+        def _do_put():
+            try:
+                res = requests.put(url, headers=self.headers, json=payload, timeout=15.0)
+                if res.status_code in (200, 201, 204):
+                    logger.info(f"Hostinger DNS zone updated for custom domain '{clean_domain}' -> {ip}")
+                    return {
+                        "success": True,
+                        "domain": clean_domain,
+                        "ip": ip,
+                        "message": f"Hostinger DNS zone updated successfully: @ -> {ip}, www -> {clean_domain}."
+                    }
+                elif res.status_code == 404:
+                    logger.warning(f"Hostinger zone '{clean_domain}' not found in account (external registrar).")
+                    return {
+                        "success": False,
+                        "external_registrar": True,
+                        "domain": clean_domain,
+                        "message": f"Domain '{clean_domain}' is not managed in this Hostinger account. Please update DNS A-record manually."
+                    }
+                else:
+                    logger.warning(f"Hostinger PUT returned {res.status_code}: {res.text}")
+                    return {
+                        "success": False,
+                        "status_code": res.status_code,
+                        "detail": res.text,
+                        "message": f"Hostinger API returned HTTP {res.status_code}."
+                    }
+            except Exception as e:
+                logger.error(f"Error updating Hostinger DNS zone for {clean_domain}: {e}")
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "message": f"Failed to connect to Hostinger API: {e}"
+                }
+
+        return await asyncio.to_thread(_do_put)
+
+    # Alias for backward compatibility
+    sync_subdomain_a_record = sync_custom_domain_dns
 
 
 # Shared singleton instance

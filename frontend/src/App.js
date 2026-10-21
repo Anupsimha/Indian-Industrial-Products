@@ -38,6 +38,7 @@ import ProductsPage from "@/pages/ProductsPage";
 import ProductDetailPage from "@/pages/ProductDetailPage";
 import JobsPage from "@/pages/JobsPage";
 import AdminPage from "@/pages/AdminPage";
+import { isTenantHost } from "@/utils/subdomain";
 import RequirementsPage from "@/pages/RequirementsPage";
 import MyVacanciesPage from "@/pages/MyVacanciesPage";
 import ManageVacanciesPage from "@/pages/ManageVacanciesPage";
@@ -71,13 +72,12 @@ const Layout = ({ children }) => {
 
   const isSiteRoute = location.pathname.startsWith("/site");
   const hostname = typeof window !== "undefined" ? window.location.hostname : "";
-  const hostParts = hostname.split(".");
-  const isTenantSubdomain = hostParts.length > 2 && !["www", "staging", "billing", "api", "localhost", "127"].includes(hostParts[0]);
+  const isTenantSite = isTenantHost(hostname);
 
-  if (isTenantSubdomain || isSiteRoute) {
+  if (isTenantSite || isSiteRoute) {
     return (
       <div className="min-h-screen bg-slate-950">
-        {isTenantSubdomain && (location.pathname === "/" || location.pathname === "/site") ? (
+        {isTenantSite && (location.pathname === "/" || location.pathname === "/site") ? (
           <TenantWebsitePage />
         ) : (
           children
@@ -119,12 +119,11 @@ const Layout = ({ children }) => {
 
 function App() {
   const hostname = typeof window !== "undefined" ? window.location.hostname : "";
-  const hostParts = hostname.split(".");
-  const isTenantSubdomain = hostParts.length > 2 && !["www", "staging", "billing", "api", "localhost", "127"].includes(hostParts[0]);
+  const isTenantSite = isTenantHost(hostname);
 
-  // If visitor is on a custom tenant website subdomain (e.g. https://sample.indianindustrialplatform.com),
+  // If visitor is on a custom tenant website (subdomain or custom domain),
   // render the standalone, public landing page directly with NO authentication required!
-  if (isTenantSubdomain) {
+  if (isTenantSite) {
     return (
       <BrowserRouter>
         <div className="min-h-screen bg-slate-950">

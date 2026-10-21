@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { Loader2, AlertCircle, Building2, ExternalLink } from "lucide-react";
 import api from "../lib/api";
 import { getTemplate, getSampleDataForTemplate, mergePreviewData } from "../website_templates/registry";
+import { getTenantIdentifier } from "../utils/subdomain";
 
 export default function TenantWebsitePage() {
   const { subdomain: paramSubdomain } = useParams();
@@ -11,18 +12,13 @@ export default function TenantWebsitePage() {
   const isPreview = searchParams.get("preview") === "true";
   const previewTemplateId = searchParams.get("template");
 
-  // Determine subdomain from hostname (e.g., precisionparts.indianindustrialplatform.com) or route/query
+  // Determine tenant identifier (subdomain or custom domain)
   const [targetSubdomain, setTargetSubdomain] = useState(() => {
     if (paramSubdomain) return paramSubdomain;
     if (querySubdomain) return querySubdomain;
 
     const hostname = window.location.hostname;
-    // Check if domain is a subdomain of indianindustrialplatform.com or localhost
-    const parts = hostname.split(".");
-    if (parts.length > 2 && parts[0] !== "www" && parts[0] !== "staging" && parts[0] !== "billing" && parts[0] !== "api") {
-      return parts[0];
-    }
-    return null;
+    return getTenantIdentifier(hostname);
   });
 
   const [siteData, setSiteData] = useState(null);

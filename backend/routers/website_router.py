@@ -1295,7 +1295,10 @@ async def stage_domain_setup(
     hostinger_res = None
     if payload.sync_hostinger:
         try:
-            hostinger_res = await hostinger_dns_service.sync_subdomain_a_record(raw_domain, server_ip)
+            hostinger_res = await hostinger_dns_service.sync_custom_domain_dns(raw_domain, server_ip)
+            if hostinger_res and hostinger_res.get("success"):
+                resolution_matches = True
+                resolved_ip = server_ip
         except Exception as h_err:
             hostinger_res = {"error": str(h_err)}
 
@@ -1305,7 +1308,10 @@ async def stage_domain_setup(
 
     if resolution_matches:
         req.dns_status = "VERIFIED"
-        status_msg = f"Domain '{raw_domain}' verified! Points directly to server IP {server_ip}."
+        if hostinger_res and hostinger_res.get("success"):
+            status_msg = f"Hostinger DNS configured successfully! Apex '@' and 'www' records point to server IP {server_ip}."
+        else:
+            status_msg = f"Domain '{raw_domain}' verified! Points directly to server IP {server_ip}."
         log_status = "SUCCESS"
     elif resolved_ip:
         req.dns_status = "RESOLVED_TO_OTHER"
