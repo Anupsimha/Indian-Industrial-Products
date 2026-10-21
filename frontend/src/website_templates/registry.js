@@ -34,19 +34,53 @@ export const TEMPLATE_REGISTRY = {
     ],
     customModules: [
       {
-        key: "services",
-        label: "Engineering Services",
-        singular: "Service",
-        plural: "Engineering Services",
-        icon: "Wrench",
-        description: "Manage precision job-work, CNC machining, laser marking, and additive prototyping services showcased on your website.",
+        key: "hero_slides",
+        label: "Hero Section Slides",
+        singular: "Hero Slide",
+        plural: "Hero Slides",
+        icon: "Layers",
+        description: "Manage slideshow visuals, headlines, and call-to-actions displayed at the top of your website.",
         fields: [
-          { key: "title", label: "Service Name", type: "text", required: true, placeholder: "e.g. Precision CNC Machining Job Work" },
+          { key: "title", label: "Slide Headline", type: "text", required: true, placeholder: "e.g. Precision Tools. Permanent Marking. Engineered Parts." },
+          { key: "subtitle", label: "Eyebrow / Subheading", type: "text", placeholder: "e.g. Sai Sam Enterprises · Bengaluru" },
+          { key: "description", label: "Slide Description", type: "textarea", required: true, placeholder: "Describe key manufacturing capabilities or value proposition..." },
+          { key: "icon_or_image", label: "Slide Hero Image", type: "image", required: true, placeholder: "Image URL or click upload" },
+          { key: "button_text", label: "Primary Button Label (Optional)", type: "text", isMetadata: true, placeholder: "e.g. Explore Products" },
+          { key: "button_link", label: "Primary Button Link (Optional)", type: "text", isMetadata: true, placeholder: "e.g. #products" }
+        ]
+      },
+      {
+        key: "services",
+        label: "Job-Work Services",
+        singular: "Job-Work Service",
+        plural: "Job-Work Services",
+        icon: "Wrench",
+        description: "Manage precision job-work, CNC machining, laser marking, and additive prototyping service cards showcased on your website.",
+        fields: [
+          { key: "title", label: "Service Name", type: "text", required: true, placeholder: "e.g. Laser Marking & Engraving Services" },
           { key: "subtitle", label: "Service Code", type: "text", placeholder: "e.g. S/01" },
           { key: "description", label: "Service Description", type: "textarea", required: true, placeholder: "Describe capacity, tolerances, machinery, materials handled..." },
-          { key: "icon_or_image", label: "Showcase Image URL", type: "image", placeholder: "https://... or image link" },
+          { key: "icon_or_image", label: "Card Showcase Image", type: "image", required: true, placeholder: "Image URL or click upload" },
           { key: "turnaround", label: "Turnaround / Timeline (Optional)", type: "text", isMetadata: true, placeholder: "e.g. 24 - 48 Hours" },
-          { key: "deliverables", label: "Deliverables / Specs (Optional)", type: "text", isMetadata: true, placeholder: "e.g. CAD/CAM machining with CMM inspection report" }
+          { key: "deliverables", label: "Deliverables / Specs (Optional)", type: "text", isMetadata: true, placeholder: "e.g. CAD/CAM machining with inspection report" }
+        ]
+      },
+      {
+        key: "website_products",
+        label: "Website Products (CMS)",
+        singular: "Website Product",
+        plural: "Website Products",
+        icon: "Package",
+        description: "Independent CMS catalog for your company website. Prices are completely optional, allowing you to showcase custom tooling, nameplates, and parts without publishing pricing.",
+        fields: [
+          { key: "title", label: "Product Name", type: "text", required: true, placeholder: "e.g. GESAC Cutting Tools" },
+          { key: "subtitle", label: "Category", type: "text", placeholder: "e.g. Carbide Cutting Tools" },
+          { key: "description", label: "Product Description", type: "textarea", required: true, placeholder: "Technical description, materials, and workpiece applications..." },
+          { key: "icon_or_image", label: "Product Image", type: "image", required: true, placeholder: "Image URL or click upload" },
+          { key: "price", label: "Price (Optional - leave blank to hide price)", type: "text", isMetadata: true, placeholder: "e.g. ₹1,250 or leave blank for RFQ only" },
+          { key: "moq", label: "Minimum Order Quantity (Optional)", type: "text", isMetadata: true, placeholder: "e.g. 10 Units" },
+          { key: "external_url", label: "External Reference Link (Optional)", type: "text", isMetadata: true, placeholder: "e.g. https://www.gesac-tools.com/" },
+          { key: "external_label", label: "External Button Label (Optional)", type: "text", isMetadata: true, placeholder: "e.g. Visit GESAC Official Website" }
         ]
       }
     ]
@@ -143,20 +177,20 @@ export function getSampleDataForTemplate(templateId) {
  * Merges user company & product data with template sample data for realistic live previews.
  * If user has no data for a field, gracefully falls back to template sample defaults.
  */
-export function mergePreviewData(sampleData, userCompany = null, userProducts = [], userPosts = [], userReels = [], userServices = []) {
-  if (!userCompany || !userCompany.name) {
-    return {
-      ...sampleData,
-      hasUserCompany: false,
-      hasUserProducts: false
-    };
-  }
+
+export function mergePreviewData(sampleData, userCompany, userProducts, userPosts, userReels, userServices = [], allSections = []) {
+  if (!userCompany) return sampleData;
+
+  // Separate sections by key if allSections array is provided
+  const sectionsList = Array.isArray(allSections) && allSections.length > 0 ? allSections : (Array.isArray(userServices) ? userServices : []);
+  const servicesItems = sectionsList.filter((s) => s.section_key === "services" || !s.section_key);
+  const heroSlidesItems = sectionsList.filter((s) => s.section_key === "hero_slides");
+  const websiteProductsItems = sectionsList.filter((s) => s.section_key === "website_products");
 
   const mergedCompany = {
     ...sampleData.company,
     ...userCompany,
     name: userCompany.name || sampleData.company.name,
-    tagline: userCompany.tagline || userCompany.category || sampleData.company.tagline,
     headline: userCompany.headline || sampleData.company.headline,
     description: userCompany.description || sampleData.company.description,
     about: userCompany.about || userCompany.description || sampleData.company.about,
@@ -176,29 +210,67 @@ export function mergePreviewData(sampleData, userCompany = null, userProducts = 
       : sampleData.company.certifications,
   };
 
-  const formattedUserProducts = (userProducts || []).map((p) => ({
-    ...p,
-    id: p.id || String(Math.random()),
-    name: p.name || "Precision Component",
-    category: p.category || "General",
-    image_url: p.image_url || (p.images && p.images[0]) || p.image || (sampleData.products && sampleData.products[0] ? sampleData.products[0].image_url : null),
-    price: p.price ? (typeof p.price === "number" ? `₹${p.price.toLocaleString("en-IN")}` : p.price) : "Contact for Pricing",
-    moq: p.moq ? `${p.moq} Units` : "1 Piece",
-    description: p.description || "Manufactured to high-precision engineering specifications."
-  }));
+  // If independent website products are configured in CMS, prioritize them
+  let mergedProducts = [];
+  if (websiteProductsItems.length > 0) {
+    mergedProducts = websiteProductsItems.map((p) => {
+      const meta = p.metadata_json || {};
+      return {
+        id: p.id,
+        name: p.title,
+        title: p.title,
+        category: p.subtitle || "Precision Products",
+        image_url: p.icon_or_image || (sampleData.products && sampleData.products[0]?.image_url),
+        images: [p.icon_or_image || (sampleData.products && sampleData.products[0]?.image_url)],
+        description: p.description || "Manufactured to high-precision engineering specifications.",
+        price: meta.price || "",
+        moq: meta.moq || "",
+        external_url: meta.external_url || "",
+        external_label: meta.external_label || ""
+      };
+    });
+  } else if (userProducts && userProducts.length > 0) {
+    mergedProducts = userProducts.map((p) => ({
+      ...p,
+      id: p.id || String(Math.random()),
+      name: p.name || p.title || "Precision Component",
+      category: p.category || "General",
+      image_url: p.image_url || (p.images && p.images[0]) || p.image || (sampleData.products && sampleData.products[0]?.image_url),
+      price: p.price ? (typeof p.price === "number" ? `₹${p.price.toLocaleString("en-IN")}` : p.price) : "",
+      moq: p.moq ? `${p.moq} Units` : "",
+      description: p.description || "Manufactured to high-precision engineering specifications."
+    }));
+  } else {
+    mergedProducts = sampleData.products;
+  }
 
-  const mergedProducts = formattedUserProducts.length > 0 ? formattedUserProducts : sampleData.products;
   const mergedPosts = (userPosts && userPosts.length > 0) ? userPosts : sampleData.posts;
   const mergedReels = (userReels && userReels.length > 0) ? userReels : sampleData.reels;
-  const mergedServices = (userServices && userServices.length > 0)
-    ? userServices.map((s, idx) => ({
+
+  const mergedServices = (servicesItems && servicesItems.length > 0)
+    ? servicesItems.map((s, idx) => ({
         id: s.id || `srv-${idx}`,
         code: s.subtitle || `S/0${idx + 1}`,
         name: s.title || s.name,
         image_url: s.icon_or_image || s.image_url || (sampleData.services && sampleData.services[idx % sampleData.services.length]?.image_url),
-        description: s.description || ""
+        description: s.description || "",
+        ...(s.metadata_json || {})
       }))
     : (sampleData.services || []);
+
+  const mergedHeroSlides = (heroSlidesItems && heroSlidesItems.length > 0)
+    ? heroSlidesItems.map((s, idx) => ({
+        id: s.id || `slide-${idx}`,
+        title: s.title,
+        heading: s.title,
+        subtitle: s.subtitle || "",
+        eyebrow: s.subtitle || "",
+        description: s.description || "",
+        image_url: s.icon_or_image || "",
+        icon_or_image: s.icon_or_image || "",
+        ...(s.metadata_json || {})
+      }))
+    : [];
 
   return {
     company: mergedCompany,
@@ -206,8 +278,14 @@ export function mergePreviewData(sampleData, userCompany = null, userProducts = 
     posts: mergedPosts,
     reels: mergedReels,
     services: mergedServices,
+    hero_slides: mergedHeroSlides,
+    custom_sections: {
+      services: mergedServices,
+      hero_slides: mergedHeroSlides,
+      website_products: mergedProducts
+    },
     steps: sampleData.steps || [],
     hasUserCompany: true,
-    hasUserProducts: formattedUserProducts.length > 0
+    hasUserProducts: mergedProducts.length > 0
   };
 }

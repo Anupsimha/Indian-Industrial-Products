@@ -39,21 +39,21 @@ export default function TenantWebsitePage() {
           .then(async (userRes) => {
             const user = userRes.data;
             if (user?.company_id) {
-              const [compRes, prodRes, postRes, reelRes, servRes] = await Promise.allSettled([
+              const [compRes, prodRes, postRes, reelRes, secRes] = await Promise.allSettled([
                 api.get(`/companies/${user.company_id}`),
                 api.get(`/companies/${user.company_id}/products`),
                 api.get(`/companies/${user.company_id}/posts`),
                 api.get(`/companies/${user.company_id}/reels`),
-                api.get("/websites/sections?section_key=services")
+                api.get("/websites/sections")
               ]);
 
               const uComp = compRes.status === "fulfilled" ? compRes.value.data : null;
               const uProds = prodRes.status === "fulfilled" ? prodRes.value.data : [];
               const uPosts = postRes.status === "fulfilled" ? postRes.value.data : [];
               const uReels = reelRes.status === "fulfilled" ? reelRes.value.data : [];
-              const uServices = servRes.status === "fulfilled" ? servRes.value.data : [];
+              const allSecs = secRes.status === "fulfilled" ? secRes.value.data : [];
 
-              const merged = mergePreviewData(sample, uComp, uProds, uPosts, uReels, uServices);
+              const merged = mergePreviewData(sample, uComp, uProds, uPosts, uReels, allSecs, allSecs);
               setSiteData({
                 website: {
                   template_id: tmpl,
@@ -64,6 +64,8 @@ export default function TenantWebsitePage() {
                 posts: merged.posts,
                 reels: merged.reels,
                 services: merged.services,
+                hero_slides: merged.hero_slides || [],
+                custom_sections: merged.custom_sections || {},
                 seo: { title: `${merged.company.name} | Live Preview` }
               });
               setLoading(false);
@@ -172,6 +174,8 @@ export default function TenantWebsitePage() {
       posts={siteData.posts || []}
       reels={siteData.reels || []}
       services={siteData.services}
+      hero_slides={siteData.hero_slides || siteData.custom_sections?.hero_slides || []}
+      custom_sections={siteData.custom_sections || {}}
       theme={siteData.website?.theme_config || {}}
       seo={siteData.seo || {}}
     />

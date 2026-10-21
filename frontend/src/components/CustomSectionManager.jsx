@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import api from "../lib/api";
+import { SingleImageUploader } from "./MediaUploader";
 
 /**
  * Extensible Section Manager Component (OOP Compliant)
@@ -370,18 +371,39 @@ export default function CustomSectionManager({ moduleConfig, sections = [], onRe
                     <label className="text-xs font-bold text-slate-300 block">
                       {f.label} {f.required && <span className="text-rose-400">*</span>}
                     </label>
-                    <input
-                      type={f.type === "image" ? "url" : "text"}
-                      value={val}
-                      onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
-                      placeholder={f.placeholder}
-                      required={f.required}
-                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"
-                    />
-                    {f.type === "image" && val && (
-                      <div className="mt-1.5 h-20 w-32 rounded-lg bg-slate-950 border border-slate-800 overflow-hidden">
-                        <img src={val} alt="Preview" className="w-full h-full object-cover" />
+                    {f.type === "image" ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="url"
+                            value={val}
+                            onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
+                            placeholder={f.placeholder || "Paste image URL or click Browse"}
+                            required={f.required}
+                            className="flex-1 p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"
+                          />
+                          <SingleImageUploader
+                            url={val}
+                            onChange={(uploadedUrl) => setFormData({ ...formData, [f.key]: uploadedUrl })}
+                            label="Browse"
+                            className="w-24 h-9 shrink-0 bg-slate-800 border-slate-700 text-slate-200"
+                          />
+                        </div>
+                        {val && (
+                          <div className="h-20 w-32 rounded-lg bg-slate-950 border border-slate-800 overflow-hidden relative">
+                            <img src={val} alt="Preview" className="w-full h-full object-cover" />
+                          </div>
+                        )}
                       </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={val}
+                        onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
+                        placeholder={f.placeholder}
+                        required={f.required}
+                        className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"
+                      />
                     )}
                   </div>
                 );

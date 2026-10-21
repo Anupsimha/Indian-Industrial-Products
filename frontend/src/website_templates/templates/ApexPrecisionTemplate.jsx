@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ArrowRight, ArrowUpRight, Send, ClipboardList, Cog, FileCheck2, Truck,
   Phone, Mail, MapPin, MessageCircle, ShieldCheck, Award, Receipt,
-  CheckCircle2, Box, Sparkles, Building2, ExternalLink, ChevronRight, Menu, X
+  CheckCircle2, Box, Sparkles, Building2, ExternalLink, ChevronRight, ChevronLeft, Menu, X
 } from "lucide-react";
 import ProductDetailModal from "../components/ProductDetailModal";
 import InquiryDrawer from "../components/InquiryDrawer";
@@ -10,18 +10,55 @@ import TenantSEO from "../components/TenantSEO";
 
 export default function ApexPrecisionTemplate({
   company = {},
-  products = [],
+  products: propProducts = [],
   posts = [],
   reels = [],
   theme = {},
   seo = {},
-  services: propServices
+  services: propServices,
+  hero_slides: propHeroSlides,
+  custom_sections = {}
 }) {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [inquiryProduct, setInquiryProduct] = useState(null);
   const [inquiryOpen, setInquiryOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState("all");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [currentSlide, setCurrentSlide] = useState(0);
+
+  // 1. Resolve Independent CMS Website Products (Price is optional!)
+  const websiteProductsList = custom_sections?.website_products && custom_sections.website_products.length > 0
+    ? custom_sections.website_products.map((item) => ({
+        id: item.id,
+        name: item.title,
+        title: item.title,
+        category: item.subtitle || "Precision Products",
+        description: item.description || "",
+        image_url: item.icon_or_image || "",
+        images: item.icon_or_image ? [item.icon_or_image] : [],
+        price: item.price || item.metadata_json?.price || "",
+        moq: item.moq || item.metadata_json?.moq || "",
+        external_url: item.external_url || item.metadata_json?.external_url || "",
+        external_label: item.external_label || item.metadata_json?.external_label || ""
+      }))
+    : null;
+
+  const products = websiteProductsList || propProducts;
+
+  // 2. Resolve Hero Section Slides
+  const heroSlides = (propHeroSlides && propHeroSlides.length > 0)
+    ? propHeroSlides
+    : (custom_sections?.hero_slides && custom_sections.hero_slides.length > 0)
+    ? custom_sections.hero_slides
+    : [];
+
+  useEffect(() => {
+    if (heroSlides.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % heroSlides.length);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [heroSlides.length]);
 
   // Derive categories
   const rawCategories = [...new Set(products.map((p) => p.category).filter(Boolean))];
@@ -46,8 +83,12 @@ export default function ApexPrecisionTemplate({
     }
   ];
 
-  // Default engineering services if none passed
-  const services = propServices || [
+  // 3. Resolve Engineering Job-Work Services
+  const services = (propServices && propServices.length > 0)
+    ? propServices
+    : (custom_sections?.services && custom_sections.services.length > 0)
+    ? custom_sections.services
+    : [
     {
       id: "srv-1",
       code: "S/01",
@@ -264,68 +305,119 @@ export default function ApexPrecisionTemplate({
         <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="max-w-3xl">
-            {/* Eyebrow */}
-            <div className="inline-flex items-center gap-2 font-mono text-xs font-bold tracking-widest text-[#f26b1d] uppercase mb-4">
-              <span className="w-6 h-0.5 bg-[#f26b1d]" />
-              <span>{company.name || "Industrial Enterprise"} · {city}</span>
-            </div>
+            {/* Headline & Copy from Active Slide or Company defaults */}
+            {(() => {
+              const activeSlide = heroSlides.length > 0 ? (heroSlides[currentSlide] || heroSlides[0]) : null;
+              const headline = activeSlide?.title || activeSlide?.heading || company.headline || "Precision Tools. Permanent Marking. Engineered Parts.";
+              const eyebrow = activeSlide?.subtitle || activeSlide?.eyebrow || `${company.name || "Industrial Enterprise"} · ${city}`;
+              const desc = activeSlide?.description || company.description || "Carbide cutting tools, laser-marked and UV-printed industrial nameplates, electrical insulator parts, and precision CNC job-work services - built around your requirement.";
+              const btnLabel = activeSlide?.button_text || activeSlide?.metadata_json?.button_text || "Explore Products";
+              const btnLink = activeSlide?.button_link || activeSlide?.metadata_json?.button_link || "#products";
+              const heroImage = activeSlide?.icon_or_image || activeSlide?.image_url || coverImg;
 
-            {/* Headline */}
-            <h1 className="text-4xl sm:text-5xl lg:text-7xl font-black uppercase tracking-tight leading-[1.05] text-white mb-6">
-              {company.headline || "Precision Tools. Permanent Marking. Engineered Parts."}
-            </h1>
+              return (
+                <>
+                  <div className="max-w-3xl transition-opacity duration-300">
+                    {/* Eyebrow */}
+                    <div className="inline-flex items-center gap-2 font-mono text-xs font-bold tracking-widest text-[#f26b1d] uppercase mb-4">
+                      <span className="w-6 h-0.5 bg-[#f26b1d]" />
+                      <span>{eyebrow}</span>
+                    </div>
 
-            {/* Description */}
-            <p className="text-slate-300 text-base sm:text-lg leading-relaxed max-w-2xl mb-8">
-              {company.description ||
-                "Carbide cutting tools, laser-marked and UV-printed industrial nameplates, electrical insulator parts, and precision CNC job-work services - built around your requirement."}
-            </p>
+                    {/* Headline */}
+                    <h1 className="text-4xl sm:text-5xl lg:text-7xl font-black uppercase tracking-tight leading-[1.05] text-white mb-6">
+                      {headline}
+                    </h1>
 
-            {/* CTA Buttons */}
-            <div className="flex flex-wrap items-center gap-4">
-              <a
-                href="#products"
-                className="px-7 py-3.5 rounded-full bg-[#f26b1d] hover:bg-[#d9560c] text-white font-bold text-sm inline-flex items-center gap-2 shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all"
-              >
-                <span>Explore Products</span>
-                <ArrowRight size={16} />
-              </a>
-              <button
-                onClick={() => handleOpenInquiry()}
-                className="px-7 py-3.5 rounded-full border border-white/40 hover:border-white text-white hover:bg-white hover:text-[#0a1f44] font-bold text-sm inline-flex items-center gap-2 transition-all"
-              >
-                <Send size={15} />
-                <span>Send Enquiry</span>
-              </button>
-            </div>
-          </div>
+                    {/* Description */}
+                    <p className="text-slate-300 text-base sm:text-lg leading-relaxed max-w-2xl mb-8">
+                      {desc}
+                    </p>
 
-          {/* Hero Showcase Frame with Category Tags */}
-          <div className="mt-14 relative">
-            <div className="relative rounded-2xl overflow-hidden p-2 sm:p-3 bg-gradient-to-b from-white/20 to-white/5 border border-white/20 shadow-2xl">
-              <img
-                src={coverImg}
-                alt={`${company.name} facility & precision output`}
-                className="w-full aspect-[21/9] sm:aspect-[16/7] object-cover rounded-xl"
-              />
-            </div>
+                    {/* CTA Buttons */}
+                    <div className="flex flex-wrap items-center gap-4">
+                      <a
+                        href={btnLink}
+                        className="px-7 py-3.5 rounded-full bg-[#f26b1d] hover:bg-[#d9560c] text-white font-bold text-sm inline-flex items-center gap-2 shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all"
+                      >
+                        <span>{btnLabel}</span>
+                        <ArrowRight size={16} />
+                      </a>
+                      <button
+                        onClick={() => handleOpenInquiry()}
+                        className="px-7 py-3.5 rounded-full border border-white/40 hover:border-white text-white hover:bg-white hover:text-[#0a1f44] font-bold text-sm inline-flex items-center gap-2 transition-all"
+                      >
+                        <Send size={15} />
+                        <span>Send Enquiry</span>
+                      </button>
+                    </div>
+                  </div>
 
-            {/* Floating Category Badges */}
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 -mt-5 relative z-20 px-4">
-              {categories.slice(0, 3).map((cat, idx) => (
-                <span
-                  key={cat}
-                  className="px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider text-[#0a1f44] bg-white border border-slate-200 shadow-md"
-                  style={{
-                    background: "linear-gradient(135deg, #ffffff 0%, #e4e9ef 45%, #f7f9fb 60%, #d6dde6 100%)"
-                  }}
-                >
-                  <span className="text-[#f26b1d] mr-1.5">{String.fromCharCode(65 + idx)} ·</span> {cat}
-                </span>
-              ))}
-            </div>
-          </div>
+                  {/* Hero Showcase Frame with Carousel Controls */}
+                  <div className="mt-14 relative group">
+                    <div className="relative rounded-2xl overflow-hidden p-2 sm:p-3 bg-gradient-to-b from-white/20 to-white/5 border border-white/20 shadow-2xl">
+                      <img
+                        key={heroImage}
+                        src={heroImage}
+                        alt={`${company.name} showcase`}
+                        className="w-full aspect-[21/9] sm:aspect-[16/7] object-cover rounded-xl transition-all duration-700"
+                      />
+
+                      {/* Slide Controls (if multiple slides exist) */}
+                      {heroSlides.length > 1 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setCurrentSlide((prev) => (prev - 1 + heroSlides.length) % heroSlides.length)}
+                            className="absolute left-6 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-slate-950/70 hover:bg-slate-900 text-white backdrop-blur-md border border-white/20 flex items-center justify-center transition-all opacity-80 hover:opacity-100 hover:scale-105"
+                            aria-label="Previous Slide"
+                          >
+                            <ChevronLeft size={20} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCurrentSlide((prev) => (prev + 1) % heroSlides.length)}
+                            className="absolute right-6 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-slate-950/70 hover:bg-slate-900 text-white backdrop-blur-md border border-white/20 flex items-center justify-center transition-all opacity-80 hover:opacity-100 hover:scale-105"
+                            aria-label="Next Slide"
+                          >
+                            <ChevronRight size={20} />
+                          </button>
+
+                          {/* Dots */}
+                          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-950/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
+                            {heroSlides.map((_, idx) => (
+                              <button
+                                key={idx}
+                                onClick={() => setCurrentSlide(idx)}
+                                className={`h-2 rounded-full transition-all ${
+                                  idx === currentSlide ? "w-6 bg-[#f26b1d]" : "w-2 bg-white/40 hover:bg-white/70"
+                                }`}
+                                aria-label={`Go to slide ${idx + 1}`}
+                              />
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Floating Category Badges */}
+                    <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 -mt-5 relative z-20 px-4">
+                      {categories.slice(0, 3).map((cat, idx) => (
+                        <span
+                          key={cat}
+                          className="px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider text-[#0a1f44] bg-white border border-slate-200 shadow-md"
+                          style={{
+                            background: "linear-gradient(135deg, #ffffff 0%, #e4e9ef 45%, #f7f9fb 60%, #d6dde6 100%)"
+                          }}
+                        >
+                          <span className="text-[#f26b1d] mr-1.5">{String.fromCharCode(65 + idx)} ·</span> {cat}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
         </div>
       </section>
 
@@ -837,6 +929,21 @@ function ProductCard({ product, company, onDetails, onEnquire }) {
           <div className="flex items-center justify-between text-xs text-slate-500 mb-4 pt-2 border-t border-slate-100">
             {product.price && <span className="font-bold text-slate-900">{product.price}</span>}
             {product.moq && <span>MOQ: {product.moq}</span>}
+          </div>
+        )}
+
+        {/* External Link (if configured) */}
+        {product.external_url && (
+          <div className="pt-2 mb-2">
+            <a
+              href={product.external_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-1.5 px-3 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all border border-slate-200"
+            >
+              <span>{product.external_label || "Visit Official Website"}</span>
+              <ArrowUpRight size={13} />
+            </a>
           </div>
         )}
 

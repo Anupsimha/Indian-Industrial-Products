@@ -362,14 +362,14 @@ export default function CompanyAdminPage() {
         <nav className="p-3 space-y-1 flex-1">
           {[
             { id: "overview", label: "Dashboard", icon: LayoutDashboard },
-            { id: "products", label: "Products Catalog", icon: Package, badge: products.length },
             ...customModules.map((mod) => ({
               id: mod.key,
               label: mod.label,
-              icon: mod.icon === "Wrench" ? Wrench : Layers,
+              icon: mod.key === "services" ? Wrench : (mod.key === "website_products" ? Sparkles : Layers),
               badge: sections.filter((s) => s.section_key === mod.key).length,
               isCustom: true
             })),
+            { id: "products", label: "IIP Marketplace Products", icon: Package, badge: products.length },
             { id: "company", label: "Company Details", icon: Building2 },
             { id: "posts", label: "News & Updates", icon: Newspaper, badge: posts.length },
             { id: "enquiries", label: "Inquiries & RFQs", icon: Inbox, badge: enquiries.length },

@@ -575,10 +575,48 @@ async def get_public_site_data(
             "title": s.title,
             "description": s.description or "",
             "image_url": s.icon_or_image or "",
+            "icon_or_image": s.icon_or_image or "",
             **(s.metadata_json or {})
         }
         for idx, s in enumerate(db_sections)
         if s.section_key == "services"
+    ]
+
+    hero_slides_list = [
+        {
+            "id": s.id,
+            "title": s.title,
+            "heading": s.title,
+            "subtitle": s.subtitle or "",
+            "eyebrow": s.subtitle or "",
+            "description": s.description or "",
+            "image_url": s.icon_or_image or "",
+            "icon_or_image": s.icon_or_image or "",
+            "sort_order": s.sort_order,
+            **(s.metadata_json or {})
+        }
+        for s in db_sections
+        if s.section_key == "hero_slides"
+    ]
+
+    website_products_list = [
+        {
+            "id": s.id,
+            "name": s.title,
+            "title": s.title,
+            "category": s.subtitle or "Precision Products",
+            "description": s.description or "",
+            "image_url": s.icon_or_image or "",
+            "images": [s.icon_or_image] if s.icon_or_image else [],
+            "price": (s.metadata_json or {}).get("price") or "",
+            "moq": (s.metadata_json or {}).get("moq") or "",
+            "external_url": (s.metadata_json or {}).get("external_url") or "",
+            "external_label": (s.metadata_json or {}).get("external_label") or "",
+            "sort_order": s.sort_order,
+            **(s.metadata_json or {})
+        }
+        for s in db_sections
+        if s.section_key == "website_products"
     ]
 
     custom_sections_map = {}
@@ -663,7 +701,7 @@ async def get_public_site_data(
             "certifications": company.certifications or [],
             "is_featured": company.is_featured,
         },
-        "products": [
+        "products": website_products_list if len(website_products_list) > 0 else [
             {
                 "id": p.id,
                 "name": p.name,
@@ -702,6 +740,8 @@ async def get_public_site_data(
             for r in reels
         ],
         "services": services_list,
+        "hero_slides": hero_slides_list,
+        "website_products": website_products_list,
         "custom_sections": custom_sections_map,
         "seo": {
             "title": page_title,
