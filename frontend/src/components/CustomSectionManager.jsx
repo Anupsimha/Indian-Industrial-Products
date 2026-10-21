@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import api from "../lib/api";
-import { SingleImageUploader } from "./MediaUploader";
+import CmsMediaUploader from "./CmsMediaUploader";
 
 /**
  * Extensible Section Manager Component (OOP Compliant)
@@ -109,6 +109,14 @@ export default function CustomSectionManager({ moduleConfig, sections = [], onRe
     if (!formData.title?.trim()) {
       toast.error(`${singular} title is required`);
       return;
+    }
+
+    // Validate any required fields
+    for (const f of fields) {
+      if (f.required && !formData[f.key]?.trim?.()) {
+        toast.error(`${f.label || f.key} is required`);
+        return;
+      }
     }
 
     setSaving(true);
@@ -226,6 +234,10 @@ export default function CustomSectionManager({ moduleConfig, sections = [], onRe
                       src={item.icon_or_image}
                       alt={item.title}
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='80' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2' ry='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21'/%3E%3C/svg%3E";
+                      }}
                     />
                     {item.subtitle && (
                       <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-slate-950/80 backdrop-blur border border-slate-700 text-[10px] font-mono font-bold text-amber-400">
@@ -372,29 +384,13 @@ export default function CustomSectionManager({ moduleConfig, sections = [], onRe
                       {f.label} {f.required && <span className="text-rose-400">*</span>}
                     </label>
                     {f.type === "image" ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="url"
-                            value={val}
-                            onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
-                            placeholder={f.placeholder || "Paste image URL or click Browse"}
-                            required={f.required}
-                            className="flex-1 p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"
-                          />
-                          <SingleImageUploader
-                            url={val}
-                            onChange={(uploadedUrl) => setFormData({ ...formData, [f.key]: uploadedUrl })}
-                            label="Browse"
-                            className="w-24 h-9 shrink-0 bg-slate-800 border-slate-700 text-slate-200"
-                          />
-                        </div>
-                        {val && (
-                          <div className="h-20 w-32 rounded-lg bg-slate-950 border border-slate-800 overflow-hidden relative">
-                            <img src={val} alt="Preview" className="w-full h-full object-cover" />
-                          </div>
-                        )}
-                      </div>
+                      <CmsMediaUploader
+                        value={val}
+                        onChange={(uploadedUrl) => setFormData({ ...formData, [f.key]: uploadedUrl })}
+                        label={f.label}
+                        required={f.required}
+                        folder={`iip/websites/${sectionKey}`}
+                      />
                     ) : (
                       <input
                         type="text"

@@ -14,6 +14,7 @@ import { ProductDialog } from "../components/ProductDialog";
 import { PostDialog } from "../components/CreateDialogs";
 import WebsiteSetupModal from "../components/WebsiteSetupModal";
 import CustomSectionManager from "../components/CustomSectionManager";
+import CmsMediaUploader from "../components/CmsMediaUploader";
 import { getTemplate } from "../website_templates/registry";
 
 export default function CompanyAdminPage() {
@@ -60,7 +61,9 @@ export default function CompanyAdminPage() {
     gst: "",
     pan: "",
     business_type: "",
-    year_established: ""
+    year_established: "",
+    logo_url: "",
+    cover_url: ""
   });
   const [savingCompany, setSavingCompany] = useState(false);
   const [copiedDomain, setCopiedDomain] = useState(false);
@@ -105,7 +108,9 @@ export default function CompanyAdminPage() {
           gst: c.gst || "",
           pan: c.pan || "",
           business_type: c.business_type || "",
-          year_established: c.year_established ? String(c.year_established) : ""
+          year_established: c.year_established ? String(c.year_established) : "",
+          logo_url: c.logo_url || "",
+          cover_url: c.cover_url || ""
         });
       }
 
@@ -171,7 +176,9 @@ export default function CompanyAdminPage() {
         gst: companyForm.gst.trim(),
         pan: companyForm.pan.trim(),
         business_type: companyForm.business_type.trim(),
-        year_established: companyForm.year_established ? parseInt(companyForm.year_established, 10) : null
+        year_established: companyForm.year_established ? parseInt(companyForm.year_established, 10) : null,
+        logo_url: companyForm.logo_url?.trim() || null,
+        cover_url: companyForm.cover_url?.trim() || null
       };
 
       const res = await api.patch(`/companies/${company.id}`, payload);
@@ -772,6 +779,27 @@ export default function CompanyAdminPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  {/* Media Uploads: Logo & Cover Banner */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-300">Company Logo Photo</label>
+                    <CmsMediaUploader
+                      value={companyForm.logo_url}
+                      onChange={(url) => setCompanyForm({ ...companyForm, logo_url: url })}
+                      label="Upload Company Logo"
+                      folder="iip/logos"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-300">Website Header / Cover Banner Photo</label>
+                    <CmsMediaUploader
+                      value={companyForm.cover_url}
+                      onChange={(url) => setCompanyForm({ ...companyForm, cover_url: url })}
+                      label="Upload Cover Banner"
+                      folder="iip/covers"
+                    />
+                  </div>
+
                   <div className="space-y-1">
                     <label className="font-bold text-slate-300">Company Name</label>
                     <input
