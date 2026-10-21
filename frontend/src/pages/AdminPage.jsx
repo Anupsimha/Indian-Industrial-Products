@@ -2377,6 +2377,9 @@ const WebsiteTemplatesTab = () => {
         />
       )}
     </div>
+  );
+};
+
 // ----------------------------------------------------
 // Custom Websites Admin Tab & Multi-Stage Deployment Wizard
 // ----------------------------------------------------
