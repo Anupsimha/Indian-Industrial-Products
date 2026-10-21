@@ -146,7 +146,39 @@ async def test_custom_website_config_and_requests_flow():
             assert len(logs) >= 2  # Request submitted + Domain check
             assert any(l["stage"] == "DOMAIN_SANITY_CHECK" for l in logs)
 
-            # 9. Stage 3: Deploy & Link
+            # 9. Stage 2 (Platform Template Selection)
+            stage2 = await client.post(
+                f"/api/admin/websites/custom-requests/{req_id}/stage-select-template",
+                json={"template_id": "apex_precision"},
+                headers={"Authorization": f"Bearer {a_token}"}
+            )
+            assert stage2.status_code == 200
+            assert stage2.json()["ok"] is True
+            assert stage2.json()["template_id"] == "apex_precision"
+
+            # 10. Extensible Section CRUD: Company Owner adds a service
+            sec_create = await client.post(
+                "/api/websites/sections",
+                json={
+                    "section_key": "services",
+                    "title": "Precision CNC Milling",
+                    "subtitle": "S/01",
+                    "description": "High tolerance 5-axis CNC job-work for aerospace and tooling.",
+                    "icon_or_image": "https://example.com/cnc.jpg",
+                    "metadata_json": {"turnaround": "48 Hours", "capacity": "5-Axis VMC"}
+                },
+                headers={"Authorization": f"Bearer {u_token}"}
+            )
+            assert sec_create.status_code == 201
+            sec_id = sec_create.json()["id"]
+
+            # 11. List sections
+            sec_list = await client.get("/api/websites/sections?section_key=services", headers={"Authorization": f"Bearer {u_token}"})
+            assert sec_list.status_code == 200
+            assert len(sec_list.json()) == 1
+            assert sec_list.json()[0]["title"] == "Precision CNC Milling"
+
+            # 12. Stage 3: Deploy & Link
             stage3 = await client.post(
                 f"/api/admin/websites/custom-requests/{req_id}/stage-deploy",
                 headers={"Authorization": f"Bearer {a_token}"}
@@ -154,10 +186,18 @@ async def test_custom_website_config_and_requests_flow():
             assert stage3.status_code == 200
             assert stage3.json()["status"] == "DEPLOYED"
 
-            # 10. Verify public site resolver matches custom domain
+            # 13. Verify public site resolver returns the company's live services
             public_site = await client.get("/api/public/site/indianindustrialplatform.com")
             assert public_site.status_code == 200
             assert public_site.json()["company"]["name"] == "Apex Tools Pvt Ltd"
+            assert public_site.json()["website"]["template_id"] == "apex_precision"
+            assert len(public_site.json()["services"]) == 1
+            assert public_site.json()["services"][0]["name"] == "Precision CNC Milling"
+            assert public_site.json()["services"][0]["code"] == "S/01"
+
+            # 14. Delete section
+            del_sec = await client.delete(f"/api/websites/sections/{sec_id}", headers={"Authorization": f"Bearer {u_token}"})
+            assert del_sec.status_code == 200
     finally:
         app.dependency_overrides.clear()
         server_module.AsyncSessionLocal = orig_session_local

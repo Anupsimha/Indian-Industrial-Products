@@ -545,7 +545,25 @@ class CustomWebsiteRequest(Base):
     ssl_status = Column(String(50), default="PENDING", nullable=False)  # PENDING, ACTIVE, FAILED
     deployment_status = Column(String(50), default="PENDING", nullable=False)  # PENDING, VALIDATED, DEPLOYED
     code_archive_path = Column(String(500), nullable=True)
+    custom_template_id = Column(String(50), nullable=True)
     admin_notes = Column(Text, nullable=True)
+    created_at = Column(String(50), nullable=False)
+    updated_at = Column(String(50), nullable=False)
+
+
+class CompanyWebsiteSection(Base):
+    __tablename__ = "company_website_sections"
+    id = Column(String(36), primary_key=True)
+    company_id = Column(String(36), nullable=False, index=True)
+    website_id = Column(String(36), nullable=True, index=True)
+    section_key = Column(String(50), nullable=False, index=True)  # e.g., 'services', 'machinery', 'case_studies', 'certifications'
+    title = Column(String(255), nullable=False)
+    subtitle = Column(String(255), nullable=True)  # e.g. service code "S/01"
+    description = Column(Text, nullable=True)
+    icon_or_image = Column(String(1024), nullable=True)
+    metadata_json = Column(JSON, default=dict, nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(String(50), nullable=False)
     updated_at = Column(String(50), nullable=False)
 
@@ -8217,6 +8235,23 @@ async def startup():
         "CREATE INDEX IF NOT EXISTS idx_company_websites_subdomain ON company_websites (subdomain)",
         "CREATE INDEX IF NOT EXISTS idx_company_websites_company_id ON company_websites (company_id)",
         "CREATE INDEX IF NOT EXISTS idx_website_templates_assigned_company ON website_templates (assigned_company_id)",
+        "ALTER TABLE custom_website_requests ADD COLUMN IF NOT EXISTS custom_template_id VARCHAR(50)",
+        """CREATE TABLE IF NOT EXISTS company_website_sections (
+            id VARCHAR(36) PRIMARY KEY,
+            company_id VARCHAR(36) NOT NULL,
+            website_id VARCHAR(36),
+            section_key VARCHAR(50) NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            subtitle VARCHAR(255),
+            description TEXT,
+            icon_or_image VARCHAR(1024),
+            metadata_json JSONB DEFAULT '{}'::jsonb,
+            sort_order INTEGER DEFAULT 0 NOT NULL,
+            is_active BOOLEAN DEFAULT TRUE NOT NULL,
+            created_at VARCHAR(50) NOT NULL,
+            updated_at VARCHAR(50) NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_website_sections_company_key ON company_website_sections (company_id, section_key)",
     ]
 
     for q in migrations:

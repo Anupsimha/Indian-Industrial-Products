@@ -5,7 +5,7 @@ import {
   ExternalLink, ArrowLeft, Plus, Edit, Trash2, Search, Filter,
   CheckCircle2, Clock, AlertCircle, RefreshCw, Sparkles, Shield,
   MapPin, Mail, Phone, FileText, ChevronRight, Save, Image as ImageIcon,
-  Check, Eye, Copy, ArrowUpRight, CheckCheck, X
+  Check, Eye, Copy, ArrowUpRight, CheckCheck, X, Wrench, Layers
 } from "lucide-react";
 import { toast } from "sonner";
 import api from "../lib/api";
@@ -13,13 +13,15 @@ import { useAuth } from "../context/AuthContext";
 import { ProductDialog } from "../components/ProductDialog";
 import { PostDialog } from "../components/CreateDialogs";
 import WebsiteSetupModal from "../components/WebsiteSetupModal";
+import CustomSectionManager from "../components/CustomSectionManager";
+import { getTemplate } from "../website_templates/registry";
 
 export default function CompanyAdminPage() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   // Active CMS Section Tab
-  const [activeTab, setActiveTab] = useState("overview"); // 'overview', 'products', 'company', 'posts', 'enquiries', 'domain'
+  const [activeTab, setActiveTab] = useState("overview"); // 'overview', 'products', 'company', 'posts', 'enquiries', 'domain', or custom section keys
 
   // Core Data
   const [loading, setLoading] = useState(true);
@@ -29,6 +31,7 @@ export default function CompanyAdminPage() {
   const [enquiries, setEnquiries] = useState([]);
   const [website, setWebsite] = useState(null);
   const [customRequest, setCustomRequest] = useState(null);
+  const [sections, setSections] = useState([]);
 
   // Dialog Controls
   const [productModalOpen, setProductModalOpen] = useState(false);
@@ -74,13 +77,14 @@ export default function CompanyAdminPage() {
       }
 
       // Parallel API queries
-      const [compRes, prodRes, postRes, enqRes, webRes, custRes] = await Promise.allSettled([
+      const [compRes, prodRes, postRes, enqRes, webRes, custRes, secRes] = await Promise.allSettled([
         api.get(`/companies/${compId}`),
         api.get(`/companies/${compId}/products`),
         api.get(`/companies/${compId}/posts`),
         api.get("/enquiries"),
         api.get("/websites/my-website"),
-        api.get("/websites/my-custom-request")
+        api.get("/websites/my-custom-request"),
+        api.get("/websites/sections")
       ]);
 
       if (compRes.status === "fulfilled" && compRes.value.data) {
@@ -123,6 +127,10 @@ export default function CompanyAdminPage() {
 
       if (custRes.status === "fulfilled" && custRes.value.data?.has_request) {
         setCustomRequest(custRes.value.data.request);
+      }
+
+      if (secRes.status === "fulfilled" && secRes.value.data) {
+        setSections(secRes.value.data);
       }
     } catch (err) {
       console.error("Failed to load CMS data:", err);
@@ -258,6 +266,11 @@ export default function CompanyAdminPage() {
     });
   }, [enquiries, enquiryStatusFilter]);
 
+  // Active Website Template & Extensible Custom Section Modules (OOP Plugin Architecture)
+  const templateId = website?.template_id || customRequest?.custom_template_id || "apex_precision";
+  const currentTemplate = useMemo(() => getTemplate(templateId), [templateId]);
+  const customModules = useMemo(() => currentTemplate?.customModules || [], [currentTemplate]);
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white">
@@ -350,6 +363,13 @@ export default function CompanyAdminPage() {
           {[
             { id: "overview", label: "Dashboard", icon: LayoutDashboard },
             { id: "products", label: "Products Catalog", icon: Package, badge: products.length },
+            ...customModules.map((mod) => ({
+              id: mod.key,
+              label: mod.label,
+              icon: mod.icon === "Wrench" ? Wrench : Layers,
+              badge: sections.filter((s) => s.section_key === mod.key).length,
+              isCustom: true
+            })),
             { id: "company", label: "Company Details", icon: Building2 },
             { id: "posts", label: "News & Updates", icon: Newspaper, badge: posts.length },
             { id: "enquiries", label: "Inquiries & RFQs", icon: Inbox, badge: enquiries.length },
@@ -406,6 +426,7 @@ export default function CompanyAdminPage() {
             <h1 className="text-base font-bold text-white capitalize flex items-center gap-2">
               {activeTab === "overview" && "CMS Dashboard & Overview"}
               {activeTab === "products" && "Product Catalog Management"}
+              {customModules.map((m) => activeTab === m.key && m.label)}
               {activeTab === "company" && "Company Profile & CMS Content"}
               {activeTab === "posts" && "Posts & Industrial Updates"}
               {activeTab === "enquiries" && "Customer RFQs & Inquiries"}
@@ -717,6 +738,18 @@ export default function CompanyAdminPage() {
               </div>
             </div>
           )}
+
+          {/* EXTENSIBLE CUSTOM WEBSITE MODULES (Engineering Services, Machinery, etc.) */}
+          {customModules.map((mod) => (
+            activeTab === mod.key && (
+              <CustomSectionManager
+                key={mod.key}
+                moduleConfig={mod}
+                sections={sections.filter((s) => s.section_key === mod.key)}
+                onRefresh={loadCmsData}
+              />
+            )
+          ))}
 
           {/* TAB 3: COMPANY DETAILS & CMS CONTENT FORM */}
           {activeTab === "company" && (

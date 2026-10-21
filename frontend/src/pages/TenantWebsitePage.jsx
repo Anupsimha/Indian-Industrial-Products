@@ -43,19 +43,21 @@ export default function TenantWebsitePage() {
           .then(async (userRes) => {
             const user = userRes.data;
             if (user?.company_id) {
-              const [compRes, prodRes, postRes, reelRes] = await Promise.allSettled([
+              const [compRes, prodRes, postRes, reelRes, servRes] = await Promise.allSettled([
                 api.get(`/companies/${user.company_id}`),
                 api.get(`/companies/${user.company_id}/products`),
                 api.get(`/companies/${user.company_id}/posts`),
                 api.get(`/companies/${user.company_id}/reels`),
+                api.get("/websites/sections?section_key=services")
               ]);
 
               const uComp = compRes.status === "fulfilled" ? compRes.value.data : null;
               const uProds = prodRes.status === "fulfilled" ? prodRes.value.data : [];
               const uPosts = postRes.status === "fulfilled" ? postRes.value.data : [];
               const uReels = reelRes.status === "fulfilled" ? reelRes.value.data : [];
+              const uServices = servRes.status === "fulfilled" ? servRes.value.data : [];
 
-              const merged = mergePreviewData(sample, uComp, uProds, uPosts, uReels);
+              const merged = mergePreviewData(sample, uComp, uProds, uPosts, uReels, uServices);
               setSiteData({
                 website: {
                   template_id: tmpl,

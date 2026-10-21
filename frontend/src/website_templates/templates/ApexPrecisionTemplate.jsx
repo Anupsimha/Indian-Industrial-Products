@@ -499,39 +499,44 @@ export default function ApexPrecisionTemplate({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {services.map((s, idx) => (
-              <div
-                key={s.id || s.name}
-                className="rounded-2xl overflow-hidden bg-white/5 border border-white/10 hover:border-[#f26b1d]/50 transition-all duration-300 hover:-translate-y-1.5 flex flex-col"
-              >
-                <div className="relative aspect-[4/3] overflow-hidden bg-slate-900">
-                  <img
-                    src={s.image_url}
-                    alt={s.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  />
-                  <span className="absolute top-4 left-4 font-mono text-xs font-bold px-2.5 py-1 rounded-md bg-[#050f24]/80 backdrop-blur-md text-white border border-white/10">
-                    {s.code || `S/0${idx + 1}`}
-                  </span>
-                </div>
-                <div className="p-6 flex flex-col flex-1">
-                  <h3 className="text-xl font-bold uppercase text-white tracking-tight mb-2">
-                    {s.name}
-                  </h3>
-                  <p className="text-slate-300 text-sm leading-relaxed flex-1 mb-6">
-                    {s.description}
-                  </p>
-                  <div>
-                    <button
-                      onClick={() => handleOpenInquiry({ name: s.name, category: "Engineering Service" })}
-                      className="w-full py-2.5 rounded-full bg-[#f26b1d] hover:bg-[#d9560c] text-white text-xs font-bold inline-flex items-center justify-center gap-2 transition-all shadow"
-                    >
-                      <Send size={13} /> Send Enquiry
-                    </button>
+            {services.map((s, idx) => {
+              const serviceImg = s.image_url || s.icon_or_image || "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&q=80";
+              const serviceName = s.name || s.title || "Precision Engineering Service";
+              const serviceCode = s.code || s.subtitle || `S/0${idx + 1}`;
+              return (
+                <div
+                  key={s.id || serviceName || idx}
+                  className="rounded-2xl overflow-hidden bg-white/5 border border-white/10 hover:border-[#f26b1d]/50 transition-all duration-300 hover:-translate-y-1.5 flex flex-col"
+                >
+                  <div className="relative aspect-[4/3] overflow-hidden bg-slate-900">
+                    <img
+                      src={serviceImg}
+                      alt={serviceName}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    <span className="absolute top-4 left-4 font-mono text-xs font-bold px-2.5 py-1 rounded-md bg-[#050f24]/80 backdrop-blur-md text-white border border-white/10">
+                      {serviceCode}
+                    </span>
+                  </div>
+                  <div className="p-6 flex flex-col flex-1">
+                    <h3 className="text-xl font-bold uppercase text-white tracking-tight mb-2">
+                      {serviceName}
+                    </h3>
+                    <p className="text-slate-300 text-sm leading-relaxed flex-1 mb-6">
+                      {s.description}
+                    </p>
+                    <div>
+                      <button
+                        onClick={() => handleOpenInquiry({ name: serviceName, category: "Engineering Service" })}
+                        className="w-full py-2.5 rounded-full bg-[#f26b1d] hover:bg-[#d9560c] text-white text-xs font-bold inline-flex items-center justify-center gap-2 transition-all shadow"
+                      >
+                        <Send size={13} /> Send Enquiry
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>

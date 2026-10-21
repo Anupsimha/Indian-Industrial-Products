@@ -31,7 +31,7 @@ try:
         get_db, get_current_user, get_optional_user,
         Company, User, Product, Post, Reel, Plan, Notification,
         CompanyWebsite, WebsiteTemplate, CustomWebsiteRequest,
-        CustomWebsiteConfig, WebsiteDeploymentLog, now_iso
+        CustomWebsiteConfig, WebsiteDeploymentLog, CompanyWebsiteSection, now_iso
     )
     from backend.services.hostinger_dns_service import (
         hostinger_dns_service, validate_subdomain, sanitize_subdomain, is_subdomain_reserved
@@ -42,7 +42,7 @@ except ImportError:
         get_db, get_current_user, get_optional_user,
         Company, User, Product, Post, Reel, Plan, Notification,
         CompanyWebsite, WebsiteTemplate, CustomWebsiteRequest,
-        CustomWebsiteConfig, WebsiteDeploymentLog, now_iso
+        CustomWebsiteConfig, WebsiteDeploymentLog, CompanyWebsiteSection, now_iso
     )
     from services.hostinger_dns_service import (
         hostinger_dns_service, validate_subdomain, sanitize_subdomain, is_subdomain_reserved
@@ -560,7 +560,42 @@ async def get_public_site_data(
     reel_stmt = select(Reel).where(Reel.company_id == company.id).order_by(Reel.created_at.desc())
     reels = (await db.execute(reel_stmt)).scalars().all()
 
-    # 6. Lookup Template details
+    # 6. Lookup Custom Website Sections (services, machinery, etc.)
+    sec_stmt = select(CompanyWebsiteSection).where(
+        CompanyWebsiteSection.company_id == company.id,
+        CompanyWebsiteSection.is_active == True
+    ).order_by(CompanyWebsiteSection.sort_order.asc(), CompanyWebsiteSection.created_at.asc())
+    db_sections = (await db.execute(sec_stmt)).scalars().all()
+
+    services_list = [
+        {
+            "id": s.id,
+            "code": s.subtitle or f"S/0{idx+1}",
+            "name": s.title,
+            "title": s.title,
+            "description": s.description or "",
+            "image_url": s.icon_or_image or "",
+            **(s.metadata_json or {})
+        }
+        for idx, s in enumerate(db_sections)
+        if s.section_key == "services"
+    ]
+
+    custom_sections_map = {}
+    for s in db_sections:
+        if s.section_key not in custom_sections_map:
+            custom_sections_map[s.section_key] = []
+        custom_sections_map[s.section_key].append({
+            "id": s.id,
+            "title": s.title,
+            "subtitle": s.subtitle,
+            "description": s.description or "",
+            "icon_or_image": s.icon_or_image or "",
+            "sort_order": s.sort_order,
+            **(s.metadata_json or {})
+        })
+
+    # 7. Lookup Template details
     tmpl_stmt = select(WebsiteTemplate).where(WebsiteTemplate.id == website.template_id)
     tmpl = (await db.execute(tmpl_stmt)).scalars().first()
 
@@ -666,6 +701,8 @@ async def get_public_site_data(
             }
             for r in reels
         ],
+        "services": services_list,
+        "custom_sections": custom_sections_map,
         "seo": {
             "title": page_title,
             "description": meta_desc,
@@ -811,6 +848,31 @@ class UpdateCustomRequestIn(BaseModel):
     assigned_domain: Optional[str] = None
     status: Optional[str] = None
     admin_notes: Optional[str] = None
+
+
+class StageSelectTemplateIn(BaseModel):
+    template_id: str
+
+
+class CompanyWebsiteSectionCreate(BaseModel):
+    section_key: str
+    title: str
+    subtitle: Optional[str] = None
+    description: Optional[str] = None
+    icon_or_image: Optional[str] = None
+    metadata_json: Optional[Dict[str, Any]] = None
+    sort_order: Optional[int] = 0
+    is_active: Optional[bool] = True
+
+
+class CompanyWebsiteSectionUpdate(BaseModel):
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    description: Optional[str] = None
+    icon_or_image: Optional[str] = None
+    metadata_json: Optional[Dict[str, Any]] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
 
 
 @website_router.get("/websites/custom-config")
@@ -1035,6 +1097,7 @@ async def get_my_custom_website_request(
             "status": req.status,
             "requested_domain": req.requested_domain,
             "assigned_domain": req.assigned_domain,
+            "custom_template_id": req.custom_template_id,
             "dns_status": req.dns_status,
             "ssl_status": req.ssl_status,
             "deployment_status": req.deployment_status,
@@ -1073,6 +1136,7 @@ async def admin_list_custom_requests(
             "user_mobile": usr.mobile if usr else "",
             "requested_domain": r.requested_domain,
             "assigned_domain": r.assigned_domain,
+            "custom_template_id": r.custom_template_id,
             "status": r.status,
             "dns_status": r.dns_status,
             "dns_checked_at": r.dns_checked_at,
@@ -1133,6 +1197,7 @@ async def admin_get_single_custom_request(
         } if site else None,
         "requested_domain": r.requested_domain,
         "assigned_domain": r.assigned_domain,
+        "custom_template_id": r.custom_template_id,
         "status": r.status,
         "dns_status": r.dns_status,
         "dns_checked_at": r.dns_checked_at,
@@ -1379,6 +1444,66 @@ async def stage_upload_and_validate_zip(
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@website_router.post("/admin/websites/custom-requests/{request_id}/stage-select-template")
+async def stage_select_template_for_custom_website(
+    request_id: str,
+    payload: StageSelectTemplateIn,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Stage 2 Alternative (Platform Template Selection):
+    Allows platform admin to link a pre-developed platform template (e.g. apex_precision)
+    directly to the bespoke custom website request without bundle failure risks.
+    """
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+
+    req = (await db.execute(
+        select(CustomWebsiteRequest).where(CustomWebsiteRequest.id == request_id)
+    )).scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=404, detail="Custom website request not found.")
+
+    now = now_iso()
+    chosen_template = payload.template_id.strip()
+
+    req.custom_template_id = chosen_template
+    req.deployment_status = "READY_FOR_DEPLOY"
+    req.status = "CODE_VALIDATED"
+    req.updated_at = now
+
+    # Also update CompanyWebsite if it already exists
+    site = (await db.execute(
+        select(CompanyWebsite).where(CompanyWebsite.company_id == req.company_id)
+    )).scalar_one_or_none()
+    if site:
+        site.template_id = chosen_template
+        site.updated_at = now
+
+    # Deployment Audit Log
+    db.add(WebsiteDeploymentLog(
+        id=str(uuid.uuid4()),
+        request_id=req.id,
+        stage="TEMPLATE_SELECTION",
+        status="SUCCESS",
+        message=f"Platform template '{chosen_template}' linked to custom request.",
+        details={"template_id": chosen_template, "deployment_status": "READY_FOR_DEPLOY"},
+        created_at=now
+    ))
+
+    await db.commit()
+    await db.refresh(req)
+
+    return {
+        "ok": True,
+        "message": f"Platform template '{chosen_template}' assigned successfully! Ready for Stage 3 deployment.",
+        "request_id": req.id,
+        "template_id": chosen_template,
+        "deployment_status": req.deployment_status
+    }
+
+
 # -------------------- Stage 3: Deploy & Link Custom Domain --------------------
 
 @website_router.post("/admin/websites/custom-requests/{request_id}/stage-deploy")
@@ -1413,6 +1538,8 @@ async def stage_deploy_custom_website(
     )).scalar_one_or_none()
 
     clean_sub = sanitize_subdomain(company.name)
+    chosen_template = req.custom_template_id or (site.template_id if site else None) or "apex_precision"
+
     if not site:
         site = CompanyWebsite(
             id=str(uuid.uuid4()),
@@ -1421,7 +1548,7 @@ async def stage_deploy_custom_website(
             subdomain=clean_sub,
             custom_domain=req.assigned_domain,
             domain_type="custom_domain",
-            template_id="apex_precision",
+            template_id=chosen_template,
             status="active",
             theme_config={},
             seo_config={},
@@ -1434,6 +1561,7 @@ async def stage_deploy_custom_website(
     else:
         site.custom_domain = req.assigned_domain
         site.domain_type = "custom_domain"
+        site.template_id = chosen_template
         site.status = "active"
         site.published_at = now
         site.updated_at = now
@@ -1524,4 +1652,184 @@ async def admin_get_request_logs(
         }
         for l in logs
     ]
+
+
+# -------------------- Extensible Website Custom Sections (Services, Machinery, etc.) --------------------
+
+@website_router.get("/websites/sections")
+async def list_company_website_sections(
+    section_key: Optional[str] = Query(None, description="Filter by section key e.g. services, machinery"),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List extensible website sections for the authenticated company.
+    Supports filtering by section_key (e.g., 'services', 'machinery', 'case_studies').
+    """
+    company_id = current_user.get("company_id")
+    if not company_id:
+        raise HTTPException(status_code=400, detail="Authenticated user is not linked to any company.")
+
+    stmt = select(CompanyWebsiteSection).where(CompanyWebsiteSection.company_id == company_id)
+    if section_key:
+        stmt = stmt.where(CompanyWebsiteSection.section_key == section_key.strip().lower())
+    stmt = stmt.order_by(CompanyWebsiteSection.sort_order.asc(), CompanyWebsiteSection.created_at.asc())
+
+    sections = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "id": s.id,
+            "company_id": s.company_id,
+            "website_id": s.website_id,
+            "section_key": s.section_key,
+            "title": s.title,
+            "subtitle": s.subtitle,
+            "description": s.description,
+            "icon_or_image": s.icon_or_image,
+            "metadata_json": s.metadata_json or {},
+            "sort_order": s.sort_order,
+            "is_active": s.is_active,
+            "created_at": s.created_at,
+            "updated_at": s.updated_at
+        }
+        for s in sections
+    ]
+
+
+@website_router.post("/websites/sections", status_code=status.HTTP_201_CREATED)
+async def create_company_website_section(
+    payload: CompanyWebsiteSectionCreate,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Create a new extensible website section item (e.g. an Engineering Service or Machine).
+    Stored in company_website_sections and dynamically injected into the live website.
+    """
+    company_id = current_user.get("company_id")
+    if not company_id:
+        raise HTTPException(status_code=400, detail="Authenticated user is not linked to any company.")
+
+    site = (await db.execute(
+        select(CompanyWebsite).where(CompanyWebsite.company_id == company_id)
+    )).scalar_one_or_none()
+
+    now = now_iso()
+    new_sec = CompanyWebsiteSection(
+        id=str(uuid.uuid4()),
+        company_id=company_id,
+        website_id=site.id if site else None,
+        section_key=payload.section_key.strip().lower(),
+        title=payload.title.strip(),
+        subtitle=payload.subtitle.strip() if payload.subtitle else None,
+        description=payload.description.strip() if payload.description else None,
+        icon_or_image=payload.icon_or_image.strip() if payload.icon_or_image else None,
+        metadata_json=payload.metadata_json or {},
+        sort_order=payload.sort_order or 0,
+        is_active=payload.is_active if payload.is_active is not None else True,
+        created_at=now,
+        updated_at=now
+    )
+    db.add(new_sec)
+    await db.commit()
+    await db.refresh(new_sec)
+
+    return {
+        "id": new_sec.id,
+        "company_id": new_sec.company_id,
+        "website_id": new_sec.website_id,
+        "section_key": new_sec.section_key,
+        "title": new_sec.title,
+        "subtitle": new_sec.subtitle,
+        "description": new_sec.description,
+        "icon_or_image": new_sec.icon_or_image,
+        "metadata_json": new_sec.metadata_json or {},
+        "sort_order": new_sec.sort_order,
+        "is_active": new_sec.is_active,
+        "created_at": new_sec.created_at,
+        "updated_at": new_sec.updated_at
+    }
+
+
+@website_router.patch("/websites/sections/{section_id}")
+async def update_company_website_section(
+    section_id: str,
+    payload: CompanyWebsiteSectionUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update a custom section item."""
+    company_id = current_user.get("company_id")
+    is_admin = current_user.get("role") == "admin"
+
+    sec = (await db.execute(
+        select(CompanyWebsiteSection).where(CompanyWebsiteSection.id == section_id)
+    )).scalar_one_or_none()
+
+    if not sec:
+        raise HTTPException(status_code=404, detail="Website section item not found.")
+
+    if not is_admin and sec.company_id != company_id:
+        raise HTTPException(status_code=403, detail="Unauthorized to edit this section item.")
+
+    if payload.title is not None:
+        sec.title = payload.title.strip()
+    if payload.subtitle is not None:
+        sec.subtitle = payload.subtitle.strip()
+    if payload.description is not None:
+        sec.description = payload.description.strip()
+    if payload.icon_or_image is not None:
+        sec.icon_or_image = payload.icon_or_image.strip()
+    if payload.metadata_json is not None:
+        sec.metadata_json = payload.metadata_json
+    if payload.sort_order is not None:
+        sec.sort_order = payload.sort_order
+    if payload.is_active is not None:
+        sec.is_active = payload.is_active
+    sec.updated_at = now_iso()
+
+    await db.commit()
+    await db.refresh(sec)
+
+    return {
+        "id": sec.id,
+        "company_id": sec.company_id,
+        "website_id": sec.website_id,
+        "section_key": sec.section_key,
+        "title": sec.title,
+        "subtitle": sec.subtitle,
+        "description": sec.description,
+        "icon_or_image": sec.icon_or_image,
+        "metadata_json": sec.metadata_json or {},
+        "sort_order": sec.sort_order,
+        "is_active": sec.is_active,
+        "created_at": sec.created_at,
+        "updated_at": sec.updated_at
+    }
+
+
+@website_router.delete("/websites/sections/{section_id}")
+async def delete_company_website_section(
+    section_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a custom section item."""
+    company_id = current_user.get("company_id")
+    is_admin = current_user.get("role") == "admin"
+
+    sec = (await db.execute(
+        select(CompanyWebsiteSection).where(CompanyWebsiteSection.id == section_id)
+    )).scalar_one_or_none()
+
+    if not sec:
+        raise HTTPException(status_code=404, detail="Website section item not found.")
+
+    if not is_admin and sec.company_id != company_id:
+        raise HTTPException(status_code=403, detail="Unauthorized to delete this section item.")
+
+    await db.delete(sec)
+    await db.commit()
+    return {"ok": True, "message": "Website section deleted successfully", "id": section_id}
+
 

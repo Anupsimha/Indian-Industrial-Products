@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 import { SingleImageUploader } from "../components/MediaUploader";
 import TemplatePreviewModal from "../website_templates/components/TemplatePreviewModal";
+import { getAllTemplates } from "../website_templates/registry";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -2407,7 +2408,13 @@ const CustomWebsitesAdminTab = () => {
   const [checkingDomain, setCheckingDomain] = useState(false);
   const [domainCheckResult, setDomainCheckResult] = useState(null);
 
-  // Stage 2: Zip upload & AI guide
+  // Stage 2: Zip upload & Template selection
+  const [stage2Method, setStage2Method] = useState("template"); // 'template' | 'zip'
+  const [selectedTemplateId, setSelectedTemplateId] = useState("apex_precision");
+  const [linkingTemplate, setLinkingTemplate] = useState(false);
+  const [templateLinkResult, setTemplateLinkResult] = useState(null);
+  const availableTemplates = getAllTemplates();
+
   const [zipFile, setZipFile] = useState(null);
   const [uploadingZip, setUploadingZip] = useState(false);
   const [zipUploadResult, setZipUploadResult] = useState(null);
@@ -2474,8 +2481,15 @@ const CustomWebsitesAdminTab = () => {
 
   const openWizard = async (req) => {
     setActiveReq(req);
+    const hasTemplate = !!(req.custom_template_id);
+    setSelectedTemplateId(req.custom_template_id || "apex_precision");
+    setTemplateLinkResult(req.custom_template_id ? { template_id: req.custom_template_id } : null);
+    setStage2Method(hasTemplate ? "template" : "template");
+
     setWizardStage(
       req.status === "DEPLOYED" ? 3 :
+      req.deployment_status === "READY_FOR_DEPLOY" || req.deployment_status === "VALIDATED" ? 3 :
+      req.assigned_domain && req.dns_status === "VERIFIED" ? 2 :
       req.status === "IN_DEVELOPMENT" ? 2 :
       req.status === "DOMAIN_PURCHASED" ? 2 : 1
     );
@@ -2525,6 +2539,25 @@ const CustomWebsitesAdminTab = () => {
       toast.error(err.response?.data?.detail || "Stage 1 domain check failed");
     } finally {
       setCheckingDomain(false);
+    }
+  };
+
+  // Stage 2: Select platform template
+  const handleStageSelectTemplate = async (e) => {
+    if (e) e.preventDefault();
+    setLinkingTemplate(true);
+    try {
+      const res = await api.post(`/admin/websites/custom-requests/${activeReq.id}/stage-select-template`, {
+        template_id: selectedTemplateId
+      });
+      setTemplateLinkResult(res.data);
+      toast.success(res.data.message || `Platform template '${selectedTemplateId}' assigned successfully!`);
+      loadData();
+      loadLogs(activeReq.id);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to link template");
+    } finally {
+      setLinkingTemplate(false);
     }
   };
 
@@ -2877,100 +2910,236 @@ const CustomWebsitesAdminTab = () => {
                 </form>
               )}
 
-              {/* STAGE 2: AI GUIDE & ZIP SANDBOX UPLOAD */}
+              {/* STAGE 2: TEMPLATE SELECTION OR ZIP SANDBOX UPLOAD */}
               {wizardStage === 2 && (
                 <div className="space-y-4">
-                  {/* AI Generation Guidelines Accordion */}
-                  <div className="rounded-xl border border-purple-200 bg-purple-50/60 overflow-hidden">
+                  {/* Method Switcher Tabs */}
+                  <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200">
                     <button
                       type="button"
-                      onClick={() => setShowAiGuide(!showAiGuide)}
-                      className="w-full p-3 flex items-center justify-between text-purple-950 font-bold text-xs hover:bg-purple-100/50 transition-colors"
+                      onClick={() => setStage2Method("template")}
+                      className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                        stage2Method === "template"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                      data-testid="admin-stage2-tab-template"
                     >
-                      <div className="flex items-center gap-2">
-                        <Sparkles size={15} className="text-purple-600" />
-                        <span>AI Code Prompting &amp; Export Instructions (Emergent / Claude)</span>
-                      </div>
-                      <span className="text-[11px] text-purple-700">{showAiGuide ? "Hide Guide ▲" : "Show Guide ▼"}</span>
+                      <Sparkles size={14} className="text-amber-500" />
+                      <span>Method A: Select Platform Template (Instant &amp; Reliable)</span>
                     </button>
-                    {showAiGuide && (
-                      <div className="p-4 pt-1 border-t border-purple-200/60 text-[11px] text-purple-900 space-y-2 leading-relaxed">
-                        <p>
-                          <strong>Single Source of Truth Architecture:</strong> You do <em>not</em> need to configure or pay for MongoDB/Atlas/external DBs for custom sites.
-                        </p>
-                        <ul className="list-disc pl-5 space-y-1">
-                          <li>
-                            Prompt the AI to generate a pure static Vite/React/HTML single-page application.
-                          </li>
-                          <li>
-                            The frontend must query our backend API at:
-                            <code className="block mt-1 font-mono bg-purple-100 p-1.5 rounded text-purple-950">
-                              GET https://indianindustrialplatform.com/api/public/site/{activeReq.assigned_domain || activeReq.requested_domain}
-                            </code>
-                            This endpoint returns full company profile, categories, live products, posts, and reels.
-                          </li>
-                          <li>
-                            RFQ and quote submission buttons must call:
-                            <code className="block mt-1 font-mono bg-purple-100 p-1.5 rounded text-purple-950">
-                              POST https://indianindustrialplatform.com/api/enquiries
-                            </code>
-                          </li>
-                          <li>
-                            Run <code className="font-mono bg-purple-100 px-1 py-0.5 rounded">npm run build</code> and zip the contents of the output folder (must contain <code className="font-mono">index.html</code> at root).
-                          </li>
-                        </ul>
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setStage2Method("zip")}
+                      className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                        stage2Method === "zip"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                      data-testid="admin-stage2-tab-zip"
+                    >
+                      <Upload size={14} className="text-blue-500" />
+                      <span>Method B: Upload Custom Static Zip</span>
+                    </button>
                   </div>
 
-                  {/* Sandbox Zip Upload Form */}
-                  <form onSubmit={handleStageUploadZip} className="space-y-3">
-                    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                      <label className="font-bold text-slate-800 block">Upload Frontend Bundle (.zip)</label>
-                      <p className="text-[11px] text-slate-500">
-                        The backend scans for path traversal vulnerabilities, rejects executables, and extracts static assets into sandboxed vhost directory.
-                      </p>
-                      <input
-                        type="file"
-                        accept=".zip"
-                        onChange={(e) => setZipFile(e.target.files?.[0] || null)}
-                        className="w-full p-2 bg-white rounded-lg border border-slate-300 text-xs"
-                        required
-                        data-testid="admin-upload-zip-input"
-                      />
-                    </div>
-
-                    {zipUploadResult && (
-                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-1">
-                        <div className="flex items-center gap-1.5 font-bold">
-                          <CheckCircle2 size={15} />
-                          <span>Zip Sandbox Scanned &amp; Validated</span>
+                  {/* METHOD A: PLATFORM TEMPLATE SELECTION */}
+                  {stage2Method === "template" && (
+                    <div className="space-y-3">
+                      <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+                        <div>
+                          <label className="font-bold text-slate-800 text-xs block">Choose Pre-developed Template Architecture</label>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Connect this bespoke custom website to a battle-tested industrial template without zip bundle risks. All catalog items, company profile, and custom sections will dynamically populate from our database.
+                          </p>
                         </div>
-                        <p className="font-mono text-[10px] text-emerald-800">
-                          {zipUploadResult.files_count} files extracted to {zipUploadResult.destination_path}
-                        </p>
-                      </div>
-                    )}
 
-                    <div className="pt-2 flex justify-between items-center">
-                      <button
-                        type="button"
-                        onClick={() => setWizardStage(1)}
-                        className="text-slate-500 hover:text-slate-800 text-xs font-bold"
-                      >
-                        &larr; Back to Stage 1
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={uploadingZip || !zipFile}
-                        className="px-5 py-2.5 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
-                        data-testid="admin-submit-zip-btn"
-                      >
-                        {uploadingZip ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-                        <span>Upload &amp; Sandbox Validate</span>
-                      </button>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {availableTemplates.map((tmpl) => {
+                            const isSelected = selectedTemplateId === tmpl.id;
+                            return (
+                              <button
+                                key={tmpl.id}
+                                type="button"
+                                onClick={() => setSelectedTemplateId(tmpl.id)}
+                                className={`p-3 rounded-xl border text-left transition-all ${
+                                  isSelected
+                                    ? "bg-amber-50/70 border-amber-400 ring-2 ring-amber-400/20"
+                                    : "bg-white border-slate-200 hover:border-slate-300"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-1 mb-1">
+                                  <span className="font-bold text-xs text-slate-900">{tmpl.name}</span>
+                                  {tmpl.badge && (
+                                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                                      {tmpl.badge}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+                                  {tmpl.description}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={handleStageSelectTemplate}
+                            disabled={linkingTemplate}
+                            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+                            data-testid="admin-link-template-btn"
+                          >
+                            {linkingTemplate ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                            <span>Assign Template &amp; Ready for Deploy</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {(templateLinkResult || activeReq.custom_template_id) && (
+                        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                            <div>
+                              <p className="text-xs font-bold text-emerald-900">
+                                Template Linked: <span className="font-mono">{templateLinkResult?.template_id || activeReq.custom_template_id}</span>
+                              </p>
+                              <p className="text-[11px] text-emerald-700">
+                                Platform template assigned. Ready to proceed to Stage 3 live deployment.
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setWizardStage(3)}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs inline-flex items-center gap-1.5 transition-colors shrink-0"
+                            data-testid="admin-proceed-to-stage3-btn"
+                          >
+                            <span>Proceed to Stage 3: Deploy &amp; SSL</span>
+                            <ArrowRight size={13} />
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="pt-2 flex justify-start">
+                        <button
+                          type="button"
+                          onClick={() => setWizardStage(1)}
+                          className="text-slate-500 hover:text-slate-800 text-xs font-bold"
+                        >
+                          &larr; Back to Stage 1
+                        </button>
+                      </div>
                     </div>
-                  </form>
+                  )}
+
+                  {/* METHOD B: CUSTOM STATIC ZIP UPLOAD */}
+                  {stage2Method === "zip" && (
+                    <div className="space-y-3">
+                      {/* AI Generation Guidelines Accordion */}
+                      <div className="rounded-xl border border-purple-200 bg-purple-50/60 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setShowAiGuide(!showAiGuide)}
+                          className="w-full p-3 flex items-center justify-between text-purple-950 font-bold text-xs hover:bg-purple-100/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Sparkles size={15} className="text-purple-600" />
+                            <span>AI Code Prompting &amp; Export Instructions (Emergent / Claude)</span>
+                          </div>
+                          <span className="text-[11px] text-purple-700">{showAiGuide ? "Hide Guide ▲" : "Show Guide ▼"}</span>
+                        </button>
+                        {showAiGuide && (
+                          <div className="p-4 pt-1 border-t border-purple-200/60 text-[11px] text-purple-900 space-y-2 leading-relaxed">
+                            <p>
+                              <strong>Single Source of Truth Architecture:</strong> You do <em>not</em> need to configure or pay for MongoDB/Atlas/external DBs for custom sites.
+                            </p>
+                            <ul className="list-disc pl-5 space-y-1">
+                              <li>
+                                Prompt the AI to generate a pure static Vite/React/HTML single-page application.
+                              </li>
+                              <li>
+                                The frontend must query our backend API at:
+                                <code className="block mt-1 font-mono bg-purple-100 p-1.5 rounded text-purple-950">
+                                  GET https://indianindustrialplatform.com/api/public/site/{activeReq.assigned_domain || activeReq.requested_domain}
+                                </code>
+                                This endpoint returns full company profile, categories, live products, posts, and reels.
+                              </li>
+                              <li>
+                                RFQ and quote submission buttons must call:
+                                <code className="block mt-1 font-mono bg-purple-100 p-1.5 rounded text-purple-950">
+                                  POST https://indianindustrialplatform.com/api/enquiries
+                                </code>
+                              </li>
+                              <li>
+                                Run <code className="font-mono bg-purple-100 px-1 py-0.5 rounded">npm run build</code> and zip the contents of the output folder (must contain <code className="font-mono">index.html</code> at root).
+                              </li>
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Sandbox Zip Upload Form */}
+                      <form onSubmit={handleStageUploadZip} className="space-y-3">
+                        <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                          <label className="font-bold text-slate-800 block text-xs">Upload Frontend Bundle (.zip)</label>
+                          <p className="text-[11px] text-slate-500">
+                            The backend scans for path traversal vulnerabilities, rejects executables, and extracts static assets into sandboxed vhost directory.
+                          </p>
+                          <input
+                            type="file"
+                            accept=".zip"
+                            onChange={(e) => setZipFile(e.target.files?.[0] || null)}
+                            className="w-full p-2 bg-white rounded-lg border border-slate-300 text-xs"
+                            required
+                            data-testid="admin-upload-zip-input"
+                          />
+                        </div>
+
+                        {zipUploadResult && (
+                          <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5 font-bold text-xs">
+                                <CheckCircle2 size={15} />
+                                <span>Zip Sandbox Scanned &amp; Validated</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setWizardStage(3)}
+                                className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs inline-flex items-center gap-1 transition-colors"
+                              >
+                                <span>Stage 3 &rarr;</span>
+                              </button>
+                            </div>
+                            <p className="font-mono text-[10px] text-emerald-800">
+                              {zipUploadResult.files_count} files extracted to {zipUploadResult.destination_path}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="pt-2 flex justify-between items-center">
+                          <button
+                            type="button"
+                            onClick={() => setWizardStage(1)}
+                            className="text-slate-500 hover:text-slate-800 text-xs font-bold"
+                          >
+                            &larr; Back to Stage 1
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={uploadingZip || !zipFile}
+                            className="px-5 py-2.5 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+                            data-testid="admin-submit-zip-btn"
+                          >
+                            {uploadingZip ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                            <span>Upload &amp; Sandbox Validate</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -31,6 +31,24 @@ export const TEMPLATE_REGISTRY = {
       "Dedicated engineering & precision job-work services showcase",
       "4-Step structured quotation workflow (From Requirement to Dispatch)",
       "Direct WhatsApp RFQ and technical drawing inquiry modal"
+    ],
+    customModules: [
+      {
+        key: "services",
+        label: "Engineering Services",
+        singular: "Service",
+        plural: "Engineering Services",
+        icon: "Wrench",
+        description: "Manage precision job-work, CNC machining, laser marking, and additive prototyping services showcased on your website.",
+        fields: [
+          { key: "title", label: "Service Name", type: "text", required: true, placeholder: "e.g. Precision CNC Machining Job Work" },
+          { key: "subtitle", label: "Service Code", type: "text", placeholder: "e.g. S/01" },
+          { key: "description", label: "Service Description", type: "textarea", required: true, placeholder: "Describe capacity, tolerances, machinery, materials handled..." },
+          { key: "icon_or_image", label: "Showcase Image URL", type: "image", placeholder: "https://... or image link" },
+          { key: "turnaround", label: "Turnaround / Timeline (Optional)", type: "text", isMetadata: true, placeholder: "e.g. 24 - 48 Hours" },
+          { key: "deliverables", label: "Deliverables / Specs (Optional)", type: "text", isMetadata: true, placeholder: "e.g. CAD/CAM machining with CMM inspection report" }
+        ]
+      }
     ]
   },
   bloom_pro: {
@@ -125,7 +143,7 @@ export function getSampleDataForTemplate(templateId) {
  * Merges user company & product data with template sample data for realistic live previews.
  * If user has no data for a field, gracefully falls back to template sample defaults.
  */
-export function mergePreviewData(sampleData, userCompany = null, userProducts = [], userPosts = [], userReels = []) {
+export function mergePreviewData(sampleData, userCompany = null, userProducts = [], userPosts = [], userReels = [], userServices = []) {
   if (!userCompany || !userCompany.name) {
     return {
       ...sampleData,
@@ -172,13 +190,22 @@ export function mergePreviewData(sampleData, userCompany = null, userProducts = 
   const mergedProducts = formattedUserProducts.length > 0 ? formattedUserProducts : sampleData.products;
   const mergedPosts = (userPosts && userPosts.length > 0) ? userPosts : sampleData.posts;
   const mergedReels = (userReels && userReels.length > 0) ? userReels : sampleData.reels;
+  const mergedServices = (userServices && userServices.length > 0)
+    ? userServices.map((s, idx) => ({
+        id: s.id || `srv-${idx}`,
+        code: s.subtitle || `S/0${idx + 1}`,
+        name: s.title || s.name,
+        image_url: s.icon_or_image || s.image_url || (sampleData.services && sampleData.services[idx % sampleData.services.length]?.image_url),
+        description: s.description || ""
+      }))
+    : (sampleData.services || []);
 
   return {
     company: mergedCompany,
     products: mergedProducts,
     posts: mergedPosts,
     reels: mergedReels,
-    services: sampleData.services || [],
+    services: mergedServices,
     steps: sampleData.steps || [],
     hasUserCompany: true,
     hasUserProducts: formattedUserProducts.length > 0
