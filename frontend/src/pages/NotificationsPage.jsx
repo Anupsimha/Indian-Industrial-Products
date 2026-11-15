@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
-import { Bell, UserPlus, Heart, MessageSquare, Package, FileText, CheckCheck, Crown, ShoppingBag, Users, Headphones, Building2, ArrowRight } from "lucide-react";
+import { Bell, UserPlus, Heart, MessageSquare, Package, FileText, CheckCheck, Crown, ShoppingBag, Users, Headphones, Building2, ArrowRight, Receipt, CheckCircle2, AlertTriangle, Wallet } from "lucide-react";
 import { BackButton } from "../components/BackButton";
 import { toast } from "sonner";
 
@@ -58,7 +58,17 @@ export default function NotificationsPage() {
       const title = (n.title || "").toLowerCase();
       const body = (n.body || "").toLowerCase();
 
-      if (type.includes("plan") || title.includes("plan")) {
+      if (type === "partner_bill_uploaded") {
+        targetRoute = "/leads?tab=partner_purchased";
+      } else if (
+        type === "partner_lead_sold" ||
+        type === "partner_payout_approved" ||
+        type === "partner_fake_reported"
+      ) {
+        targetRoute = "/sales-partner";
+      } else if (type === "partner_fake_refund") {
+        targetRoute = "/settings";
+      } else if (type.includes("plan") || title.includes("plan")) {
         targetRoute = "/settings";
       } else if (type.includes("order") || title.includes("order")) {
         targetRoute = "/orders";
@@ -88,6 +98,21 @@ export default function NotificationsPage() {
     const type = (n.type || "").toLowerCase();
     const title = (n.title || "").toLowerCase();
 
+    if (type === "partner_bill_uploaded") {
+      return <Receipt size={18} className="text-blue-600" />;
+    }
+    if (type === "partner_lead_sold") {
+      return <ShoppingBag size={18} className="text-orange-600" />;
+    }
+    if (type === "partner_payout_approved") {
+      return <CheckCircle2 size={18} className="text-emerald-600" />;
+    }
+    if (type === "partner_fake_reported") {
+      return <AlertTriangle size={18} className="text-rose-600" />;
+    }
+    if (type === "partner_fake_refund") {
+      return <Wallet size={18} className="text-emerald-600" />;
+    }
     if (type.includes("plan") || title.includes("plan")) {
       return <Crown size={18} className="text-amber-500" />;
     }

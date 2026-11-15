@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
-import api from "../lib/api";
+import api, { formatApiError } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useSupportContact } from "../context/SupportContactContext";
 import { Navigate, Link } from "react-router-dom";
 
-import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone, Settings as SettingsIcon, Landmark, Globe, Eye, Sparkles, Layers, Upload, Terminal, FileCode, CheckCircle2, AlertTriangle, ShieldCheck, ExternalLink, HelpCircle, FileText, Server, Clock, Loader2, ArrowRight, Shield } from "lucide-react";
+import { Users, Building2, Newspaper, Film, Package, Inbox, Briefcase, Heart, Trash2, Star, BarChart3, Crown, Edit, Plus, X, Check, ToggleLeft, ToggleRight, Tag, MapPin, Image, Mail, Phone, Settings as SettingsIcon, Landmark, Globe, Eye, Sparkles, Layers, Upload, Terminal, FileCode, CheckCircle2, AlertTriangle, ShieldCheck, ExternalLink, HelpCircle, FileText, Server, Clock, Loader2, ArrowRight, Shield, RefreshCw, Search, ShieldAlert, IndianRupee } from "lucide-react";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 import { SingleImageUploader } from "../components/MediaUploader";
@@ -51,6 +51,7 @@ export default function AdminPage() {
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "leads", label: "Buyer Leads", icon: Inbox },
+    { id: "partner-deals", label: "Partner Deals", icon: ShieldCheck },
     { id: "templates", label: "Website Templates", icon: Globe },
     { id: "custom-websites", label: "Custom Websites", icon: Layers },
     { id: "settlements", label: "Payout Settlements", icon: Landmark },
@@ -87,6 +88,7 @@ export default function AdminPage() {
 
       {tab === "overview" && stats && analytics && <Overview stats={stats} analytics={analytics} />}
       {tab === "leads" && <BuyerLeadsTab />}
+      {tab === "partner-deals" && <SalesPartnerDealsTab />}
       {tab === "templates" && <WebsiteTemplatesTab />}
       {tab === "custom-websites" && <CustomWebsitesAdminTab />}
       {tab === "contact-enquiries" && <ContactEnquiriesTab />}
@@ -1856,7 +1858,7 @@ const AdminSettlementsTab = ({ settlements = [], reload }) => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200">
                 <tr>
-                  <th className="p-3">Seller Company</th>
+                  <th className="p-3">Beneficiary / Company</th>
                   <th className="p-3">Policy</th>
                   <th className="p-3">Amount</th>
                   <th className="p-3">Bank Account</th>
@@ -1868,7 +1870,7 @@ const AdminSettlementsTab = ({ settlements = [], reload }) => {
               <tbody className="divide-y divide-slate-100">
                 {settlements.map((s) => (
                   <tr key={s.id} className="hover:bg-slate-50">
-                    <td className="p-3 font-bold text-slate-900">{s.company_name}</td>
+                    <td className="p-3 font-bold text-slate-900">{s.company_name || s.beneficiary_name || s.user_name || "—"}</td>
                     <td className="p-3 font-semibold uppercase text-slate-600">{s.settlement_policy}</td>
                     <td className="p-3 font-extrabold text-slate-900 text-sm">₹{s.amount.toLocaleString("en-IN")}</td>
                     <td className="p-3 text-slate-600">
@@ -3249,6 +3251,617 @@ const CustomWebsitesAdminTab = () => {
     </div>
   );
 };
+
+// ─── Sales Partner Deals & Disputes Tab ───────────────────────────────────────
+const ADMIN_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
+
+const resolveAdminMediaUrl = (url) => {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url) || url.startsWith("data:") || url.startsWith("blob:")) {
+    return url;
+  }
+  return `${ADMIN_BACKEND_URL}${url.startsWith("/") ? url : `/${url}`}`;
+};
+
+const isDealPdfUrl = (url) => String(url || "").toLowerCase().split("?")[0].endsWith(".pdf");
+
+const DEAL_STATUS_META = {
+  UNLOCKED: {
+    label: "UNLOCKED",
+    cls: "bg-amber-100 text-amber-800 border-amber-200",
+  },
+  INVOICE_UPLOADED: {
+    label: "INVOICE_UPLOADED",
+    cls: "bg-indigo-100 text-indigo-800 border-indigo-200",
+  },
+  FAKE_REPORTED: {
+    label: "FAKE_REPORTED",
+    cls: "bg-rose-100 text-rose-800 border-rose-300",
+  },
+  APPROVED: {
+    label: "APPROVED",
+    cls: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  },
+  REFUNDED: {
+    label: "REFUNDED",
+    cls: "bg-slate-200 text-slate-800 border-slate-300",
+  },
+};
+
+const DEAL_FILTER_PILLS = [
+  { id: "ALL", label: "All" },
+  { id: "FAKE_REPORTED", label: "Disputed (Fake Reported)" },
+  { id: "INVOICE_UPLOADED", label: "Bill Uploaded" },
+  { id: "UNLOCKED", label: "Unlocked" },
+  { id: "APPROVED", label: "Approved" },
+  { id: "REFUNDED", label: "Refunded" },
+];
+
+const RESOLVE_ACTION_META = {
+  approve_partner_payout: {
+    title: "Override & Approve Partner Payout (50%)",
+    description: "Credits 50% of the base lead fee to the Sales Partner's wallet and marks this deal APPROVED.",
+    btnCls: "bg-emerald-600 hover:bg-emerald-700 text-white",
+  },
+  approve_fake_refund: {
+    title: "Confirm Fake & Refund Buyer (50%)",
+    description: "Confirms the fake lead claim, refunds 50% of the base lead fee to the Buyer's wallet, and marks this deal REFUNDED.",
+    btnCls: "bg-rose-600 hover:bg-rose-700 text-white",
+  },
+  reject_fake_report: {
+    title: "Reject Fake Claim",
+    description: "Rejects the buyer's fake-lead dispute and restores the deal so bill upload / approval can continue.",
+    btnCls: "bg-amber-600 hover:bg-amber-700 text-white",
+  },
+};
+
+const SalesPartnerDealsTab = () => {
+  const [deals, setDeals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const [billModal, setBillModal] = useState(null); // { url, notes, uploadedAt }
+  const [resolveModal, setResolveModal] = useState(null); // { deal, action }
+  const [decisionNotes, setDecisionNotes] = useState("");
+  const [resolving, setResolving] = useState(false);
+
+  const loadDeals = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/sales-partner-deals");
+      setDeals(Array.isArray(data) ? data : []);
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "Failed to load Sales Partner deals");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDeals();
+  }, []);
+
+  const openResolveModal = (deal, action) => {
+    setResolveModal({ deal, action });
+    setDecisionNotes("");
+  };
+
+  const handleConfirmResolve = async (e) => {
+    e.preventDefault();
+    if (!resolveModal) return;
+    const { deal, action } = resolveModal;
+    setResolving(true);
+    try {
+      const payload = { action };
+      if (decisionNotes.trim()) {
+        payload.notes = decisionNotes.trim();
+      }
+      const { data } = await api.post(`/admin/sales-partner-deals/${deal.id}/resolve`, payload);
+      if (data?.deal) {
+        setDeals((prev) => prev.map((item) => (item.id === deal.id ? { ...item, ...data.deal } : item)));
+      }
+      toast.success("Deal decision recorded successfully.");
+      setResolveModal(null);
+      setDecisionNotes("");
+      loadDeals();
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "Failed to resolve deal");
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const statusCounts = deals.reduce(
+    (acc, d) => {
+      acc.ALL += 1;
+      if (d.status && acc[d.status] !== undefined) acc[d.status] += 1;
+      return acc;
+    },
+    { ALL: 0, FAKE_REPORTED: 0, INVOICE_UPLOADED: 0, UNLOCKED: 0, APPROVED: 0, REFUNDED: 0 }
+  );
+
+  const filteredDeals = deals.filter((d) => {
+    if (statusFilter !== "ALL" && d.status !== statusFilter) return false;
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      (d.lead?.product_name || "").toLowerCase().includes(q) ||
+      (d.lead?.category || "").toLowerCase().includes(q) ||
+      (d.lead?.location || "").toLowerCase().includes(q) ||
+      (d.sales_partner?.name || "").toLowerCase().includes(q) ||
+      (d.sales_partner?.mobile || "").toLowerCase().includes(q) ||
+      (d.sales_partner?.email || "").toLowerCase().includes(q) ||
+      (d.buyer?.name || "").toLowerCase().includes(q) ||
+      (d.buyer?.mobile || "").toLowerCase().includes(q) ||
+      (d.buyer?.email || "").toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div className="mt-3 space-y-4" data-testid="admin-partner-deals-tab">
+      {/* Header & Search */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display font-bold text-base text-slate-900 flex items-center gap-2">
+            <ShieldCheck size={18} className="text-indigo-700" />
+            Sales Partner Deals &amp; Disputes
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Inspect purchased partner leads, verify uploaded transaction bills, and resolve fake-lead disputes (50% escrow split).
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search lead, partner, buyer..."
+              className="pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 w-56"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={loadDeals}
+            className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5"
+          >
+            <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Pills */}
+      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1" data-testid="admin-partner-deals-filters">
+        {DEAL_FILTER_PILLS.map((pill) => {
+          const active = statusFilter === pill.id;
+          const countVal = statusCounts[pill.id] ?? 0;
+          const isDisputedPill = pill.id === "FAKE_REPORTED";
+          return (
+            <button
+              key={pill.id}
+              type="button"
+              onClick={() => setStatusFilter(pill.id)}
+              data-testid={`partner-deal-filter-${pill.id.toLowerCase()}`}
+              className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all inline-flex items-center gap-1.5 ${
+                active
+                  ? isDisputedPill
+                    ? "bg-rose-600 text-white shadow-sm"
+                    : "bg-blue-800 text-white shadow-sm"
+                  : isDisputedPill && countVal > 0
+                  ? "bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100"
+                  : "bg-white border border-slate-200 text-slate-600 hover:border-blue-300"
+              }`}
+            >
+              <span>{pill.label}</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700"
+              }`}>
+                {countVal}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Deals List */}
+      {loading ? (
+        <div className="p-10 text-center text-xs text-slate-400">Loading Sales Partner deals...</div>
+      ) : filteredDeals.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-sm text-slate-500">
+          No Sales Partner deals matching this filter.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredDeals.map((d) => {
+            const statusMeta = DEAL_STATUS_META[d.status] || {
+              label: d.status || "UNKNOWN",
+              cls: "bg-slate-100 text-slate-700 border-slate-200",
+            };
+            const isFinalized = d.status === "APPROVED" || d.status === "REFUNDED";
+            const splitAmount = Number(
+              d.partner_share_amount ?? d.refund_share_amount ?? Number(d.lead_value_base || 0) * 0.5
+            );
+            const billUrl = resolveAdminMediaUrl(d.bill_image_url);
+
+            return (
+              <div
+                key={d.id}
+                data-testid={`admin-partner-deal-${d.id}`}
+                className={`bg-white border rounded-2xl p-4 sm:p-5 shadow-sm space-y-4 ${
+                  d.status === "FAKE_REPORTED"
+                    ? "border-rose-300 ring-1 ring-rose-200"
+                    : d.status === "INVOICE_UPLOADED"
+                    ? "border-indigo-200"
+                    : "border-slate-200"
+                }`}
+              >
+                {/* Top Header */}
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-display font-bold text-base text-slate-900">
+                        {d.lead?.product_name || d.lead?.requirement?.slice(0, 60) || "Sales Partner Lead"}
+                      </h3>
+                      {d.lead?.category && (
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                          {d.lead.category}
+                        </span>
+                      )}
+                      <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${statusMeta.cls}`}>
+                        {statusMeta.label}
+                      </span>
+                    </div>
+                    {d.lead?.location && (
+                      <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                        <MapPin size={11} className="text-slate-400" /> {d.lead.location}
+                        {d.created_at && (
+                          <span className="ml-2 text-slate-400">
+                            • Purchased {new Date(d.created_at).toLocaleDateString("en-IN")}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Financial Summary Pills */}
+                  <div className="grid grid-cols-3 gap-2 shrink-0 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs">
+                    <div>
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Deal Value</div>
+                      <div className="font-extrabold text-slate-900">
+                        ₹{Number(d.total_deal_value || 0).toLocaleString("en-IN")}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Paid (+GST)</div>
+                      <div className="font-extrabold text-indigo-800">
+                        ₹{Number(d.lead_value_base || 0).toLocaleString("en-IN")} + ₹{Number(d.gst_amount || 0).toLocaleString("en-IN")}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-700">50% Split</div>
+                      <div className="font-extrabold text-emerald-700">
+                        ₹{splitAmount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Partner & Buyer Info */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div className="bg-amber-50/60 border border-amber-200/80 rounded-xl p-3 space-y-1">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-amber-800">
+                      Sales Partner
+                    </div>
+                    <div className="font-bold text-slate-900">{d.sales_partner?.name || "—"}</div>
+                    <div className="text-slate-600 flex flex-wrap gap-x-3 gap-y-1">
+                      {d.sales_partner?.mobile && (
+                        <span className="inline-flex items-center gap-1"><Phone size={11} /> {d.sales_partner.mobile}</span>
+                      )}
+                      {d.sales_partner?.email && (
+                        <span className="inline-flex items-center gap-1"><Mail size={11} /> {d.sales_partner.email}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50/60 border border-blue-200/80 rounded-xl p-3 space-y-1">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-blue-800">
+                      Buyer / Manufacturer
+                    </div>
+                    <div className="font-bold text-slate-900">{d.buyer?.name || "—"}</div>
+                    <div className="text-slate-600 flex flex-wrap gap-x-3 gap-y-1">
+                      {d.buyer?.mobile && (
+                        <span className="inline-flex items-center gap-1"><Phone size={11} /> {d.buyer.mobile}</span>
+                      )}
+                      {d.buyer?.email && (
+                        <span className="inline-flex items-center gap-1"><Mail size={11} /> {d.buyer.email}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Client Lead Snippet */}
+                {(d.lead?.client_name || d.lead?.client_mobile || d.lead?.requirement) && (
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-xs space-y-1">
+                    <div className="flex items-center gap-3 flex-wrap text-slate-700">
+                      {d.lead?.client_name && (
+                        <span><strong className="text-slate-900">Lead Client:</strong> {d.lead.client_name}</span>
+                      )}
+                      {d.lead?.client_mobile && (
+                        <span className="font-mono"><strong className="text-slate-900">Phone:</strong> {d.lead.client_mobile}</span>
+                      )}
+                    </div>
+                    {d.lead?.requirement && (
+                      <p className="text-slate-600 line-clamp-2">{d.lead.requirement}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Uploaded Bill Preview */}
+                {d.bill_image_url && (
+                  <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                    <div className="space-y-0.5">
+                      <div className="font-bold text-indigo-950 flex items-center gap-1.5">
+                        <FileText size={14} className="text-indigo-700" />
+                        Transaction Bill Uploaded
+                        {d.bill_uploaded_at && (
+                          <span className="font-normal text-indigo-700 text-[11px]">
+                            • {new Date(d.bill_uploaded_at).toLocaleString("en-IN")}
+                          </span>
+                        )}
+                      </div>
+                      {d.bill_notes && (
+                        <p className="text-slate-700">Partner Notes: {d.bill_notes}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBillModal({
+                            url: d.bill_image_url,
+                            notes: d.bill_notes,
+                            uploadedAt: d.bill_uploaded_at,
+                          })
+                        }
+                        data-testid={`admin-preview-bill-${d.id}`}
+                        className="px-3 py-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-800 hover:bg-indigo-100 font-bold inline-flex items-center gap-1"
+                      >
+                        <Eye size={13} /> Preview Bill
+                      </button>
+                      <a
+                        href={billUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded-lg bg-indigo-700 text-white hover:bg-indigo-800 font-bold inline-flex items-center gap-1"
+                      >
+                        <ExternalLink size={12} /> Open File
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {/* Fake Report Reason Box */}
+                {d.fake_report_reason && (
+                  <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs space-y-1">
+                    <div className="font-extrabold text-rose-900 flex items-center gap-1.5">
+                      <ShieldAlert size={14} className="text-rose-600" />
+                      Fake Lead Dispute Reported by Buyer
+                      {d.fake_reported_at && (
+                        <span className="font-normal text-rose-700 text-[11px]">
+                          • {new Date(d.fake_reported_at).toLocaleString("en-IN")}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-rose-900 whitespace-pre-line">{d.fake_report_reason}</p>
+                  </div>
+                )}
+
+                {/* Admin Decision Notes (if resolved) */}
+                {(d.admin_decision_notes || d.resolved_at) && (
+                  <div className="bg-slate-100 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 space-y-0.5">
+                    <div className="font-bold text-slate-900">
+                      Admin Resolution
+                      {d.resolved_at && (
+                        <span className="font-normal text-slate-500 ml-1.5">
+                          ({new Date(d.resolved_at).toLocaleString("en-IN")})
+                        </span>
+                      )}
+                    </div>
+                    {d.admin_decision_notes && <p>{d.admin_decision_notes}</p>}
+                  </div>
+                )}
+
+                {/* Resolution Actions for non-finalized deals */}
+                {!isFinalized && (
+                  <div className="pt-2 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => openResolveModal(d, "approve_partner_payout")}
+                      data-testid={`admin-approve-payout-${d.id}`}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs"
+                    >
+                      <CheckCircle2 size={13} /> Override &amp; Approve Partner Payout (50%)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openResolveModal(d, "approve_fake_refund")}
+                      data-testid={`admin-confirm-refund-${d.id}`}
+                      className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs"
+                    >
+                      <IndianRupee size={13} /> Confirm Fake &amp; Refund Buyer (50%)
+                    </button>
+                    {d.status === "FAKE_REPORTED" && (
+                      <button
+                        type="button"
+                        onClick={() => openResolveModal(d, "reject_fake_report")}
+                        data-testid={`admin-reject-fake-${d.id}`}
+                        className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold inline-flex items-center gap-1.5"
+                      >
+                        <AlertTriangle size={13} /> Reject Fake Claim
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Bill Preview Modal */}
+      {billModal && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setBillModal(null)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900">Transaction Bill Preview</h3>
+                {billModal.uploadedAt && (
+                  <p className="text-[11px] text-slate-500">
+                    Uploaded {new Date(billModal.uploadedAt).toLocaleString("en-IN")}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={resolveAdminMediaUrl(billModal.url)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-bold inline-flex items-center gap-1 hover:bg-indigo-100"
+                >
+                  <ExternalLink size={12} /> Open in New Tab
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setBillModal(null)}
+                  className="p-1 text-slate-400 hover:text-slate-700"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="p-4 bg-slate-50 overflow-auto flex-1 flex flex-col items-center justify-center gap-3">
+              {billModal.notes && (
+                <div className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700">
+                  <strong>Partner Notes:</strong> {billModal.notes}
+                </div>
+              )}
+              {isDealPdfUrl(billModal.url) ? (
+                <div className="py-8 text-center space-y-3">
+                  <FileText size={40} className="mx-auto text-rose-500" />
+                  <p className="text-xs text-slate-600">PDF Transaction Bill attached.</p>
+                  <a
+                    href={resolveAdminMediaUrl(billModal.url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold"
+                  >
+                    <ExternalLink size={13} /> Open PDF Document
+                  </a>
+                </div>
+              ) : (
+                <img
+                  src={resolveAdminMediaUrl(billModal.url)}
+                  alt="Transaction Bill"
+                  className="max-w-full max-h-[65vh] rounded-xl border border-slate-200 object-contain bg-white"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Decision Confirmation Modal */}
+      {resolveModal && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => !resolving && setResolveModal(null)}
+          data-testid="admin-resolve-deal-modal"
+        >
+          <div
+            className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-display font-bold text-base text-slate-900">
+                {RESOLVE_ACTION_META[resolveModal.action]?.title}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setResolveModal(null)}
+                disabled={resolving}
+                className="text-slate-400 hover:text-slate-700"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1">
+              <div className="font-bold text-slate-900">
+                {resolveModal.deal.lead?.product_name || "Sales Partner Lead"}
+              </div>
+              <div className="text-slate-600">
+                Partner: <strong>{resolveModal.deal.sales_partner?.name || "—"}</strong> • Buyer:{" "}
+                <strong>{resolveModal.deal.buyer?.name || "—"}</strong>
+              </div>
+              <p className="text-slate-700 pt-1">
+                {RESOLVE_ACTION_META[resolveModal.action]?.description}
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmResolve} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Admin Decision Notes (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={decisionNotes}
+                  onChange={(e) => setDecisionNotes(e.target.value)}
+                  placeholder="Record verification summary or dispute resolution notes..."
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  data-testid="admin-resolve-notes-input"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setResolveModal(null)}
+                  disabled={resolving}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={resolving}
+                  data-testid="admin-confirm-resolve-btn"
+                  className={`px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-60 ${
+                    RESOLVE_ACTION_META[resolveModal.action]?.btnCls || "bg-blue-700 text-white"
+                  }`}
+                >
+                  {resolving ? (
+                    <><Loader2 size={13} className="animate-spin" /> Processing…</>
+                  ) : (
+                    <>Confirm Decision</>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 
 

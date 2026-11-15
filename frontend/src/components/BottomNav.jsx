@@ -17,12 +17,15 @@ export const BottomNav = () => {
   const [productOpen, setProductOpen] = useState(false);
 
   const isBuyer = user && user.role === "buyer";
+  const isSalesPartner = user && user.role === "sales_partner";
   const navItems = [
     { to: "/", label: "Home", icon: Home, testid: "nav-home" },
     { to: "/reels", label: "Reels", icon: Film, testid: "nav-reels" },
     { to: "/post-enquiry", label: "Post", icon: PlusSquare, testid: "nav-post", isCenter: true },
     { to: "/products", label: "Products", icon: Package, testid: "nav-products" },
-    isBuyer
+    isSalesPartner
+      ? { to: "/sales-partner", label: "Partner Hub", icon: Inbox, testid: "nav-sales-partner" }
+      : isBuyer
       ? { to: "/requirements", label: "My Requirements", icon: Inbox, testid: "nav-requirements" }
       : { to: "/leads", label: "Leads", icon: Inbox, testid: "nav-leads" },
   ];
@@ -34,11 +37,16 @@ export const BottomNav = () => {
       navigate("/login");
       return;
     }
-    if (user.role !== "manufacturer" && user.role !== "supplier" && user.role !== "buyer") {
-      toast.error("Access Denied: Only Manufacturers, Sellers and Buyers can create posts/requirements.");
+    if (
+      user.role !== "manufacturer" &&
+      user.role !== "supplier" &&
+      user.role !== "buyer" &&
+      user.role !== "sales_partner"
+    ) {
+      toast.error("Access Denied: Only Manufacturers, Sellers, Buyers and Sales Partners can create posts/requirements.");
       return;
     }
-    if (user.role === "buyer") {
+    if (user.role === "buyer" || user.role === "sales_partner") {
       navigate("/post-enquiry");
       return;
     }
@@ -54,7 +62,7 @@ export const BottomNav = () => {
         <div className="max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto">
           <ul className="grid grid-cols-5 lg:flex lg:justify-evenly lg:items-center lg:h-20">
             {navItems.map(({ to, label, icon: Icon, testid, isCenter }) => {
-              const requiresAuth = (to === "/leads" || to === "/requirements") && !user;
+              const requiresAuth = (to === "/leads" || to === "/requirements" || to === "/sales-partner") && !user;
 
               if (isCenter) {
                 return (

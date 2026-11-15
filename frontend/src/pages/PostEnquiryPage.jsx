@@ -1,16 +1,22 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api, { formatApiError } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
-import { Send, FileText, Upload, Trash2, CheckCircle2, ChevronDown, ListTodo, Paperclip } from "lucide-react";
+import { Send, FileText, Upload, Trash2, CheckCircle2, ChevronDown, ListTodo, Briefcase, IndianRupee, ShieldCheck, Wallet } from "lucide-react";
 import { BackButton } from "../components/BackButton";
 import { LocationPicker } from "../components/LocationPicker";
 import { CATEGORIES } from "../lib/constants";
 
 export default function PostEnquiryPage() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const isSalesPartner = user?.role === "sales_partner";
+
   const [form, setForm] = useState({
     name: "", mobile: "", requirement: "", category: "",
     product_name: "", quantity: "", budget: "₹50,000 - 1 Lakh",
-    required_by: "15 Days"
+    required_by: "15 Days", total_deal_value: ""
   });
   const [loc, setLoc] = useState({ state: "", city: "", industrial_area: "" });
   const [categories, setCategories] = useState([]);
@@ -63,10 +69,17 @@ export default function PostEnquiryPage() {
     });
   };
 
+  const dealValueNum = Number(form.total_deal_value) || 0;
+  const leadValue = Math.round(dealValueNum * 0.02 * 100) / 100;
+
   const submit = async (e) => {
     e.preventDefault();
     if (!loc.state || !loc.city || !loc.industrial_area) {
       toast.error("Please select State, City and Industrial Area");
+      return;
+    }
+    if (isSalesPartner && (!form.total_deal_value || Number(form.total_deal_value) < 100)) {
+      toast.error("Please enter a Total Deal Value of at least ₹100");
       return;
     }
     setSubmitting(true);
@@ -82,7 +95,12 @@ export default function PostEnquiryPage() {
       fd.append("industrial_area", loc.industrial_area);
       if (form.product_name) fd.append("product_name", form.product_name);
       if (form.quantity)     fd.append("quantity", form.quantity);
-      if (form.budget)       fd.append("budget", form.budget);
+      if (isSalesPartner) {
+        fd.append("total_deal_value", String(form.total_deal_value));
+        fd.append("is_sales_partner_lead", "true");
+      } else if (form.budget) {
+        fd.append("budget", form.budget);
+      }
       if (form.required_by)  fd.append("required_by", form.required_by);
 
       // Attach each real File object under the "media" key
@@ -91,6 +109,13 @@ export default function PostEnquiryPage() {
       });
 
       await api.post("/enquiries", fd);
+      if (isSalesPartner) {
+        toast.success("Sales Partner lead posted! Track buyer unlocks and upload bills in Partner Hub.", {
+          icon: <CheckCircle2 className="text-emerald-500" size={16} />
+        });
+        navigate("/sales-partner");
+        return;
+      }
       toast.success("Requirement posted! Verified suppliers will contact you on your number.", {
         description: "An SMS confirmation has been sent.",
         icon: <CheckCircle2 className="text-emerald-500" size={16} />
@@ -98,7 +123,7 @@ export default function PostEnquiryPage() {
       setForm({
         name: "", mobile: "", requirement: "", category: "",
         product_name: "", quantity: "", budget: "₹50,000 - 1 Lakh",
-        required_by: "15 Days"
+        required_by: "15 Days", total_deal_value: ""
       });
       setLoc({ state: "", city: "", industrial_area: "" });
       setAttachments([]);
@@ -117,15 +142,21 @@ export default function PostEnquiryPage() {
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0F294A] to-[#0A1D36] text-white shadow-xl p-5 border border-slate-800">
         <div className="flex items-center gap-3">
           <span className="grid place-items-center w-10 h-10 rounded-xl bg-white/10 text-orange-400">
-            <ListTodo size={20} />
+            {isSalesPartner ? <Briefcase size={20} /> : <ListTodo size={20} />}
           </span>
           <div>
-            <div className="text-[10px] font-bold tracking-[0.25em] uppercase text-orange-300">Post Requirement</div>
-            <h1 className="font-display text-xl sm:text-2xl font-black mt-0.5">Tell us what you need</h1>
+            <div className="text-[10px] font-bold tracking-[0.25em] uppercase text-orange-300">
+              {isSalesPartner ? "Sales Partner Program" : "Post Requirement"}
+            </div>
+            <h1 className="font-display text-xl sm:text-2xl font-black mt-0.5">
+              {isSalesPartner ? "Post Sales Partner Lead" : "Tell us what you need"}
+            </h1>
           </div>
         </div>
-        <p className="text-white/70 text-xs sm:text-sm mt-3 leading-relaxed max-w-lg">
-          Your requirement reaches verified manufacturers across India. Get quotes from matching suppliers in minutes.
+        <p className="text-white/75 text-xs sm:text-sm mt-3 leading-relaxed max-w-2xl">
+          {isSalesPartner
+            ? "Buyers pay 2% of the total deal value (+ 18% GST) to unlock your verified lead. Once you upload the transaction bill and the buyer approves it, you earn 50% of the lead value directly in your wallet."
+            : "Your requirement reaches verified manufacturers across India. Get quotes from matching suppliers in minutes."}
         </p>
       </div>
 
@@ -209,25 +240,43 @@ export default function PostEnquiryPage() {
           <LocationPicker value={loc} onChange={setLoc} required testid="postenq-loc" />
         </div>
 
-        {/* Section 4: Budget & Time */}
+        {/* Section 4: Budget / Deal Value & Time */}
         <div className="border-b border-slate-50 pb-4">
-          <div className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">Budget & Time</div>
+          <div className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">
+            {isSalesPartner ? "Deal Value & Timeline" : "Budget & Time"}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Row label="Budget (Approx)">
-              <div className="relative">
-                <select
-                  value={form.budget}
-                  onChange={(e) => setForm({ ...form, budget: e.target.value })}
+            {isSalesPartner ? (
+              <Row label="Total Deal / Order Value (₹)">
+                <input
+                  required
+                  type="number"
+                  min="100"
+                  step="any"
+                  value={form.total_deal_value}
+                  onChange={(e) => setForm({ ...form, total_deal_value: e.target.value })}
+                  data-testid="postenq-deal-value-input"
                   className={inputCls}
-                >
-                  <option value="₹10,000 - 50,000">₹10,000 - 50,000</option>
-                  <option value="₹50,000 - 1 Lakh">₹50,000 - 1 Lakh</option>
-                  <option value="₹1 Lakh - 5 Lakh">₹1 Lakh - 5 Lakh</option>
-                  <option value="₹5 Lakh+">₹5 Lakh+</option>
-                </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              </div>
-            </Row>
+                  placeholder="e.g. 500000"
+                />
+              </Row>
+            ) : (
+              <Row label="Budget (Approx)">
+                <div className="relative">
+                  <select
+                    value={form.budget}
+                    onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                    className={inputCls}
+                  >
+                    <option value="₹10,000 - 50,000">₹10,000 - 50,000</option>
+                    <option value="₹50,000 - 1 Lakh">₹50,000 - 1 Lakh</option>
+                    <option value="₹1 Lakh - 5 Lakh">₹1 Lakh - 5 Lakh</option>
+                    <option value="₹5 Lakh+">₹5 Lakh+</option>
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
+              </Row>
+            )}
             <Row label="Required By">
               <div className="relative">
                 <select
@@ -244,6 +293,49 @@ export default function PostEnquiryPage() {
               </div>
             </Row>
           </div>
+
+          {isSalesPartner && (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3" data-testid="postenq-partner-preview-cards">
+              <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-800">
+                  <IndianRupee size={13} />
+                  <span>Lead Unlock Price (2%)</span>
+                </div>
+                <div className="font-display text-lg font-black text-blue-950 mt-1" data-testid="preview-lead-price">
+                  ₹{leadValue.toLocaleString("en-IN")}
+                </div>
+                <div className="text-[11px] text-blue-700 mt-0.5">
+                  + 18% GST = ₹{Math.round(leadValue * 1.18).toLocaleString("en-IN")}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                  <Wallet size={13} />
+                  <span>Your 50% Earnings (on Bill Approval)</span>
+                </div>
+                <div className="font-display text-lg font-black text-emerald-900 mt-1" data-testid="preview-partner-earnings">
+                  ₹{(leadValue * 0.5).toLocaleString("en-IN")}
+                </div>
+                <div className="text-[11px] text-emerald-700 mt-0.5">
+                  Credited to your wallet on approval
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-800">
+                  <ShieldCheck size={13} />
+                  <span>Buyer 50% Fake-Lead Guarantee</span>
+                </div>
+                <div className="font-display text-lg font-black text-amber-900 mt-1" data-testid="preview-buyer-guarantee">
+                  ₹{(leadValue * 0.5).toLocaleString("en-IN")}
+                </div>
+                <div className="text-[11px] text-amber-700 mt-0.5">
+                  Held in escrow for fake-lead protection
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Section 5: Specifications details */}
@@ -308,35 +400,37 @@ export default function PostEnquiryPage() {
           )}
         </div>
 
-        {/* Section 7: Who Can Contact You */}
-        <div className="pb-2">
-          <div className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">Who can contact you?</div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {[
-              { key: "all", label: "All Suppliers" },
-              { key: "manufacturers", label: "Manufacturers" },
-              { key: "distributors", label: "Distributors" },
-              { key: "service_providers", label: "Service Providers" }
-            ].map((sup) => (
-              <label
-                key={sup.key}
-                className={`p-3 border rounded-xl flex items-center gap-2 cursor-pointer transition-all ${
-                  supplierTypes[sup.key]
-                    ? "border-blue-900 bg-blue-50/50 text-blue-900"
-                    : "border-slate-100 hover:bg-slate-50"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={supplierTypes[sup.key]}
-                  onChange={() => handleSupplierToggle(sup.key)}
-                  className="rounded border-slate-300 text-blue-900 focus:ring-blue-900"
-                />
-                <span className="text-[10px] font-bold select-none">{sup.label}</span>
-              </label>
-            ))}
+        {/* Section 7: Who Can Contact You (Hidden for Sales Partner Leads) */}
+        {!isSalesPartner && (
+          <div className="pb-2">
+            <div className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">Who can contact you?</div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { key: "all", label: "All Suppliers" },
+                { key: "manufacturers", label: "Manufacturers" },
+                { key: "distributors", label: "Distributors" },
+                { key: "service_providers", label: "Service Providers" }
+              ].map((sup) => (
+                <label
+                  key={sup.key}
+                  className={`p-3 border rounded-xl flex items-center gap-2 cursor-pointer transition-all ${
+                    supplierTypes[sup.key]
+                      ? "border-blue-900 bg-blue-50/50 text-blue-900"
+                      : "border-slate-100 hover:bg-slate-50"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={supplierTypes[sup.key]}
+                    onChange={() => handleSupplierToggle(sup.key)}
+                    className="rounded border-slate-300 text-blue-900 focus:ring-blue-900"
+                  />
+                  <span className="text-[10px] font-bold select-none">{sup.label}</span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Submit button */}
         <button
@@ -346,7 +440,13 @@ export default function PostEnquiryPage() {
           className="w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-orange-600 text-white font-extrabold text-xs uppercase hover:bg-orange-700 disabled:opacity-60 active:scale-95 transition-all shadow-md mt-4"
         >
           <Send size={14} />
-          {submitting ? "Posting Requirement..." : "Post Requirement"}
+          {submitting
+            ? isSalesPartner
+              ? "Posting Partner Lead..."
+              : "Posting Requirement..."
+            : isSalesPartner
+            ? "Post Partner Lead"
+            : "Post Requirement"}
         </button>
       </form>
     </div>

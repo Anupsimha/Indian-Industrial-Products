@@ -255,7 +255,42 @@ class Enquiry(Base):
     post_id = Column(String(36), nullable=True)
     status = Column(String(50), nullable=False)  # new, in_progress, closed
     media_urls = Column(JSON, default=list, nullable=True)  # list of uploaded image/file URLs
+    is_sales_partner_lead = Column(Boolean, default=False, nullable=False)
+    sales_partner_id = Column(String(36), nullable=True, index=True)
+    total_deal_value = Column(Float, nullable=True)
+    lead_value = Column(Float, nullable=True)
+    is_sold_out = Column(Boolean, default=False, nullable=False)
+    sold_to_user_id = Column(String(36), nullable=True, index=True)
     created_at = Column(String(255), nullable=False)
+
+
+class SalesPartnerLeadDeal(Base):
+    __tablename__ = "sales_partner_lead_deals"
+    id = Column(String(36), primary_key=True)
+    lead_id = Column(String(36), nullable=False, index=True)
+    sales_partner_id = Column(String(36), nullable=False, index=True)
+    buyer_user_id = Column(String(36), nullable=False, index=True)
+    buyer_company_id = Column(String(36), nullable=True)
+    total_deal_value = Column(Float, nullable=False)
+    lead_value_base = Column(Float, nullable=False)       # 2% of total_deal_value
+    gst_amount = Column(Float, nullable=False)            # 18% GST on lead_value_base
+    total_paid = Column(Float, nullable=False)            # lead_value_base + gst_amount
+    partner_share_amount = Column(Float, nullable=False)  # 50% of lead_value_base
+    refund_share_amount = Column(Float, nullable=False)   # 50% of lead_value_base
+    razorpay_order_id = Column(String(255), nullable=True)
+    razorpay_payment_id = Column(String(255), nullable=True)
+    invoice_id = Column(String(36), nullable=True)
+    status = Column(String(50), default="UNLOCKED", nullable=False)  # UNLOCKED, INVOICE_UPLOADED, APPROVED, FAKE_REPORTED, REFUNDED
+    bill_image_url = Column(String(1024), nullable=True)
+    bill_notes = Column(Text, nullable=True)
+    bill_uploaded_at = Column(String(255), nullable=True)
+    fake_report_reason = Column(Text, nullable=True)
+    fake_reported_at = Column(String(255), nullable=True)
+    admin_decision_notes = Column(Text, nullable=True)
+    resolved_by = Column(String(50), nullable=True)       # buyer, admin
+    resolved_at = Column(String(255), nullable=True)
+    created_at = Column(String(255), nullable=False)
+    updated_at = Column(String(255), nullable=False)
 
 class ContactEnquiry(Base):
     __tablename__ = "contact_enquiries"
@@ -613,7 +648,7 @@ class MembershipInvoice(Base):
 
 
 # -------------------- Models Pydantic --------------------
-RoleType = Literal["manufacturer", "supplier", "buyer", "admin"]
+RoleType = Literal["manufacturer", "supplier", "buyer", "sales_partner", "admin"]
 
 
 class UserPublic(BaseModel):
@@ -909,6 +944,8 @@ class EnquiryCreate(BaseModel):
     industrial_area: Optional[str] = None
     company_id: Optional[str] = None
     post_id: Optional[str] = None
+    total_deal_value: Optional[float] = None
+    is_sales_partner_lead: Optional[bool] = None
 
 
 class EnquiryOut(BaseModel):
@@ -930,10 +967,17 @@ class EnquiryOut(BaseModel):
     post_id: Optional[str] = None
     status: Literal["new", "in_progress", "closed", "completed", "pending"]
     media_urls: Optional[List[str]] = None
+    is_sales_partner_lead: bool = False
+    sales_partner_id: Optional[str] = None
+    total_deal_value: Optional[float] = None
+    lead_value: Optional[float] = None
+    is_sold_out: bool = False
+    sold_to_user_id: Optional[str] = None
+    deal: Optional[dict] = None
     created_at: str
 
 
-def hydrate_enquiry_out(d: Enquiry) -> EnquiryOut:
+def hydrate_enquiry_out(d: Enquiry, deal: Optional[dict] = None) -> EnquiryOut:
     status_val = d.status if d.status in ["new", "in_progress", "closed", "completed", "pending"] else "new"
     return EnquiryOut(
         id=d.id,
@@ -954,6 +998,13 @@ def hydrate_enquiry_out(d: Enquiry) -> EnquiryOut:
         post_id=d.post_id,
         status=status_val,
         media_urls=getattr(d, "media_urls", None),
+        is_sales_partner_lead=bool(getattr(d, "is_sales_partner_lead", False)),
+        sales_partner_id=getattr(d, "sales_partner_id", None),
+        total_deal_value=getattr(d, "total_deal_value", None),
+        lead_value=getattr(d, "lead_value", None),
+        is_sold_out=bool(getattr(d, "is_sold_out", False)),
+        sold_to_user_id=getattr(d, "sold_to_user_id", None),
+        deal=deal,
         created_at=d.created_at,
     )
 
@@ -1174,6 +1225,12 @@ async def get_optional_user(request: Request) -> Optional[dict]:
         return await get_current_user(request)
     except HTTPException:
         return None
+
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return user
 
 
 def now_iso() -> str:
@@ -3220,67 +3277,120 @@ async def auto_sync_order_to_ithink(order: Order, user: dict, db: AsyncSession):
 
 
 
+def _parse_product_price(raw_price) -> float:
+    """Safely parse numeric INR amount from product price strings like '₹2,499/unit'."""
+    if raw_price is None:
+        return 0.0
+    import re
+    cleaned = str(raw_price).replace(",", "")
+    nums = re.findall(r"(\d+(?:\.\d+)?)", cleaned)
+    if not nums:
+        return 0.0
+    try:
+        return float(nums[0])
+    except Exception:
+        return 0.0
+
+
+def get_wallet_owner_id(user: dict) -> str:
+    """Resolve canonical wallet/bank owner ID: company_id for businesses, user_id for individuals."""
+    return user.get("company_id") or user["id"]
+
+
+async def get_or_create_wallet(
+    owner_id: str,
+    db: AsyncSession,
+    for_update: bool = False,
+) -> SellerWallet:
+    """Fetch an existing wallet (optionally row-locked) or create a fresh one for owner_id."""
+    stmt = select(SellerWallet).where(SellerWallet.company_id == owner_id)
+    if for_update:
+        stmt = stmt.with_for_update()
+    wallet = (await db.execute(stmt)).scalar_one_or_none()
+    if not wallet:
+        wallet = SellerWallet(
+            id=str(uuid.uuid4()),
+            company_id=owner_id,
+            available_balance=0.0,
+            pending_balance=0.0,
+            total_settled=0.0,
+            settlement_policy="weekly",
+            created_at=now_iso(),
+            updated_at=now_iso(),
+        )
+        db.add(wallet)
+        await db.flush()
+    return wallet
+
+
 async def credit_seller_wallet_for_order(order: Order, db: AsyncSession):
     """
-    Automatically credit net sales revenue to the seller's wallet upon order payment.
+    Automatically credit net sales revenue to the seller's wallet upon confirmed order payment.
+    Validates authoritative product price, prevents self-dealing, and enforces per-order idempotency.
     """
     try:
+        if order.status != "paid":
+            return
         if not order.items or not isinstance(order.items, list):
             return
-        
+
+        checked_wallets: dict[str, bool] = {}
+
         for item in order.items:
             if not isinstance(item, dict):
                 continue
-            
-            comp_id = (item.get("company_id") or "").strip()
-            if not comp_id:
-                prod_id = item.get("product_id") or item.get("id")
-                if prod_id:
-                    stmt_p = select(Product).where(Product.id == prod_id)
-                    prod = (await db.execute(stmt_p)).scalar_one_or_none()
-                    if prod:
-                        comp_id = prod.company_id
-            
+
+            prod = None
+            prod_id = item.get("product_id") or item.get("id")
+            if prod_id:
+                stmt_p = select(Product).where(Product.id == prod_id)
+                prod = (await db.execute(stmt_p)).scalar_one_or_none()
+
+            comp_id = prod.company_id if prod else (item.get("company_id") or "").strip()
             if not comp_id:
                 continue
 
-            item_price = 0.0
-            try:
-                raw_p = str(item.get("price", "0")).replace("₹", "").replace("/kg", "").replace("/unit", "").strip()
-                item_price = float(raw_p)
-            except Exception:
-                item_price = 0.0
+            # Prevent self-dealing: buyer cannot earn wallet funds from buying their own company's product
+            stmt_comp = select(Company).where(Company.id == comp_id)
+            comp_obj = (await db.execute(stmt_comp)).scalar_one_or_none()
+            if comp_obj and comp_obj.owner_id == order.user_id:
+                logger.warning(f"Skipped self-dealing wallet credit for Order {order.id} (buyer == seller {order.user_id})")
+                continue
 
-            qty = int(item.get("qty", 1) or 1)
+            # Prefer authoritative DB Product price when parseable; fall back to order item price
+            prod_price = _parse_product_price(prod.price) if prod else 0.0
+            item_price = prod_price if prod_price > 0 else _parse_product_price(item.get("price"))
+
+            qty = max(1, int(item.get("qty", 1) or 1))
             item_total = round(item_price * qty, 2)
             if item_total <= 0:
                 continue
 
-            # Deduct platform commission (e.g. 2%)
+            # Deduct platform commission (2%)
             commission = round(item_total * 0.02, 2)
             net_seller_amount = round(item_total - commission, 2)
 
-            # Ensure SellerWallet exists
-            stmt_w = select(SellerWallet).where(SellerWallet.company_id == comp_id)
-            wallet = (await db.execute(stmt_w)).scalar_one_or_none()
-            if not wallet:
-                wallet = SellerWallet(
-                    id=str(uuid.uuid4()),
-                    company_id=comp_id,
-                    available_balance=0.0,
-                    pending_balance=0.0,
-                    total_settled=0.0,
-                    settlement_policy="weekly",
-                    created_at=now_iso(),
-                    updated_at=now_iso()
-                )
-                db.add(wallet)
-                await db.commit()
-                await db.refresh(wallet)
+            wallet = await get_or_create_wallet(comp_id, db, for_update=True)
 
-            wallet.available_balance = round(wallet.available_balance + net_seller_amount, 2)
+            # Idempotency guard checked once per (wallet, order) per call
+            if comp_id not in checked_wallets:
+                stmt_dup = select(WalletTransaction.id).where(
+                    and_(
+                        WalletTransaction.wallet_id == wallet.id,
+                        WalletTransaction.order_id == order.id,
+                        WalletTransaction.type == "CREDIT_SALE",
+                    )
+                )
+                already_credited = (await db.execute(stmt_dup)).scalar_one_or_none() is not None
+                checked_wallets[comp_id] = already_credited
+
+            if checked_wallets[comp_id]:
+                logger.info(f"Idempotency skip: Order {order.id} already credited to wallet {wallet.id}")
+                continue
+
+            wallet.available_balance = round((wallet.available_balance or 0.0) + net_seller_amount, 2)
             wallet.updated_at = now_iso()
-            
+
             tx = WalletTransaction(
                 id=str(uuid.uuid4()),
                 wallet_id=wallet.id,
@@ -3289,12 +3399,13 @@ async def credit_seller_wallet_for_order(order: Order, db: AsyncSession):
                 type="CREDIT_SALE",
                 amount=net_seller_amount,
                 balance_after=wallet.available_balance,
-                description=f"Net Sale Credit for '{item.get('name', 'Product')}' (Order #{order.id[:8]})",
-                created_at=now_iso()
+                description=f"Net Sale Credit for '{prod.name if prod else item.get('name', 'Product')}' (Order #{order.id[:8]})",
+                created_at=now_iso(),
             )
             db.add(tx)
-            await db.commit()
             logger.info(f"Credited ₹{net_seller_amount} to Seller Wallet ({comp_id}) for Order {order.id}")
+
+        await db.commit()
     except Exception as e:
         logger.error(f"Failed crediting seller wallet for Order {order.id}: {str(e)}")
 
@@ -3371,8 +3482,8 @@ async def create_order(payload: OrderCreate, user: dict = Depends(get_current_us
     await db.commit()
     await db.refresh(order)
 
-    # Credit seller wallet if order is paid
-    if status == "paid" or payload.payment_method != "cod":
+    # Credit seller wallet strictly when payment is confirmed
+    if status == "paid":
         await credit_seller_wallet_for_order(order, db)
 
     # Automatically push order to live iThink panel
@@ -3874,53 +3985,44 @@ async def admin_delete_company(company_id: str, user: dict = Depends(get_current
 ALLOWED_ENQUIRY_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"}
 MAX_ENQUIRY_MEDIA_SIZE = 10 * 1024 * 1024  # 10 MB per file
 
-@api.post("/enquiries", response_model=EnquiryOut)
-async def create_enquiry(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    content_type = request.headers.get("content-type", "").lower()
-    
-    name, mobile, requirement, category, location = "", "", "", "", ""
-    product_name, quantity, budget, required_by, state, city, industrial_area = None, None, None, None, None, None, None
-    company_id, post_id = None, None
-    saved_media_urls: List[str] = []
+def _parse_bool_flag(val) -> bool:
+    if isinstance(val, bool):
+        return val
+    if val is None:
+        return False
+    return str(val).strip().lower() in ("1", "true", "yes", "on")
 
+
+def _parse_positive_amount(val, field_name: str = "total_deal_value") -> float:
+    if val is None or str(val).strip() == "":
+        raise HTTPException(status_code=400, detail=f"{field_name} is required for Sales Partner leads.")
+    cleaned = str(val).replace("₹", "").replace(",", "").strip()
+    try:
+        parsed = float(cleaned)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name} amount.")
+    if parsed <= 0:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be greater than 0.")
+    return round(parsed, 2)
+
+
+async def _create_enquiry_impl(
+    request: Request,
+    db: AsyncSession,
+    force_sales_partner: bool = False,
+) -> EnquiryOut:
+    content_type = request.headers.get("content-type", "").lower()
+
+    saved_media_urls: List[str] = []
     if "application/json" in content_type:
         try:
-            data = await request.json()
+            payload = await request.json()
         except Exception:
-            data = {}
-        name = data.get("name", "")
-        mobile = data.get("mobile", "")
-        requirement = data.get("requirement", "")
-        category = data.get("category", "")
-        location = data.get("location", "")
-        product_name = data.get("product_name")
-        quantity = data.get("quantity")
-        budget = data.get("budget")
-        required_by = data.get("required_by")
-        state = data.get("state")
-        city = data.get("city")
-        industrial_area = data.get("industrial_area")
-        company_id = data.get("company_id")
-        post_id = data.get("post_id")
+            payload = {}
+        form = None
     else:
+        payload = {}
         form = await request.form()
-        name = form.get("name", "")
-        mobile = form.get("mobile", "")
-        requirement = form.get("requirement", "")
-        category = form.get("category", "")
-        location = form.get("location", "")
-        product_name = form.get("product_name")
-        quantity = form.get("quantity")
-        budget = form.get("budget")
-        required_by = form.get("required_by")
-        state = form.get("state")
-        city = form.get("city")
-        industrial_area = form.get("industrial_area")
-        company_id = form.get("company_id")
-        post_id = form.get("post_id")
 
         media_files = form.getlist("media")
         for upload in media_files:
@@ -3944,13 +4046,29 @@ async def create_enquiry(
                     buf.write(file_data)
                 saved_media_urls.append(f"/api/enquiry-media/{unique_filename}")
 
+    def _field(key: str, default=None):
+        val = payload.get(key) if form is None else form.get(key)
+        return default if val is None else val
+
+    name = str(_field("name", "") or "").strip()
+    mobile = str(_field("mobile", "") or "").strip()
+    requirement = str(_field("requirement", "") or "").strip()
+    category = str(_field("category", "") or "").strip() or "General Industrial"
+    location = str(_field("location", "") or "").strip() or "India"
+    product_name = _field("product_name")
+    quantity = _field("quantity")
+    budget = _field("budget")
+    required_by = _field("required_by")
+    state = _field("state")
+    city = _field("city")
+    industrial_area = _field("industrial_area")
+    company_id = _field("company_id")
+    post_id = _field("post_id")
+    raw_total_deal_value = _field("total_deal_value")
+    requested_sp_flag = _parse_bool_flag(_field("is_sales_partner_lead"))
+
     if not name or not mobile or not requirement:
         raise HTTPException(status_code=400, detail="Name, mobile, and requirement are required fields.")
-
-    if not category:
-        category = "General Industrial"
-    if not location:
-        location = "India"
 
     # Resolve company_id from post if not provided
     if post_id and not company_id:
@@ -3960,10 +4078,31 @@ async def create_enquiry(
             company_id = post.company_id
 
     opt_user = await get_optional_user(request)
-    creator_user_id = opt_user.get("id") if opt_user else None
+    opt_role = (opt_user or {}).get("role")
+    if requested_sp_flag and opt_role not in ("sales_partner", "admin"):
+        raise HTTPException(status_code=403, detail="Only Sales Partners or Admins can post Sales Partner leads.")
 
+    is_sp_lead = bool(force_sales_partner or opt_role == "sales_partner" or (opt_role == "admin" and requested_sp_flag))
+    sales_partner_id = None
+    total_deal_value = None
+    lead_value = None
+
+    if is_sp_lead:
+        if not opt_user or opt_role not in ("sales_partner", "admin"):
+            raise HTTPException(status_code=403, detail="Authentication as Sales Partner required.")
+        total_deal_value = _parse_positive_amount(raw_total_deal_value, "total_deal_value")
+        lead_value = round(total_deal_value * 0.02, 2)
+        if lead_value <= 0:
+            raise HTTPException(status_code=400, detail="Calculated 2% lead value must be greater than 0.")
+        sales_partner_id = opt_user["id"]
+        company_id = None
+        post_id = None
+        if not budget:
+            budget = f"₹{int(round(total_deal_value)):,}"
+
+    creator_user_id = opt_user.get("id") if opt_user else None
     if not creator_user_id:
-        creator_user_id = data.get("user_id") if "application/json" in content_type else form.get("user_id")
+        creator_user_id = _field("user_id")
 
     if not creator_user_id and mobile:
         clean_mob = mobile.strip()
@@ -3981,6 +4120,12 @@ async def create_enquiry(
         state=state, city=city,
         industrial_area=industrial_area,
         media_urls=saved_media_urls if saved_media_urls else None,
+        is_sales_partner_lead=is_sp_lead,
+        sales_partner_id=sales_partner_id,
+        total_deal_value=total_deal_value,
+        lead_value=lead_value,
+        is_sold_out=False,
+        sold_to_user_id=None,
     )
     db.add(doc)
 
@@ -4005,6 +4150,25 @@ async def create_enquiry(
     stmt_reload = select(Enquiry).where(Enquiry.id == eid)
     doc_loaded = (await db.execute(stmt_reload)).scalar_one()
     return hydrate_enquiry_out(doc_loaded)
+
+
+@api.post("/enquiries", response_model=EnquiryOut)
+async def create_enquiry(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _create_enquiry_impl(request, db, force_sales_partner=False)
+
+
+@api.post("/sales-partner/leads", response_model=EnquiryOut)
+async def create_sales_partner_lead(
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if user.get("role") not in ("sales_partner", "admin"):
+        raise HTTPException(status_code=403, detail="Only Sales Partners or Admins can post Sales Partner leads.")
+    return await _create_enquiry_impl(request, db, force_sales_partner=True)
 
 
 @api.get("/enquiries", response_model=List[EnquiryOut])
@@ -4077,14 +4241,18 @@ async def delete_enquiry(
     enq = (await db.execute(stmt)).scalar_one_or_none()
     if not enq:
         raise HTTPException(status_code=404, detail="Lead not found")
-        
-    is_allowed = (
-        user.get("role") == "admin" or
-        (enq.mobile == user.get("mobile")) or
-        (enq.user_id == user.get("id"))
+
+    is_admin = user.get("role") == "admin"
+    is_owner = (
+        enq.mobile == user.get("mobile")
+        or enq.user_id == user.get("id")
+        or (getattr(enq, "sales_partner_id", None) == user.get("id"))
     )
-    if not is_allowed:
+    if not (is_admin or is_owner):
         raise HTTPException(status_code=403, detail="Forbidden")
+
+    if getattr(enq, "is_sales_partner_lead", False) and getattr(enq, "is_sold_out", False) and not is_admin:
+        raise HTTPException(status_code=400, detail="Sold Sales Partner leads cannot be deleted.")
         
     # Also clean up any user lead interests tied to this lead
     await db.execute(delete(UserLeadInterest).where(UserLeadInterest.lead_id == enquiry_id))
@@ -4707,23 +4875,64 @@ async def admin_assign_plan(
 
 
 # -------------------- Public Lead / Requirement Feed --------------------
+def _serialize_deal(
+    deal: Optional[SalesPartnerLeadDeal],
+    partner: Optional[User] = None,
+    buyer: Optional[User] = None,
+) -> Optional[dict]:
+    if not deal:
+        return None
+    out = {
+        "id": deal.id,
+        "lead_id": deal.lead_id,
+        "sales_partner_id": deal.sales_partner_id,
+        "buyer_user_id": deal.buyer_user_id,
+        "total_deal_value": deal.total_deal_value,
+        "lead_value_base": deal.lead_value_base,
+        "gst_amount": deal.gst_amount,
+        "total_paid": deal.total_paid,
+        "partner_share_amount": deal.partner_share_amount,
+        "refund_share_amount": deal.refund_share_amount,
+        "status": deal.status,
+        "bill_image_url": deal.bill_image_url,
+        "bill_notes": deal.bill_notes,
+        "bill_uploaded_at": deal.bill_uploaded_at,
+        "fake_report_reason": deal.fake_report_reason,
+        "fake_reported_at": deal.fake_reported_at,
+        "admin_decision_notes": deal.admin_decision_notes,
+        "resolved_by": deal.resolved_by,
+        "resolved_at": deal.resolved_at,
+        "created_at": deal.created_at,
+        "updated_at": deal.updated_at,
+        "sales_partner_name": partner.name if partner else None,
+        "sales_partner_mobile": partner.mobile if partner else None,
+        "sales_partner_email": partner.email if partner else None,
+    }
+    if buyer:
+        out["buyer_name"] = buyer.name
+        out["buyer_mobile"] = buyer.mobile
+        out["buyer_email"] = buyer.email
+    return out
+
+
 def _can_see_contact(user: Optional[dict], enquiry: dict) -> bool:
     """
     Returns True only for contacts that should be ALWAYS visible without an
     explicit per-lead unlock:
       - Admins see everything.
       - A user sees their own company's enquiries.
-
-    Paid-plan users must still explicitly unlock each lead (tracked via
-    unlocked_enquiries). Removing the old "any paid plan → see all" logic
-    prevents leads from flickering back to Locked on page reload when the
-    auth cookie is not yet available in the list request.
+      - A Sales Partner sees their own posted leads.
+      - The exclusive Buyer/Manufacturer who bought a Sales Partner lead sees it.
     """
     if not user:
         return False
     if user.get("role") == "admin":
         return True
     if enquiry.get("company_id") and user.get("company_id") == enquiry.get("company_id"):
+        return True
+    if enquiry.get("sales_partner_id") and user.get("id") == enquiry.get("sales_partner_id"):
+        return True
+    if enquiry.get("sold_to_user_id") and user.get("id") == enquiry.get("sold_to_user_id"):
         return True
     return False
 
@@ -4737,9 +4946,17 @@ def _mask_mobile(m: str) -> str:
     return s[:2] + "•" * (len(s) - 4) + s[-2:]
 
 
-def serialize_enquiry(d: Enquiry, cu: Optional[dict] = None, unlocked_ids: Optional[set] = None) -> dict:
+def serialize_enquiry(
+    d: Enquiry,
+    cu: Optional[dict] = None,
+    unlocked_ids: Optional[set] = None,
+    deal: Optional[dict] = None,
+) -> dict:
     if unlocked_ids is None:
         unlocked_ids = set()
+    is_sp = bool(getattr(d, "is_sales_partner_lead", False))
+    sp_id = getattr(d, "sales_partner_id", None)
+    sold_to_id = getattr(d, "sold_to_user_id", None)
     d_dict = {
         "id": d.id, "name": d.name, "mobile": d.mobile, "requirement": d.requirement,
         "category": d.category, "location": d.location, "product_name": d.product_name,
@@ -4747,9 +4964,13 @@ def serialize_enquiry(d: Enquiry, cu: Optional[dict] = None, unlocked_ids: Optio
         "required_by": getattr(d, "required_by", None) or "Not specified by the customer",
         "state": d.state, "city": d.city,
         "industrial_area": d.industrial_area, "status": d.status,
-        "created_at": d.created_at, "company_id": d.company_id, "post_id": d.post_id
+        "created_at": d.created_at, "company_id": d.company_id, "post_id": d.post_id,
+        "sales_partner_id": sp_id, "sold_to_user_id": sold_to_id,
     }
     unlocked = _can_see_contact(cu, d_dict) or (d.id in unlocked_ids)
+    cu_id = cu.get("id") if cu else None
+    cu_role = cu.get("role") if cu else None
+    can_see_sold_to = bool(cu and (cu_role == "admin" or cu_id == sold_to_id or cu_id == sp_id))
     return {
         "id": d.id,
         "name": d.name if unlocked else d.name.split(" ")[0],
@@ -4766,7 +4987,53 @@ def serialize_enquiry(d: Enquiry, cu: Optional[dict] = None, unlocked_ids: Optio
         "mobile": d.mobile if unlocked else _mask_mobile(d.mobile),
         "company_id": d.company_id,
         "media_urls": d.media_urls or [],
+        "is_sales_partner_lead": is_sp,
+        "sales_partner_id": sp_id,
+        "total_deal_value": getattr(d, "total_deal_value", None),
+        "lead_value": getattr(d, "lead_value", None),
+        "is_sold_out": bool(getattr(d, "is_sold_out", False)),
+        "sold_to_user_id": sold_to_id if can_see_sold_to else None,
+        "deal": deal,
     }
+
+
+async def _serialize_requirement_docs(
+    docs: List[Enquiry],
+    cu: Optional[dict],
+    unlocked_ids: set,
+    db: AsyncSession,
+) -> List[dict]:
+    sp_lead_ids = [d.id for d in docs if getattr(d, "is_sales_partner_lead", False)]
+    deals_by_lead: Dict[str, SalesPartnerLeadDeal] = {}
+    partners_by_id: Dict[str, User] = {}
+    if sp_lead_ids and cu:
+        deal_rows = (
+            await db.execute(
+                select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.lead_id.in_(sp_lead_ids))
+            )
+        ).scalars().all()
+        partner_ids = {dl.sales_partner_id for dl in deal_rows if dl.sales_partner_id}
+        if partner_ids:
+            p_rows = (await db.execute(select(User).where(User.id.in_(partner_ids)))).scalars().all()
+            partners_by_id = {u.id: u for u in p_rows}
+        cu_id = cu.get("id")
+        cu_role = cu.get("role")
+        for dl in deal_rows:
+            if cu_role == "admin" or dl.buyer_user_id == cu_id or dl.sales_partner_id == cu_id:
+                deals_by_lead[dl.lead_id] = dl
+
+    return [
+        serialize_enquiry(
+            d,
+            cu,
+            unlocked_ids,
+            deal=_serialize_deal(
+                deals_by_lead.get(d.id),
+                partners_by_id.get(deals_by_lead[d.id].sales_partner_id) if d.id in deals_by_lead else None,
+            ),
+        )
+        for d in docs
+    ]
 
 
 @api.get("/requirements")
@@ -4800,7 +5067,7 @@ async def list_requirements(
             active_lead_ids = await _resolve_lead_ids(request, lead_ids, db, user=cu)
             if active_lead_ids:
                 rec_res = await recommendation_engine.get_recommended_leads(db, active_lead_ids, limit=limit)
-                return [serialize_enquiry(d, cu, unlocked_ids) for d in rec_res.items]
+                return await _serialize_requirement_docs(rec_res.items, cu, unlocked_ids, db)
         except Exception:
             pass
     
@@ -4820,7 +5087,7 @@ async def list_requirements(
     res = await db.execute(stmt)
     docs = res.scalars().all()
     
-    return [serialize_enquiry(d, cu, unlocked_ids) for d in docs]
+    return await _serialize_requirement_docs(docs, cu, unlocked_ids, db)
 
 
 # ---------------------------------------------------------------------------
@@ -4893,14 +5160,36 @@ def parse_lead_valuation_inr(budget_str: Optional[str]) -> int:
 
 async def get_applicable_topup_for_lead(lead_id: str, db: AsyncSession) -> dict:
     """
-    Finds the active LeadTopupPlan corresponding to the lead's budget valuation.
-    Falls back to default pricing if no custom ranges match.
+    Finds the active LeadTopupPlan corresponding to the lead's budget valuation,
+    or computes exact 2% + 18% GST pricing for Sales Partner leads.
     """
     stmt_enq = select(Enquiry).where(Enquiry.id == lead_id)
     enq = (await db.execute(stmt_enq)).scalars().first()
     if not enq:
         raise HTTPException(status_code=404, detail="Lead not found")
-        
+
+    if getattr(enq, "is_sales_partner_lead", False):
+        total_deal = float(enq.total_deal_value or 0)
+        base_val = round(float(enq.lead_value or round(total_deal * 0.02, 2)), 2)
+        gst_amt = round(base_val * 0.18, 2)
+        total_with_gst = round(base_val + gst_amt, 2)
+        return {
+            "lead_id": lead_id,
+            "lead_category": enq.category,
+            "lead_budget": enq.budget or f"₹{int(round(total_deal)):,}",
+            "estimated_valuation": int(round(total_deal)),
+            "topup_plan_id": None,
+            "valuation_range": "Sales Partner Lead (2% Lead Value)",
+            "price_inr": base_val,
+            "gst_rate": 0.18,
+            "gst_amount": gst_amt,
+            "total_payable": total_with_gst,
+            "is_sales_partner_lead": True,
+            "is_sold_out": bool(enq.is_sold_out),
+            "partner_share_amount": round(base_val * 0.50, 2),
+            "refund_share_amount": round(base_val * 0.50, 2),
+        }
+
     valuation = parse_lead_valuation_inr(enq.budget)
     
     # Query all active topup plans ordered by min_valuation asc
@@ -5031,6 +5320,18 @@ async def unlock_stats(
 # New API: POST /requirements/{enq_id}/request-unlock  (sends OTP email)
 # ---------------------------------------------------------------------------
 
+def _guard_sales_partner_package_unlock(enq: Enquiry, user: dict) -> Optional[dict]:
+    """Sales Partner leads are excluded from subscription packages and OTP unlocks."""
+    if not getattr(enq, "is_sales_partner_lead", False):
+        return None
+    if getattr(enq, "sold_to_user_id", None) == user.get("id"):
+        return {"already_unlocked": True, "ok": True, "mobile": enq.mobile, "name": enq.name}
+    raise HTTPException(
+        status_code=403,
+        detail="Sales Partner leads are excluded from subscription packages and must be purchased individually at their Lead Value."
+    )
+
+
 @api.post("/requirements/{enq_id}/request-unlock")
 async def request_unlock(
     enq_id: str,
@@ -5047,6 +5348,10 @@ async def request_unlock(
     enq = (await db.execute(stmt_enq)).scalars().first()
     if not enq:
         raise HTTPException(status_code=404, detail="Not found")
+
+    sp_res = _guard_sales_partner_package_unlock(enq, user)
+    if sp_res:
+        return {"already_unlocked": True, "mobile": enq.mobile, "name": enq.name}
 
     plan_name = user.get("plan_name") or "Free"
     is_admin = user.get("role") == "admin"
@@ -5177,6 +5482,8 @@ async def confirm_unlock(
     if not enq:
         raise HTTPException(status_code=404, detail="Not found")
 
+    _guard_sales_partner_package_unlock(enq, user)
+
     # Record unlock
     stmt_user = select(User).where(User.id == user["id"])
     u = (await db.execute(stmt_user)).scalars().first()
@@ -5266,6 +5573,10 @@ async def unlock_requirement(enq_id: str, user: dict = Depends(get_current_user)
     enq = (await db.execute(stmt_enq)).scalars().first()
     if not enq:
         raise HTTPException(status_code=404, detail="Not found")
+
+    sp_res = _guard_sales_partner_package_unlock(enq, user)
+    if sp_res:
+        return {"ok": True, "mobile": enq.mobile, "name": enq.name}
 
     plan_name = user.get("plan_name") or "Free"
     is_admin = user.get("role") == "admin"
@@ -6072,6 +6383,8 @@ async def verify_payment(payload: VerifyPaymentIn, user: dict = Depends(get_curr
 
 # -------------------- Lead Top-Up Purchase & Invoicing --------------------
 
+# -------------------- Lead Top-Up & Sales Partner Purchase --------------------
+
 class CreateTopupOrderIn(BaseModel):
     lead_id: str
 
@@ -6081,110 +6394,63 @@ class VerifyTopupPaymentIn(BaseModel):
     razorpay_signature: str
     lead_id: str
 
+class VerifySalesPartnerPaymentIn(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str
+    razorpay_signature: str
 
-@api.get("/topup-plans/lead-rate/{lead_id}")
-async def get_lead_topup_rate(
-    lead_id: str,
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Returns the valuation range and admin-set topup price (INR) for unlocking this lead.
-    """
-    return await get_applicable_topup_for_lead(lead_id, db)
+class FakeReportIn(BaseModel):
+    reason: str
+
+class AdminResolveDealIn(BaseModel):
+    action: Literal["approve_partner_payout", "approve_fake_refund", "reject_fake_report"]
+    notes: Optional[str] = None
 
 
-@api.post("/payments/create-order-topup")
-async def create_topup_payment_order(
-    payload: CreateTopupOrderIn,
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Creates a Razorpay order for purchasing a single lead unlock based on the lead's valuation.
-    """
-    info = await get_applicable_topup_for_lead(payload.lead_id, db)
-    base_price = float(info["price_inr"])
-    
-    # 18% GST for B2B service compliance
-    gst_amount = round(base_price * 0.18, 2)
-    total_price = round(base_price + gst_amount, 2)
-    amount_paise = int(round(total_price * 100))
-    
+def _create_razorpay_order(amount_paise: int, receipt: str) -> dict:
     import requests
     auth = (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
     order_payload = {
         "amount": amount_paise,
         "currency": "INR",
-        "receipt": f"receipt_lead_{payload.lead_id[:8]}"
+        "receipt": receipt,
     }
     try:
         r = requests.post("https://api.razorpay.com/v1/orders", json=order_payload, auth=auth, timeout=10)
         if r.status_code != 200:
-            logger.error(f"Razorpay topup error: {r.text}")
-            raise HTTPException(status_code=500, detail="Failed to create lead topup order with payment gateway")
-        order_data = r.json()
-        return {
-            "order_id": order_data["id"],
-            "amount": amount_paise,
-            "base_price": base_price,
-            "gst": gst_amount,
-            "total": total_price,
-            "key": RAZORPAY_KEY_ID,
-            "currency": "INR",
-            "lead_id": payload.lead_id,
-            "valuation_range": info["valuation_range"],
-            "estimated_valuation": info["estimated_valuation"],
-        }
+            logger.error(f"Razorpay order error: {r.text}")
+            raise HTTPException(status_code=500, detail="Failed to create order with payment gateway")
+        return r.json()
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed calling Razorpay for lead topup: {str(e)}")
+        logger.error(f"Failed calling Razorpay: {str(e)}")
         raise HTTPException(status_code=500, detail="Payment gateway connection error")
 
 
-@api.post("/payments/verify-topup")
-async def verify_topup_payment(
-    payload: VerifyTopupPaymentIn,
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Verifies Razorpay signature for lead topup, records invoice, unlocks the lead for the user,
-    and returns contact information along with invoice download link.
-    """
+def _verify_razorpay_signature(order_id: str, payment_id: str, signature: str) -> None:
     import hmac
     import hashlib
-    msg = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
-    generated = hmac.new(RAZORPAY_KEY_SECRET.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(generated, payload.razorpay_signature):
+    msg = f"{order_id}|{payment_id}"
+    generated = hmac.new(RAZORPAY_KEY_SECRET.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(generated, signature):
         raise HTTPException(status_code=400, detail="Payment signature verification failed")
 
-    # Fetch enquiry
-    stmt_enq = select(Enquiry).where(Enquiry.id == payload.lead_id)
-    enq = (await db.execute(stmt_enq)).scalars().first()
-    if not enq:
-        raise HTTPException(status_code=404, detail="Lead enquiry not found")
 
-    # Fetch user & company
-    stmt_usr = select(User).where(User.id == user["id"])
-    usr_obj = (await db.execute(stmt_usr)).scalar_one_or_none()
-    if not usr_obj:
-        raise HTTPException(status_code=404, detail="User not found")
-        
-    comp_obj = None
-    if usr_obj.company_id:
-        stmt_comp = select(Company).where(Company.id == usr_obj.company_id)
-        comp_obj = (await db.execute(stmt_comp)).scalar_one_or_none()
-
-    # Rate and pricing
-    rate_info = await get_applicable_topup_for_lead(payload.lead_id, db)
-    base_price = float(rate_info["price_inr"])
-    gst_rate = 18.0
-    gst_amount = round(base_price * 0.18, 2)
-    total_price = round(base_price + gst_amount, 2)
-
-    # Generate sequential invoice number
+async def _create_lead_tax_invoice(
+    usr_obj: User,
+    comp_obj: Optional[Company],
+    plan_id: str,
+    plan_name: str,
+    description: str,
+    base_price: float,
+    gst_amount: float,
+    total_price: float,
+    payment_id: str,
+    razorpay_order_id: str,
+    db: AsyncSession,
+    gst_rate: float = 18.0,
+) -> tuple[str, str, Optional[bytes], dict]:
     inv_count_stmt = select(func.count(MembershipInvoice.id))
     inv_seq = (await db.execute(inv_count_stmt)).scalar() or 0
     invoice_number = f"INV-{datetime.now().year}-{(inv_seq + 1):04d}"
@@ -6204,44 +6470,42 @@ async def verify_topup_payment(
         "customer_company": comp_obj.name if comp_obj else None,
         "customer_gstin": comp_obj.gst if comp_obj else None,
         "customer_address": (comp_obj.address or comp_obj.location) if comp_obj else None,
-        "plan_name": f"Lead Unlock Top-Up ({rate_info['valuation_range']})",
-        "description": f"Lead unlock purchase for category '{enq.category}' (Valuation: {rate_info['valuation_range']})",
+        "plan_name": plan_name,
+        "description": description,
         "base_amount": base_price,
         "gst_rate": gst_rate,
         "gst_amount": gst_amount,
         "total_amount": total_price,
-        "payment_id": payload.razorpay_payment_id,
+        "payment_id": payment_id,
         "payment_method": "Razorpay / Online",
     }
 
-    # Generate Tax Invoice PDF
     pdf_bytes = None
     try:
         from services.invoice_service import generate_membership_invoice_pdf
         pdf_bytes = generate_membership_invoice_pdf(invoice_payload)
-    except Exception as pdf_err:
+    except Exception:
         try:
             from backend.services.invoice_service import generate_membership_invoice_pdf
             pdf_bytes = generate_membership_invoice_pdf(invoice_payload)
         except Exception as pdf_err2:
-            logger.error(f"Error generating lead topup invoice PDF: {pdf_err2}")
+            logger.error(f"Error generating lead invoice PDF: {pdf_err2}")
 
-    # Store MembershipInvoice in DB
     new_invoice = MembershipInvoice(
         id=invoice_id,
         invoice_number=invoice_number,
-        user_id=user["id"],
-        company_id=usr_obj.company_id if usr_obj else None,
-        plan_id=rate_info.get("topup_plan_id") or "lead_topup",
-        plan_name=f"Lead Top-Up ({rate_info['valuation_range']})",
+        user_id=usr_obj.id,
+        company_id=usr_obj.company_id,
+        plan_id=plan_id,
+        plan_name=plan_name,
         billing_cycle="one-time",
         base_amount=base_price,
         gst_rate=gst_rate,
         gst_amount=gst_amount,
         total_amount=total_price,
         currency="INR",
-        payment_id=payload.razorpay_payment_id,
-        razorpay_order_id=payload.razorpay_order_id,
+        payment_id=payment_id,
+        razorpay_order_id=razorpay_order_id,
         status="paid",
         supplier_details={
             "name": invoice_payload["supplier_name"],
@@ -6255,24 +6519,491 @@ async def verify_topup_payment(
             "address": invoice_payload["customer_address"],
         },
         pdf_url=f"/api/invoices/{invoice_id}/download",
-        created_at=now_iso()
+        created_at=now_iso(),
     )
     db.add(new_invoice)
+    return invoice_id, invoice_number, pdf_bytes, invoice_payload
 
-    # Unlock the lead for user
+
+def _send_lead_invoice_email_async(email: Optional[str], invoice_number: str, subject: str, html: str, pdf_bytes: Optional[bytes]) -> None:
+    if not email or not pdf_bytes:
+        return
+    try:
+        asyncio.create_task(
+            send_email(
+                to=email,
+                subject=subject,
+                html_body=html,
+                attachments=[{
+                    "filename": f"Tax_Invoice_{invoice_number}.pdf",
+                    "content": pdf_bytes,
+                    "mime_type": "application/pdf",
+                }],
+            )
+        )
+    except Exception as exc:
+        logger.error(f"Failed sending invoice email: {exc}")
+
+
+async def _execute_sales_partner_lead_purchase(
+    enq: Enquiry,
+    user: dict,
+    razorpay_payment_id: str,
+    razorpay_order_id: str,
+    db: AsyncSession,
+) -> dict:
+    if enq.sales_partner_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Sales Partners cannot purchase their own lead.")
+
+    sp_user = None
+    if enq.sales_partner_id:
+        sp_user = (await db.execute(select(User).where(User.id == enq.sales_partner_id))).scalar_one_or_none()
+
+    usr_obj = (await db.execute(select(User).where(User.id == user["id"]))).scalar_one_or_none()
+    if not usr_obj:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Idempotent replay if the same buyer already unlocked this lead
+    if getattr(enq, "is_sold_out", False):
+        if getattr(enq, "sold_to_user_id", None) == user["id"]:
+            existing_deal = (
+                await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.lead_id == enq.id))
+            ).scalars().first()
+            return {
+                "ok": True,
+                "already_unlocked": True,
+                "mobile": enq.mobile,
+                "name": enq.name,
+                "deal": _serialize_deal(existing_deal, sp_user, usr_obj),
+            }
+        raise HTTPException(status_code=400, detail="This Sales Partner lead is already Sold Out.")
+
+    existing_other = (
+        await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.lead_id == enq.id))
+    ).scalars().first()
+    if existing_other:
+        raise HTTPException(status_code=400, detail="This Sales Partner lead is already Sold Out.")
+
+    total_deal_val = round(float(enq.total_deal_value or 0.0), 2)
+    base_val = round(float(enq.lead_value or round(total_deal_val * 0.02, 2)), 2)
+    gst_amt = round(base_val * 0.18, 2)
+    total_paid = round(base_val + gst_amt, 2)
+    partner_share = round(base_val * 0.50, 2)
+    refund_share = round(base_val * 0.50, 2)
+
+    # Lock lead as exclusively Sold Out
+    enq.is_sold_out = True
+    enq.sold_to_user_id = user["id"]
+    enq.status = "sold"
+
     current_unlocked = list(usr_obj.unlocked_enquiries or [])
-    if payload.lead_id not in current_unlocked:
-        current_unlocked.append(payload.lead_id)
+    if enq.id not in current_unlocked:
+        current_unlocked.append(enq.id)
+        usr_obj.unlocked_enquiries = current_unlocked
+
+    comp_obj = None
+    if usr_obj.company_id:
+        comp_obj = (await db.execute(select(Company).where(Company.id == usr_obj.company_id))).scalar_one_or_none()
+
+    deal_id = str(uuid.uuid4())
+    now_str = now_iso()
+    deal = SalesPartnerLeadDeal(
+        id=deal_id,
+        lead_id=enq.id,
+        sales_partner_id=enq.sales_partner_id or "",
+        buyer_user_id=user["id"],
+        buyer_company_id=usr_obj.company_id,
+        total_deal_value=total_deal_val,
+        lead_value_base=base_val,
+        gst_amount=gst_amt,
+        total_paid=total_paid,
+        partner_share_amount=partner_share,
+        refund_share_amount=refund_share,
+        status="UNLOCKED",
+        razorpay_payment_id=razorpay_payment_id,
+        razorpay_order_id=razorpay_order_id,
+        created_at=now_str,
+        updated_at=now_str,
+    )
+    db.add(deal)
+
+    # Hold 50% of base lead_value in Sales Partner's pending escrow wallet
+    if enq.sales_partner_id:
+        sp_owner_id = sp_user.company_id if (sp_user and sp_user.company_id) else enq.sales_partner_id
+        sp_wallet = await get_or_create_wallet(sp_owner_id, db, for_update=True)
+        sp_wallet.pending_balance = round((sp_wallet.pending_balance or 0.0) + partner_share, 2)
+        sp_wallet.updated_at = now_str
+        db.add(
+            WalletTransaction(
+                id=str(uuid.uuid4()),
+                wallet_id=sp_wallet.id,
+                company_id=sp_owner_id,
+                order_id=deal_id,
+                type="ESCROW_HOLD",
+                amount=partner_share,
+                balance_after=sp_wallet.available_balance,
+                description=f"50% escrow held for Sales Partner lead '{enq.product_name or enq.category}' (awaiting bill approval)",
+                created_at=now_str,
+            )
+        )
+
+    invoice_id, invoice_number, pdf_bytes, invoice_payload = await _create_lead_tax_invoice(
+        usr_obj=usr_obj,
+        comp_obj=comp_obj,
+        plan_id="sales_partner_lead",
+        plan_name="Sales Partner Lead Unlock (2% Lead Value)",
+        description=f"Exclusive unlock for Sales Partner lead '{enq.product_name or enq.category}' (Deal Value: ₹{total_deal_val:,.2f})",
+        base_price=base_val,
+        gst_amount=gst_amt,
+        total_price=total_paid,
+        payment_id=razorpay_payment_id,
+        razorpay_order_id=razorpay_order_id,
+        db=db,
+    )
+    deal.invoice_id = invoice_id
+
+    email_html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0;">
+        <h2 style="color: #1e3a8a;">Tax Invoice - Sales Partner Lead Purchase</h2>
+        <p>Dear {invoice_payload['customer_name']},</p>
+        <p>You have exclusively unlocked a Sales Partner lead on <strong>{invoice_payload['supplier_name']}</strong>.</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+            <tr><td style="padding: 6px 0; color: #64748b;">Invoice Number:</td><td style="font-weight: bold; text-align: right;">{invoice_number}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Total Deal Value:</td><td style="text-align: right;">₹{total_deal_val:,.2f}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Lead Value (2%):</td><td style="text-align: right;">₹{base_val:,.2f}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">GST (18%):</td><td style="text-align: right;">₹{gst_amt:,.2f}</td></tr>
+            <tr style="border-top: 1px solid #cbd5e1;"><td style="padding: 8px 0; font-weight: bold;">Total Paid:</td><td style="font-weight: bold; color: #1e3a8a; text-align: right;">₹{total_paid:,.2f}</td></tr>
+        </table>
+        <p>Once the external transaction completes and the Sales Partner uploads the bill, you can approve it or report an issue from Purchased Deals.</p>
+    </div>
+    """
+    _send_lead_invoice_email_async(
+        usr_obj.email,
+        invoice_number,
+        f"Tax Invoice {invoice_number} - Sales Partner Lead Purchase",
+        email_html,
+        pdf_bytes,
+    )
+
+    await notify_user(
+        db=db,
+        user_id=user["id"],
+        title="Sales Partner Lead Unlocked!",
+        body=f"You exclusively purchased lead '{enq.product_name or enq.category}' for ₹{total_paid:,.2f} (incl. GST). Contact details are now unlocked.",
+        notif_type="lead_purchased",
+        target_id=enq.id,
+        link_url="/leads?tab=partner_purchased",
+    )
+
+    if enq.sales_partner_id:
+        await notify_user(
+            db=db,
+            user_id=enq.sales_partner_id,
+            title="Your Sales Partner Lead Was Purchased!",
+            body=f"{usr_obj.name} bought your lead '{enq.product_name or enq.category}'. ₹{partner_share:,.2f} (50% commission) is held in escrow until you upload the transaction bill and it is approved.",
+            notif_type="partner_lead_sold",
+            target_id=deal_id,
+            link_url="/sales-partner",
+            send_email_flag=bool(sp_user and sp_user.email),
+            email_to=sp_user.email if sp_user else None,
+            email_subject=f"Your IIP Lead '{enq.product_name or enq.category}' Was Purchased!",
+        )
+
+    await db.commit()
+    return {
+        "ok": True,
+        "already_unlocked": True,
+        "mobile": enq.mobile,
+        "name": enq.name,
+        "invoice_id": invoice_id,
+        "invoice_number": invoice_number,
+        "download_url": f"/api/invoices/{invoice_id}/download",
+        "deal": _serialize_deal(deal, sp_user, usr_obj),
+    }
+
+
+async def _release_partner_deal_payout(
+    deal: SalesPartnerLeadDeal,
+    actor_user_id: Optional[str],
+    db: AsyncSession,
+    notes: Optional[str] = None,
+    is_admin_override: bool = False,
+) -> SalesPartnerLeadDeal:
+    if deal.status in ("REFUNDED", "FAKE_REFUNDED"):
+        raise HTTPException(status_code=400, detail="Cannot approve payout on a deal already refunded as fake.")
+    if deal.status == "APPROVED":
+        return deal
+
+    partner = (await db.execute(select(User).where(User.id == deal.sales_partner_id))).scalar_one_or_none()
+    sp_owner_id = partner.company_id if (partner and partner.company_id) else deal.sales_partner_id
+    sp_wallet = await get_or_create_wallet(sp_owner_id, db, for_update=True)
+
+    # Idempotency guard against double-payout
+    completed_tx = (
+        await db.execute(
+            select(WalletTransaction).where(
+                WalletTransaction.order_id == deal.id,
+                WalletTransaction.type == "CREDIT_SP_COMMISSION",
+            )
+        )
+    ).scalars().first()
+
+    if not completed_tx:
+        share = round(float(deal.partner_share_amount or 0.0), 2)
+        sp_wallet.pending_balance = round(max(0.0, (sp_wallet.pending_balance or 0.0) - share), 2)
+        sp_wallet.available_balance = round((sp_wallet.available_balance or 0.0) + share, 2)
+        sp_wallet.updated_at = now_iso()
+
+        release_desc = f"50% commission released to available balance for Sales Partner deal {deal.id[:8]}"
+        if is_admin_override:
+            release_desc += " (Admin Override)"
+        db.add(
+            WalletTransaction(
+                id=str(uuid.uuid4()),
+                wallet_id=sp_wallet.id,
+                company_id=sp_owner_id,
+                order_id=deal.id,
+                type="CREDIT_SP_COMMISSION",
+                amount=share,
+                balance_after=sp_wallet.available_balance,
+                description=release_desc,
+                created_at=now_iso(),
+            )
+        )
+
+    now_str = now_iso()
+    deal.status = "APPROVED"
+    deal.resolved_by = actor_user_id
+    deal.resolved_at = now_str
+    deal.updated_at = now_str
+    if notes is not None:
+        deal.admin_decision_notes = notes
+
+    await notify_user(
+        db=db,
+        user_id=deal.sales_partner_id,
+        title="50% Commission Released to Wallet!",
+        body=f"₹{deal.partner_share_amount:,.2f} has been credited to your available wallet balance" + (" (approved by Admin override)." if is_admin_override else " after buyer approval."),
+        notif_type="partner_payout_approved",
+        target_id=deal.id,
+        link_url="/sales-partner",
+        send_email_flag=bool(partner and partner.email),
+        email_to=partner.email if partner else None,
+        email_subject=f"IIP Commission Credited: ₹{deal.partner_share_amount:,.2f}",
+    )
+    if is_admin_override:
+        await notify_user(
+            db=db,
+            user_id=deal.buyer_user_id,
+            title="Admin Finalized Lead Deal",
+            body=f"Admin approved and released the Sales Partner commission for deal {deal.id[:8]}.",
+            notif_type="partner_payout_approved",
+            target_id=deal.id,
+            link_url="/leads?tab=partner_purchased",
+        )
+    return deal
+
+
+async def _refund_fake_lead_deal(
+    deal: SalesPartnerLeadDeal,
+    admin_user_id: str,
+    db: AsyncSession,
+    notes: Optional[str] = None,
+) -> SalesPartnerLeadDeal:
+    if deal.status == "APPROVED":
+        raise HTTPException(status_code=400, detail="Cannot issue fake-lead refund after partner commission has been approved.")
+    if deal.status in ("REFUNDED", "FAKE_REFUNDED"):
+        return deal
+
+    partner = (await db.execute(select(User).where(User.id == deal.sales_partner_id))).scalar_one_or_none()
+    buyer = (await db.execute(select(User).where(User.id == deal.buyer_user_id))).scalar_one_or_none()
+
+    # Reverse pending commission from Sales Partner wallet (idempotent)
+    sp_owner_id = partner.company_id if (partner and partner.company_id) else deal.sales_partner_id
+    sp_wallet = await get_or_create_wallet(sp_owner_id, db, for_update=True)
+    cancel_tx = (
+        await db.execute(
+            select(WalletTransaction).where(
+                WalletTransaction.order_id == deal.id,
+                WalletTransaction.type == "ESCROW_CANCELLED",
+            )
+        )
+    ).scalars().first()
+    if not cancel_tx:
+        share = round(float(deal.partner_share_amount or 0.0), 2)
+        sp_wallet.pending_balance = round(max(0.0, (sp_wallet.pending_balance or 0.0) - share), 2)
+        sp_wallet.updated_at = now_iso()
+        db.add(
+            WalletTransaction(
+                id=str(uuid.uuid4()),
+                wallet_id=sp_wallet.id,
+                company_id=sp_owner_id,
+                order_id=deal.id,
+                type="ESCROW_CANCELLED",
+                amount=share,
+                balance_after=sp_wallet.available_balance,
+                description=f"Escrow cancelled due to verified fake lead dispute (Deal {deal.id[:8]})",
+                created_at=now_iso(),
+            )
+        )
+
+    # Idempotency guard for buyer 50% refund
+    existing_refund_tx = (
+        await db.execute(
+            select(WalletTransaction).where(
+                WalletTransaction.order_id == deal.id,
+                WalletTransaction.type == "CREDIT_FAKE_REFUND",
+            )
+        )
+    ).scalars().first()
+
+    if not existing_refund_tx:
+        buyer_owner_id = buyer.company_id if (buyer and buyer.company_id) else deal.buyer_user_id
+        buyer_wallet = await get_or_create_wallet(buyer_owner_id, db, for_update=True)
+        refund_amt = round(float(deal.refund_share_amount or 0.0), 2)
+        buyer_wallet.available_balance = round((buyer_wallet.available_balance or 0.0) + refund_amt, 2)
+        buyer_wallet.updated_at = now_iso()
+        db.add(
+            WalletTransaction(
+                id=str(uuid.uuid4()),
+                wallet_id=buyer_wallet.id,
+                company_id=buyer_owner_id,
+                order_id=deal.id,
+                type="CREDIT_FAKE_REFUND",
+                amount=refund_amt,
+                balance_after=buyer_wallet.available_balance,
+                description=f"50% wallet refund for verified fake Sales Partner lead (Deal {deal.id[:8]})",
+                created_at=now_iso(),
+            )
+        )
+
+    now_str = now_iso()
+    deal.status = "REFUNDED"
+    deal.admin_decision_notes = notes
+    deal.resolved_by = admin_user_id
+    deal.resolved_at = now_str
+    deal.updated_at = now_str
+
+    await notify_user(
+        db=db,
+        user_id=deal.buyer_user_id,
+        title="50% Fake-Lead Refund Credited!",
+        body=f"Admin approved your fake-lead claim. ₹{deal.refund_share_amount:,.2f} (50% of Lead Value) has been credited to your wallet.",
+        notif_type="partner_fake_refund",
+        target_id=deal.id,
+        link_url="/settings",
+        send_email_flag=bool(buyer and buyer.email),
+        email_to=buyer.email if buyer else None,
+        email_subject=f"IIP Fake Lead Refund Credited: ₹{deal.refund_share_amount:,.2f}",
+    )
+    await notify_user(
+        db=db,
+        user_id=deal.sales_partner_id,
+        title="Fake Lead Claim Approved by Admin",
+        body=f"Admin upheld the buyer's fake-lead report for deal {deal.id[:8]}. Pending escrow of ₹{deal.partner_share_amount:,.2f} was cancelled.",
+        notif_type="partner_fake_reported",
+        target_id=deal.id,
+        link_url="/sales-partner",
+    )
+    return deal
+
+
+async def _handle_topup_order_creation(lead_id: str, user: dict, db: AsyncSession) -> dict:
+    info = await get_applicable_topup_for_lead(lead_id, db)
+    if info.get("is_sales_partner_lead"):
+        enq = (await db.execute(select(Enquiry).where(Enquiry.id == lead_id))).scalars().first()
+        if not enq:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if enq.is_sold_out:
+            raise HTTPException(status_code=400, detail="This Sales Partner lead is already Sold Out.")
+        if enq.sales_partner_id == user["id"]:
+            raise HTTPException(status_code=400, detail="Sales Partners cannot purchase their own lead.")
+
+    base_price = float(info["price_inr"])
+    gst_amount = round(base_price * 0.18, 2)
+    total_price = round(base_price + gst_amount, 2)
+    amount_paise = int(round(total_price * 100))
+
+    order_data = _create_razorpay_order(amount_paise, f"receipt_lead_{lead_id[:8]}")
+    return {
+        "order_id": order_data["id"],
+        "amount": amount_paise,
+        "base_price": base_price,
+        "gst": gst_amount,
+        "total": total_price,
+        "key": RAZORPAY_KEY_ID,
+        "currency": "INR",
+        "lead_id": lead_id,
+        "valuation_range": info["valuation_range"],
+        "estimated_valuation": info["estimated_valuation"],
+        "is_sales_partner_lead": bool(info.get("is_sales_partner_lead", False)),
+        "partner_share_amount": info.get("partner_share_amount"),
+        "refund_share_amount": info.get("refund_share_amount"),
+    }
+
+
+async def _handle_topup_verification(
+    lead_id: str,
+    razorpay_order_id: str,
+    razorpay_payment_id: str,
+    razorpay_signature: str,
+    user: dict,
+    db: AsyncSession,
+) -> dict:
+    _verify_razorpay_signature(razorpay_order_id, razorpay_payment_id, razorpay_signature)
+
+    enq = (await db.execute(select(Enquiry).where(Enquiry.id == lead_id).with_for_update())).scalars().first()
+    if not enq:
+        raise HTTPException(status_code=404, detail="Lead enquiry not found")
+
+    if getattr(enq, "is_sales_partner_lead", False):
+        return await _execute_sales_partner_lead_purchase(
+            enq=enq,
+            user=user,
+            razorpay_payment_id=razorpay_payment_id,
+            razorpay_order_id=razorpay_order_id,
+            db=db,
+        )
+
+    usr_obj = (await db.execute(select(User).where(User.id == user["id"]))).scalar_one_or_none()
+    if not usr_obj:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    comp_obj = None
+    if usr_obj.company_id:
+        comp_obj = (await db.execute(select(Company).where(Company.id == usr_obj.company_id))).scalar_one_or_none()
+
+    rate_info = await get_applicable_topup_for_lead(lead_id, db)
+    base_price = float(rate_info["price_inr"])
+    gst_amount = round(base_price * 0.18, 2)
+    total_price = round(base_price + gst_amount, 2)
+
+    invoice_id, invoice_number, pdf_bytes, invoice_payload = await _create_lead_tax_invoice(
+        usr_obj=usr_obj,
+        comp_obj=comp_obj,
+        plan_id=rate_info.get("topup_plan_id") or "lead_topup",
+        plan_name=f"Lead Top-Up ({rate_info['valuation_range']})",
+        description=f"Lead unlock purchase for category '{enq.category}' (Valuation: {rate_info['valuation_range']})",
+        base_price=base_price,
+        gst_amount=gst_amount,
+        total_price=total_price,
+        payment_id=razorpay_payment_id,
+        razorpay_order_id=razorpay_order_id,
+        db=db,
+    )
+
+    current_unlocked = list(usr_obj.unlocked_enquiries or [])
+    if lead_id not in current_unlocked:
+        current_unlocked.append(lead_id)
         usr_obj.unlocked_enquiries = current_unlocked
 
     email_html = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 8px;">
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0;">
         <h2 style="color: #1e3a8a;">Tax Invoice - Lead Unlock Top-Up</h2>
         <p>Dear {invoice_payload['customer_name']},</p>
         <p>Thank you for purchasing a lead unlock on <strong>{invoice_payload['supplier_name']}</strong>.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
             <tr><td style="padding: 6px 0; color: #64748b;">Invoice Number:</td><td style="font-weight: bold; text-align: right;">{invoice_number}</td></tr>
-            <tr><td style="padding: 6px 0; color: #64748b;">Invoice Date:</td><td style="font-weight: bold; text-align: right;">{invoice_date_str}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Lead Category:</td><td style="text-align: right;">{enq.category}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Valuation Range:</td><td style="text-align: right;">{rate_info['valuation_range']}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Amount:</td><td style="text-align: right;">₹{base_price:,.2f}</td></tr>
@@ -6280,38 +7011,20 @@ async def verify_topup_payment(
             <tr style="border-top: 1px solid #cbd5e1;"><td style="padding: 8px 0; font-weight: bold;">Total Paid:</td><td style="font-weight: bold; color: #1e3a8a; text-align: right;">₹{total_price:,.2f}</td></tr>
         </table>
         <p>Your official Tax Invoice PDF is attached to this email for your records and GST compliance.</p>
-        <br/>
-        <p style="font-size: 12px; color: #94a3b8;">Indian Industrial Products | B2B Marketplace & Networking</p>
     </div>
     """
+    _send_lead_invoice_email_async(
+        usr_obj.email,
+        invoice_number,
+        f"Tax Invoice {invoice_number} - Lead Unlock Purchase",
+        email_html,
+        pdf_bytes,
+    )
 
-    attachments_list = []
-    if pdf_bytes:
-        attachments_list.append({
-            "filename": f"Tax_Invoice_{invoice_number}.pdf",
-            "content": pdf_bytes,
-            "mime_type": "application/pdf"
-        })
-
-    if usr_obj.email and pdf_bytes:
-        try:
-            asyncio.create_task(
-                send_email(
-                    to=usr_obj.email,
-                    subject=f"Tax Invoice {invoice_number} - Lead Unlock Purchase",
-                    html_body=email_html,
-                    attachments=attachments_list
-                )
-            )
-        except Exception as e_err:
-            logger.error(f"Failed sending topup invoice email: {e_err}")
-
-    # Notify creator if applicable
     try:
         creator_id = getattr(enq, "user_id", None)
         if creator_id and creator_id != user["id"]:
-            stmt_creator = select(User).where(User.id == creator_id)
-            creator = (await db.execute(stmt_creator)).scalars().first()
+            creator = (await db.execute(select(User).where(User.id == creator_id))).scalars().first()
             if creator:
                 await notify_user(
                     db=db,
@@ -6319,7 +7032,7 @@ async def verify_topup_payment(
                     title="Supplier Unlocked Your Lead!",
                     body=f"A verified supplier on IIP unlocked your contact details for requirement '{enq.category}'.",
                     notif_type="lead_unlocked",
-                    target_id=payload.lead_id,
+                    target_id=lead_id,
                     link_url="/requirements",
                     send_email_flag=True,
                     email_to=creator.email,
@@ -6338,6 +7051,420 @@ async def verify_topup_payment(
         "invoice_number": invoice_number,
         "download_url": f"/api/invoices/{invoice_id}/download",
     }
+
+
+@api.get("/topup-plans/lead-rate/{lead_id}")
+async def get_lead_topup_rate(
+    lead_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Returns valuation range and unlock price (INR), including 2% + 18% GST for Sales Partner leads."""
+    return await get_applicable_topup_for_lead(lead_id, db)
+
+
+@api.post("/payments/create-order-topup")
+async def create_topup_payment_order(
+    payload: CreateTopupOrderIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await _handle_topup_order_creation(payload.lead_id, user, db)
+
+
+@api.post("/payments/verify-topup")
+async def verify_topup_payment(
+    payload: VerifyTopupPaymentIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await _handle_topup_verification(
+        lead_id=payload.lead_id,
+        razorpay_order_id=payload.razorpay_order_id,
+        razorpay_payment_id=payload.razorpay_payment_id,
+        razorpay_signature=payload.razorpay_signature,
+        user=user,
+        db=db,
+    )
+
+
+@api.post("/sales-partner/leads/{lead_id}/create-order")
+async def create_sales_partner_lead_order(
+    lead_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await _handle_topup_order_creation(lead_id, user, db)
+
+
+@api.post("/sales-partner/leads/{lead_id}/verify-payment")
+async def verify_sales_partner_lead_payment(
+    lead_id: str,
+    payload: VerifySalesPartnerPaymentIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await _handle_topup_verification(
+        lead_id=lead_id,
+        razorpay_order_id=payload.razorpay_order_id,
+        razorpay_payment_id=payload.razorpay_payment_id,
+        razorpay_signature=payload.razorpay_signature,
+        user=user,
+        db=db,
+    )
+
+
+@api.get("/sales-partner/my-leads")
+async def get_sales_partner_my_leads(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if user.get("role") not in ("sales_partner", "admin"):
+        raise HTTPException(status_code=403, detail="Sales Partner access required.")
+
+    stmt = select(Enquiry).where(Enquiry.is_sales_partner_lead == True)
+    if user.get("role") != "admin":
+        stmt = stmt.where(Enquiry.sales_partner_id == user["id"])
+    enquiries = (await db.execute(stmt.order_by(desc(Enquiry.created_at)))).scalars().all()
+
+    lead_ids = [e.id for e in enquiries]
+    deals_by_lead: Dict[str, SalesPartnerLeadDeal] = {}
+    buyers_by_id: Dict[str, User] = {}
+    if lead_ids:
+        deal_rows = (
+            await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.lead_id.in_(lead_ids)))
+        ).scalars().all()
+        buyer_ids = {dl.buyer_user_id for dl in deal_rows if dl.buyer_user_id}
+        if buyer_ids:
+            b_rows = (await db.execute(select(User).where(User.id.in_(buyer_ids)))).scalars().all()
+            buyers_by_id = {u.id: u for u in b_rows}
+        deals_by_lead = {dl.lead_id: dl for dl in deal_rows}
+
+    sp_user = (await db.execute(select(User).where(User.id == user["id"]))).scalar_one_or_none()
+    leads_out = []
+    sold_count = 0
+    approved_count = 0
+    pending_comm = 0.0
+    earned_comm = 0.0
+
+    for e in enquiries:
+        if e.is_sold_out:
+            sold_count += 1
+        dl = deals_by_lead.get(e.id)
+        if dl:
+            if dl.status == "APPROVED":
+                approved_count += 1
+                earned_comm += float(dl.partner_share_amount or 0.0)
+            elif dl.status in ("UNLOCKED", "INVOICE_UPLOADED", "BILL_UPLOADED", "FAKE_REPORTED"):
+                pending_comm += float(dl.partner_share_amount or 0.0)
+        buyer_obj = buyers_by_id.get(dl.buyer_user_id) if dl else None
+        leads_out.append(
+            serialize_enquiry(
+                e,
+                cu=user,
+                unlocked_ids={e.id},
+                deal=_serialize_deal(dl, sp_user, buyer_obj),
+            )
+        )
+
+    return {
+        "summary": {
+            "total_leads": len(enquiries),
+            "sold_leads": sold_count,
+            "approved_deals": approved_count,
+            "pending_commission": round(pending_comm, 2),
+            "earned_commission": round(earned_comm, 2),
+        },
+        "leads": leads_out,
+    }
+
+
+@api.get("/sales-partner/purchased-deals")
+async def get_purchased_sales_partner_deals(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    deals = (
+        await db.execute(
+            select(SalesPartnerLeadDeal)
+            .where(SalesPartnerLeadDeal.buyer_user_id == user["id"])
+            .order_by(desc(SalesPartnerLeadDeal.created_at))
+        )
+    ).scalars().all()
+
+    if not deals:
+        return []
+
+    lead_ids = [dl.lead_id for dl in deals]
+    partner_ids = {dl.sales_partner_id for dl in deals if dl.sales_partner_id}
+    leads_map = {
+        e.id: e
+        for e in (await db.execute(select(Enquiry).where(Enquiry.id.in_(lead_ids)))).scalars().all()
+    }
+    partners_map = {
+        u.id: u
+        for u in (await db.execute(select(User).where(User.id.in_(partner_ids)))).scalars().all()
+    } if partner_ids else {}
+
+    result = []
+    for dl in deals:
+        lead_obj = leads_map.get(dl.lead_id)
+        partner_obj = partners_map.get(dl.sales_partner_id)
+        deal_dict = _serialize_deal(dl, partner_obj)
+        deal_dict["lead"] = serialize_enquiry(lead_obj, cu=user, unlocked_ids={dl.lead_id}, deal=deal_dict) if lead_obj else None
+        result.append(deal_dict)
+    return result
+
+
+@api.post("/sales-partner/deals/{deal_id}/upload-bill")
+async def upload_sales_partner_deal_bill(
+    deal_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    deal = (
+        await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.id == deal_id))
+    ).scalars().first()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+    if deal.sales_partner_id != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only the assigned Sales Partner can upload the transaction bill.")
+    if deal.status in ("APPROVED", "REFUNDED", "FAKE_REFUNDED"):
+        raise HTTPException(status_code=400, detail=f"Cannot upload bill for a finalized deal ({deal.status}).")
+
+    content_type = request.headers.get("content-type", "").lower()
+    bill_image_url = None
+    notes = None
+
+    if "application/json" in content_type:
+        data = await request.json()
+        bill_image_url = data.get("bill_image_url")
+        notes = data.get("notes")
+    else:
+        form = await request.form()
+        notes = form.get("notes")
+        bill_image_url = form.get("bill_image_url")
+        upload = form.get("bill") or form.get("file")
+        if upload and hasattr(upload, "filename") and upload.filename:
+            m_type = getattr(upload, "content_type", "") or ""
+            if m_type and m_type not in ALLOWED_ENQUIRY_MEDIA_TYPES:
+                raise HTTPException(status_code=400, detail="Unsupported bill file format. Upload JPG, PNG, WEBP, GIF, or PDF.")
+            file_data = await upload.read()
+            if len(file_data) > MAX_ENQUIRY_MEDIA_SIZE:
+                raise HTTPException(status_code=400, detail="Bill file exceeds 10 MB size limit.")
+            file_ext = Path(upload.filename).suffix.lower() or ".jpg"
+            unique_filename = f"bill_{deal_id[:8]}_{uuid.uuid4().hex[:8]}{file_ext}"
+            file_path = ENQUIRY_MEDIA_DIR / unique_filename
+            with file_path.open("wb") as buf:
+                buf.write(file_data)
+            bill_image_url = f"/api/enquiry-media/{unique_filename}"
+
+    if not bill_image_url:
+        raise HTTPException(status_code=400, detail="Bill image file or bill_image_url is required.")
+
+    now_str = now_iso()
+    deal.bill_image_url = str(bill_image_url).strip()
+    deal.bill_notes = str(notes).strip() if notes else None
+    deal.bill_uploaded_at = now_str
+    deal.status = "INVOICE_UPLOADED"
+    deal.updated_at = now_str
+
+    lead_obj = (await db.execute(select(Enquiry).where(Enquiry.id == deal.lead_id))).scalar_one_or_none()
+    buyer = (await db.execute(select(User).where(User.id == deal.buyer_user_id))).scalar_one_or_none()
+    partner = (await db.execute(select(User).where(User.id == deal.sales_partner_id))).scalar_one_or_none()
+
+    await notify_user(
+        db=db,
+        user_id=deal.buyer_user_id,
+        title="Sales Partner Uploaded Transaction Bill",
+        body=f"Transaction bill uploaded for lead '{lead_obj.product_name or lead_obj.category if lead_obj else deal.lead_id[:8]}'. Please review and approve to release ₹{deal.partner_share_amount:,.2f} to the Sales Partner.",
+        notif_type="partner_bill_uploaded",
+        target_id=deal.id,
+        link_url="/leads?tab=partner_purchased",
+        send_email_flag=bool(buyer and buyer.email),
+        email_to=buyer.email if buyer else None,
+        email_subject="Action Required: Review Sales Partner Transaction Bill on IIP",
+    )
+
+    await db.commit()
+    return {"ok": True, "deal": _serialize_deal(deal, partner, buyer)}
+
+
+@api.post("/sales-partner/deals/{deal_id}/approve-bill")
+async def approve_sales_partner_deal_bill(
+    deal_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    deal = (
+        await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.id == deal_id).with_for_update())
+    ).scalars().first()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+
+    is_admin = user.get("role") == "admin"
+    if deal.buyer_user_id != user["id"] and not is_admin:
+        raise HTTPException(status_code=403, detail="Only the purchasing buyer/manufacturer or an admin can approve this bill.")
+
+    if not is_admin and not deal.bill_image_url:
+        raise HTTPException(status_code=400, detail="Wait for the Sales Partner to upload the transaction bill first.")
+
+    await _release_partner_deal_payout(
+        deal=deal,
+        actor_user_id=user["id"],
+        db=db,
+        is_admin_override=is_admin and deal.buyer_user_id != user["id"],
+    )
+    await db.commit()
+    partner = (await db.execute(select(User).where(User.id == deal.sales_partner_id))).scalar_one_or_none()
+    buyer = (await db.execute(select(User).where(User.id == deal.buyer_user_id))).scalar_one_or_none()
+    return {"ok": True, "deal": _serialize_deal(deal, partner, buyer)}
+
+
+@api.post("/sales-partner/deals/{deal_id}/report-fake")
+async def report_sales_partner_deal_fake(
+    deal_id: str,
+    payload: FakeReportIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    reason = (payload.reason or "").strip()
+    if len(reason) < 5:
+        raise HTTPException(status_code=400, detail="Please provide a detailed reason (minimum 5 characters) for reporting a fake lead.")
+
+    deal = (
+        await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.id == deal_id).with_for_update())
+    ).scalars().first()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+    if deal.buyer_user_id != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only the purchasing buyer/manufacturer can report this lead as fake.")
+    if deal.status in ("APPROVED", "REFUNDED", "FAKE_REFUNDED"):
+        raise HTTPException(status_code=400, detail=f"Cannot report a finalized deal ({deal.status}).")
+
+    now_str = now_iso()
+    deal.status = "FAKE_REPORTED"
+    deal.fake_report_reason = reason
+    deal.fake_reported_at = now_str
+    deal.updated_at = now_str
+
+    await notify_user(
+        db=db,
+        user_id=deal.sales_partner_id,
+        title="Fake Lead Report Filed",
+        body=f"Buyer reported deal {deal.id[:8]} as fake/invalid: '{reason}'. An Admin will review and make the final decision.",
+        notif_type="partner_fake_reported",
+        target_id=deal.id,
+        link_url="/sales-partner",
+    )
+
+    admins = (await db.execute(select(User).where(User.role == "admin"))).scalars().all()
+    for adm in admins:
+        await notify_user(
+            db=db,
+            user_id=adm.id,
+            title="Admin Review Required: Fake Lead Dispute",
+            body=f"Buyer reported Sales Partner deal {deal.id[:8]} as fake: '{reason}'.",
+            notif_type="partner_fake_reported",
+            target_id=deal.id,
+            link_url="/admin",
+        )
+
+    await db.commit()
+    partner = (await db.execute(select(User).where(User.id == deal.sales_partner_id))).scalar_one_or_none()
+    buyer = (await db.execute(select(User).where(User.id == deal.buyer_user_id))).scalar_one_or_none()
+    return {"ok": True, "deal": _serialize_deal(deal, partner, buyer)}
+
+
+@api.get("/admin/sales-partner-deals")
+async def admin_list_sales_partner_deals(
+    user: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    deals = (
+        await db.execute(select(SalesPartnerLeadDeal).order_by(desc(SalesPartnerLeadDeal.created_at)))
+    ).scalars().all()
+
+    if not deals:
+        return []
+
+    lead_ids = [dl.lead_id for dl in deals]
+    user_ids = {dl.sales_partner_id for dl in deals if dl.sales_partner_id} | {dl.buyer_user_id for dl in deals if dl.buyer_user_id}
+    leads_map = {e.id: e for e in (await db.execute(select(Enquiry).where(Enquiry.id.in_(lead_ids)))).scalars().all()}
+    users_map = {u.id: u for u in (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()} if user_ids else {}
+
+    out = []
+    for dl in deals:
+        lead_obj = leads_map.get(dl.lead_id)
+        partner_obj = users_map.get(dl.sales_partner_id)
+        buyer_obj = users_map.get(dl.buyer_user_id)
+        item = _serialize_deal(dl, partner_obj, buyer_obj)
+        item["lead"] = serialize_enquiry(lead_obj, cu=user, unlocked_ids={dl.lead_id}, deal=item) if lead_obj else None
+        out.append(item)
+    return out
+
+
+@api.post("/admin/sales-partner-deals/{deal_id}/resolve")
+async def admin_resolve_sales_partner_deal(
+    deal_id: str,
+    payload: AdminResolveDealIn,
+    user: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    deal = (
+        await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.id == deal_id).with_for_update())
+    ).scalars().first()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+
+    if payload.action == "approve_partner_payout":
+        await _release_partner_deal_payout(
+            deal=deal,
+            actor_user_id=user["id"],
+            db=db,
+            notes=payload.notes,
+            is_admin_override=True,
+        )
+    elif payload.action == "approve_fake_refund":
+        await _refund_fake_lead_deal(
+            deal=deal,
+            admin_user_id=user["id"],
+            db=db,
+            notes=payload.notes,
+        )
+    elif payload.action == "reject_fake_report":
+        if deal.status in ("APPROVED", "REFUNDED", "FAKE_REFUNDED"):
+            raise HTTPException(status_code=400, detail=f"Deal is already finalized ({deal.status}).")
+        restored_status = "INVOICE_UPLOADED" if deal.bill_image_url else "UNLOCKED"
+        deal.status = restored_status
+        deal.admin_decision_notes = payload.notes
+        deal.resolved_by = user["id"]
+        deal.resolved_at = now_iso()
+        deal.updated_at = now_iso()
+        await notify_user(
+            db=db,
+            user_id=deal.buyer_user_id,
+            title="Fake Lead Claim Rejected by Admin",
+            body=f"Admin rejected the fake-lead report for deal {deal.id[:8]}. Deal status restored to {restored_status}.",
+            notif_type="partner_bill_uploaded",
+            target_id=deal.id,
+            link_url="/leads?tab=partner_purchased",
+        )
+        await notify_user(
+            db=db,
+            user_id=deal.sales_partner_id,
+            title="Fake Lead Claim Dismissed",
+            body=f"Admin dismissed the fake-lead report on deal {deal.id[:8]}. Your deal remains active.",
+            notif_type="partner_lead_sold",
+            target_id=deal.id,
+            link_url="/sales-partner",
+        )
+
+    await db.commit()
+    partner = (await db.execute(select(User).where(User.id == deal.sales_partner_id))).scalar_one_or_none()
+    buyer = (await db.execute(select(User).where(User.id == deal.buyer_user_id))).scalar_one_or_none()
+    return {"ok": True, "deal": _serialize_deal(deal, partner, buyer)}
 
 @api.post("/payments/create-order-cart")
 async def create_payment_order_cart(payload: CreateCartOrderIn, user: dict = Depends(get_current_user)):
@@ -6507,8 +7634,10 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
             if order and order.status != "paid":
                 order.status = "paid"
                 order.payment_method = "razorpay"
+                await db.flush()
+                await credit_seller_wallet_for_order(order, db)
                 await db.commit()
-                logger.info(f"Webhook marked order {order.id} as paid (Razorpay Order: {razorpay_order_id})")
+                logger.info(f"Webhook marked order {order.id} as paid and credited wallet (Razorpay Order: {razorpay_order_id})")
                 
     return {"status": "ok"}
 
@@ -6867,126 +7996,116 @@ async def admin_delete_contact_enquiry(
     return {"status": "ok"}
 
 
-# -------------------- Seller Bank & Wallet Settlement System --------------------
+# -------------------- Seller & Sales Partner Bank / Wallet Settlement System --------------------
 
-@api.get("/companies/me/bank-account", response_model=Optional[BankAccountOut])
-async def get_my_bank_account(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if not user.get("company_id"):
-        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
-    
-    stmt = select(SellerBankAccount).where(SellerBankAccount.company_id == user["company_id"])
-    account = (await db.execute(stmt)).scalar_one_or_none()
-    if not account:
-        return None
-
-    decrypted_num = decrypt_bank_field(account.encrypted_account_number) or "XXXX"
+def _bank_account_to_out(account: SellerBankAccount, raw_account_num: Optional[str] = None) -> BankAccountOut:
+    dec_num = raw_account_num if raw_account_num is not None else (decrypt_bank_field(account.encrypted_account_number) or "XXXX")
     return BankAccountOut(
         id=account.id,
         company_id=account.company_id,
         bank_name=account.bank_name,
         account_holder_name=account.account_holder_name,
-        masked_account_number=mask_account_number(decrypted_num),
+        masked_account_number=mask_account_number(dec_num),
         account_type=account.account_type,
         verification_status=account.verification_status,
-        updated_at=account.updated_at
+        updated_at=account.updated_at,
     )
 
 
+async def resolve_wallet_owner_display(owner_id: str, db: AsyncSession) -> str:
+    comp = (await db.execute(select(Company).where(Company.id == owner_id))).scalar_one_or_none()
+    if comp:
+        return comp.name
+    usr = (await db.execute(select(User).where(User.id == owner_id))).scalar_one_or_none()
+    if usr:
+        role_label = (usr.role or "user").replace("_", " ").title()
+        return f"{usr.name} ({role_label})"
+    return "Seller / Partner"
+
+
+@api.get("/companies/me/bank-account", response_model=Optional[BankAccountOut])
+@api.get("/wallet/me/bank-account", response_model=Optional[BankAccountOut])
+async def get_my_bank_account(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    owner_id = get_wallet_owner_id(user)
+    account = (
+        await db.execute(select(SellerBankAccount).where(SellerBankAccount.company_id == owner_id))
+    ).scalar_one_or_none()
+    if not account:
+        return None
+    return _bank_account_to_out(account)
+
+
 @api.put("/companies/me/bank-account", response_model=BankAccountOut)
+@api.put("/wallet/me/bank-account", response_model=BankAccountOut)
 async def update_my_bank_account(payload: BankAccountIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if not user.get("company_id"):
-        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
-    
-    if not payload.account_number or len(payload.account_number.strip()) < 8:
-        raise HTTPException(status_code=400, detail="Valid bank account number (min 8 digits) is required.")
-    
-    if not payload.ifsc_code or len(payload.ifsc_code.strip()) != 11:
-        raise HTTPException(status_code=400, detail="Valid 11-character bank IFSC code is required.")
+    import re
+    owner_id = get_wallet_owner_id(user)
 
-    stmt = select(SellerBankAccount).where(SellerBankAccount.company_id == user["company_id"])
-    account = (await db.execute(stmt)).scalar_one_or_none()
+    bank_name = (payload.bank_name or "").strip()
+    holder_name = (payload.account_holder_name or "").strip()
+    if len(bank_name) < 2:
+        raise HTTPException(status_code=400, detail="Valid bank name is required.")
+    if len(holder_name) < 2:
+        raise HTTPException(status_code=400, detail="Valid account holder name is required.")
 
-    enc_acc = encrypt_bank_field(payload.account_number.strip())
-    enc_ifsc = encrypt_bank_field(payload.ifsc_code.strip().upper())
+    acc_num = re.sub(r"\s+", "", payload.account_number or "")
+    if not re.fullmatch(r"\d{8,18}", acc_num):
+        raise HTTPException(status_code=400, detail="Valid numeric bank account number (8 to 18 digits) is required.")
+
+    ifsc = (payload.ifsc_code or "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]{11}", ifsc):
+        raise HTTPException(status_code=400, detail="Valid 11-character alphanumeric bank IFSC code is required.")
+
+    acc_type = (payload.account_type or "current").strip().lower()
+    if acc_type not in ("savings", "current"):
+        raise HTTPException(status_code=400, detail="account_type must be 'savings' or 'current'.")
+
+    account = (
+        await db.execute(select(SellerBankAccount).where(SellerBankAccount.company_id == owner_id))
+    ).scalar_one_or_none()
+
+    enc_acc = encrypt_bank_field(acc_num)
+    enc_ifsc = encrypt_bank_field(ifsc)
 
     if not account:
         account = SellerBankAccount(
             id=str(uuid.uuid4()),
-            company_id=user["company_id"],
-            bank_name=payload.bank_name.strip(),
-            account_holder_name=payload.account_holder_name.strip(),
+            company_id=owner_id,
+            bank_name=bank_name,
+            account_holder_name=holder_name,
             encrypted_account_number=enc_acc,
             encrypted_ifsc_code=enc_ifsc,
-            account_type=payload.account_type or "current",
+            account_type=acc_type,
             verification_status="verified",
             created_at=now_iso(),
-            updated_at=now_iso()
+            updated_at=now_iso(),
         )
         db.add(account)
     else:
-        account.bank_name = payload.bank_name.strip()
-        account.account_holder_name = payload.account_holder_name.strip()
+        account.bank_name = bank_name
+        account.account_holder_name = holder_name
         account.encrypted_account_number = enc_acc
         account.encrypted_ifsc_code = enc_ifsc
-        account.account_type = payload.account_type or "current"
+        account.account_type = acc_type
         account.verification_status = "verified"
         account.updated_at = now_iso()
 
     await db.commit()
     await db.refresh(account)
-
-    decrypted_num = payload.account_number.strip()
-    return BankAccountOut(
-        id=account.id,
-        company_id=account.company_id,
-        bank_name=account.bank_name,
-        account_holder_name=account.account_holder_name,
-        masked_account_number=mask_account_number(decrypted_num),
-        account_type=account.account_type,
-        verification_status=account.verification_status,
-        updated_at=account.updated_at
-    )
+    return _bank_account_to_out(account, raw_account_num=acc_num)
 
 
 @api.get("/companies/me/wallet", response_model=WalletOut)
+@api.get("/wallet/me", response_model=WalletOut)
 async def get_my_wallet(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if not user.get("company_id"):
-        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
-    
-    comp_id = user["company_id"]
-    stmt_w = select(SellerWallet).where(SellerWallet.company_id == comp_id)
-    wallet = (await db.execute(stmt_w)).scalar_one_or_none()
+    owner_id = get_wallet_owner_id(user)
+    wallet = await get_or_create_wallet(owner_id, db)
+    await db.commit()
 
-    if not wallet:
-        wallet = SellerWallet(
-            id=str(uuid.uuid4()),
-            company_id=comp_id,
-            available_balance=0.0,
-            pending_balance=0.0,
-            total_settled=0.0,
-            settlement_policy="weekly",
-            created_at=now_iso(),
-            updated_at=now_iso()
-        )
-        db.add(wallet)
-        await db.commit()
-        await db.refresh(wallet)
-
-    stmt_b = select(SellerBankAccount).where(SellerBankAccount.company_id == comp_id)
-    bank_acc = (await db.execute(stmt_b)).scalar_one_or_none()
-    bank_out = None
-    if bank_acc:
-        dec_num = decrypt_bank_field(bank_acc.encrypted_account_number) or "XXXX"
-        bank_out = BankAccountOut(
-            id=bank_acc.id,
-            company_id=bank_acc.company_id,
-            bank_name=bank_acc.bank_name,
-            account_holder_name=bank_acc.account_holder_name,
-            masked_account_number=mask_account_number(dec_num),
-            account_type=bank_acc.account_type,
-            verification_status=bank_acc.verification_status,
-            updated_at=bank_acc.updated_at
-        )
+    bank_acc = (
+        await db.execute(select(SellerBankAccount).where(SellerBankAccount.company_id == owner_id))
+    ).scalar_one_or_none()
+    bank_out = _bank_account_to_out(bank_acc) if bank_acc else None
 
     return WalletOut(
         id=wallet.id,
@@ -6995,17 +8114,17 @@ async def get_my_wallet(user: dict = Depends(get_current_user), db: AsyncSession
         pending_balance=wallet.pending_balance,
         total_settled=wallet.total_settled,
         settlement_policy=wallet.settlement_policy,
-        bank_account=bank_out
+        bank_account=bank_out,
     )
 
 
 @api.get("/companies/me/wallet/transactions", response_model=List[WalletTransactionOut])
+@api.get("/wallet/me/transactions", response_model=List[WalletTransactionOut])
 async def get_my_wallet_transactions(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if not user.get("company_id"):
-        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
-    
-    stmt_w = select(SellerWallet).where(SellerWallet.company_id == user["company_id"])
-    wallet = (await db.execute(stmt_w)).scalar_one_or_none()
+    owner_id = get_wallet_owner_id(user)
+    wallet = (
+        await db.execute(select(SellerWallet).where(SellerWallet.company_id == owner_id))
+    ).scalar_one_or_none()
     if not wallet:
         return []
 
@@ -7019,118 +8138,91 @@ async def get_my_wallet_transactions(user: dict = Depends(get_current_user), db:
         amount=t.amount,
         balance_after=t.balance_after,
         description=t.description,
-        created_at=t.created_at
+        created_at=t.created_at,
     ) for t in txs]
 
 
 @api.patch("/companies/me/settlement-policy", response_model=WalletOut)
+@api.patch("/wallet/me/settlement-policy", response_model=WalletOut)
 async def update_settlement_policy(payload: SettlementPolicyIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if not user.get("company_id"):
-        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
-    
-    stmt_w = select(SellerWallet).where(SellerWallet.company_id == user["company_id"])
-    wallet = (await db.execute(stmt_w)).scalar_one_or_none()
-    if not wallet:
-        wallet = SellerWallet(
-            id=str(uuid.uuid4()),
-            company_id=user["company_id"],
-            available_balance=0.0,
-            pending_balance=0.0,
-            total_settled=0.0,
-            settlement_policy=payload.settlement_policy,
-            created_at=now_iso(),
-            updated_at=now_iso()
-        )
-        db.add(wallet)
-    else:
-        wallet.settlement_policy = payload.settlement_policy
-        wallet.updated_at = now_iso()
+    owner_id = get_wallet_owner_id(user)
+    wallet = await get_or_create_wallet(owner_id, db, for_update=True)
+    wallet.settlement_policy = payload.settlement_policy
+    wallet.updated_at = now_iso()
 
     await db.commit()
-    await db.refresh(wallet)
     return await get_my_wallet(user=user, db=db)
 
 
 @api.post("/companies/me/wallet/redeem", response_model=PayoutSettlementOut)
+@api.post("/wallet/me/redeem", response_model=PayoutSettlementOut)
 async def redeem_wallet_balance(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if not user.get("company_id"):
-        raise HTTPException(status_code=400, detail="User is not associated with a company profile.")
-    
-    comp_id = user["company_id"]
-    stmt_b = select(SellerBankAccount).where(SellerBankAccount.company_id == comp_id)
-    bank_acc = (await db.execute(stmt_b)).scalar_one_or_none()
+    owner_id = get_wallet_owner_id(user)
+    bank_acc = (
+        await db.execute(select(SellerBankAccount).where(SellerBankAccount.company_id == owner_id))
+    ).scalar_one_or_none()
     if not bank_acc or bank_acc.verification_status != "verified":
         raise HTTPException(status_code=400, detail="Please save your verified bank account details in settings before requesting payout redemption.")
 
-    stmt_w = select(SellerWallet).where(SellerWallet.company_id == comp_id)
-    wallet = (await db.execute(stmt_w)).scalar_one_or_none()
-    if not wallet or wallet.available_balance <= 0:
+    wallet = (
+        await db.execute(select(SellerWallet).where(SellerWallet.company_id == owner_id).with_for_update())
+    ).scalar_one_or_none()
+    if not wallet or (wallet.available_balance or 0.0) <= 0:
         raise HTTPException(status_code=400, detail="No available balance to redeem.")
 
-    # Check if there is already a PENDING settlement
-    stmt_p = select(PayoutSettlement).where(and_(PayoutSettlement.company_id == comp_id, PayoutSettlement.status == "PENDING"))
-    existing_p = (await db.execute(stmt_p)).scalar_one_or_none()
+    existing_p = (
+        await db.execute(
+            select(PayoutSettlement).where(
+                and_(PayoutSettlement.company_id == owner_id, PayoutSettlement.status == "PENDING")
+            )
+        )
+    ).scalar_one_or_none()
     if existing_p:
         raise HTTPException(status_code=400, detail=f"You already have a pending payout redemption of ₹{existing_p.amount}. Please wait for admin processing.")
 
-    redeem_amount = wallet.available_balance
+    redeem_amount = round(float(wallet.available_balance), 2)
     wallet.available_balance = 0.0
     wallet.updated_at = now_iso()
 
     settlement = PayoutSettlement(
         id=str(uuid.uuid4()),
         wallet_id=wallet.id,
-        company_id=comp_id,
+        company_id=owner_id,
         amount=redeem_amount,
         settlement_policy=wallet.settlement_policy,
         status="PENDING",
         transfer_mode="IMPS",
-        created_at=now_iso()
+        created_at=now_iso(),
     )
     db.add(settlement)
 
     tx = WalletTransaction(
         id=str(uuid.uuid4()),
         wallet_id=wallet.id,
-        company_id=comp_id,
+        company_id=owner_id,
         type="DEBIT_SETTLEMENT",
         amount=redeem_amount,
         balance_after=0.0,
         description=f"Withdrawal Payout Request (Settlement #{settlement.id[:8]})",
-        created_at=now_iso()
+        created_at=now_iso(),
     )
     db.add(tx)
 
     await db.commit()
     await db.refresh(settlement)
 
-    stmt_c = select(Company).where(Company.id == comp_id)
-    comp = (await db.execute(stmt_c)).scalar_one_or_none()
-    comp_name = comp.name if comp else "Seller Company"
-
-    dec_num = decrypt_bank_field(bank_acc.encrypted_account_number) or "XXXX"
-    bank_out = BankAccountOut(
-        id=bank_acc.id,
-        company_id=bank_acc.company_id,
-        bank_name=bank_acc.bank_name,
-        account_holder_name=bank_acc.account_holder_name,
-        masked_account_number=mask_account_number(dec_num),
-        account_type=bank_acc.account_type,
-        verification_status=bank_acc.verification_status,
-        updated_at=bank_acc.updated_at
-    )
-
+    owner_name = await resolve_wallet_owner_display(owner_id, db)
     return PayoutSettlementOut(
         id=settlement.id,
         company_id=settlement.company_id,
-        company_name=comp_name,
+        company_name=owner_name,
         amount=settlement.amount,
         settlement_policy=settlement.settlement_policy,
         status=settlement.status,
         utr_reference_number=settlement.utr_reference_number,
         transfer_mode=settlement.transfer_mode,
-        bank_account=bank_out,
-        created_at=settlement.created_at
+        bank_account=_bank_account_to_out(bank_acc),
+        created_at=settlement.created_at,
     )
 
 
@@ -7138,39 +8230,28 @@ async def redeem_wallet_balance(user: dict = Depends(get_current_user), db: Asyn
 async def admin_list_settlements(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    
+
     stmt = select(PayoutSettlement).order_by(desc(PayoutSettlement.created_at)).limit(500)
     settlements = (await db.execute(stmt)).scalars().all()
     out = []
 
     for s in settlements:
-        stmt_c = select(Company).where(Company.id == s.company_id)
-        comp = (await db.execute(stmt_c)).scalar_one_or_none()
-        comp_name = comp.name if comp else "Seller Company"
-
-        stmt_b = select(SellerBankAccount).where(SellerBankAccount.company_id == s.company_id)
-        bank_acc = (await db.execute(stmt_b)).scalar_one_or_none()
+        owner_name = await resolve_wallet_owner_display(s.company_id, db)
+        bank_acc = (
+            await db.execute(select(SellerBankAccount).where(SellerBankAccount.company_id == s.company_id))
+        ).scalar_one_or_none()
         bank_out = None
         dec_num = None
         dec_ifsc = None
         if bank_acc:
             dec_num = decrypt_bank_field(bank_acc.encrypted_account_number)
             dec_ifsc = decrypt_bank_field(bank_acc.encrypted_ifsc_code)
-            bank_out = BankAccountOut(
-                id=bank_acc.id,
-                company_id=bank_acc.company_id,
-                bank_name=bank_acc.bank_name,
-                account_holder_name=bank_acc.account_holder_name,
-                masked_account_number=mask_account_number(dec_num),
-                account_type=bank_acc.account_type,
-                verification_status=bank_acc.verification_status,
-                updated_at=bank_acc.updated_at
-            )
+            bank_out = _bank_account_to_out(bank_acc, raw_account_num=dec_num)
 
         out.append(PayoutSettlementOut(
             id=s.id,
             company_id=s.company_id,
-            company_name=comp_name,
+            company_name=owner_name,
             amount=s.amount,
             settlement_policy=s.settlement_policy,
             status=s.status,
@@ -7181,7 +8262,7 @@ async def admin_list_settlements(user: dict = Depends(get_current_user), db: Asy
             decrypted_ifsc_code=dec_ifsc,
             rejection_reason=s.rejection_reason,
             settled_at=s.settled_at,
-            created_at=s.created_at
+            created_at=s.created_at,
         ))
 
     return out
@@ -7196,14 +8277,18 @@ async def admin_process_settlement(
 ):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    
-    stmt = select(PayoutSettlement).where(PayoutSettlement.id == id)
+
+    stmt = select(PayoutSettlement).where(PayoutSettlement.id == id).with_for_update()
     s = (await db.execute(stmt)).scalar_one_or_none()
     if not s:
         raise HTTPException(status_code=404, detail="Settlement request not found.")
 
     if s.status in ["SETTLED", "REJECTED"]:
         raise HTTPException(status_code=400, detail=f"Settlement is already marked as {s.status}.")
+
+    wallet = (
+        await db.execute(select(SellerWallet).where(SellerWallet.id == s.wallet_id).with_for_update())
+    ).scalar_one_or_none()
 
     if payload.status == "SETTLED":
         if not payload.utr_reference_number or len(payload.utr_reference_number.strip()) < 4:
@@ -7212,22 +8297,16 @@ async def admin_process_settlement(
         s.utr_reference_number = payload.utr_reference_number.strip()
         s.settled_at = now_iso()
 
-        # Update total_settled on wallet
-        stmt_w = select(SellerWallet).where(SellerWallet.id == s.wallet_id)
-        wallet = (await db.execute(stmt_w)).scalar_one_or_none()
         if wallet:
             wallet.total_settled = round(wallet.total_settled + s.amount, 2)
             wallet.updated_at = now_iso()
     else:
         s.status = "REJECTED"
         s.rejection_reason = payload.rejection_reason or "Admin rejected payout request."
-        # Return balance to wallet
-        stmt_w = select(SellerWallet).where(SellerWallet.id == s.wallet_id)
-        wallet = (await db.execute(stmt_w)).scalar_one_or_none()
         if wallet:
             wallet.available_balance = round(wallet.available_balance + s.amount, 2)
             wallet.updated_at = now_iso()
-            tx = WalletTransaction(
+            db.add(WalletTransaction(
                 id=str(uuid.uuid4()),
                 wallet_id=wallet.id,
                 company_id=wallet.company_id,
@@ -7235,40 +8314,28 @@ async def admin_process_settlement(
                 amount=s.amount,
                 balance_after=wallet.available_balance,
                 description=f"Refund from Rejected Payout #{s.id[:8]}",
-                created_at=now_iso()
-            )
-            db.add(tx)
+                created_at=now_iso(),
+            ))
 
     await db.commit()
     await db.refresh(s)
 
-    stmt_c = select(Company).where(Company.id == s.company_id)
-    comp = (await db.execute(stmt_c)).scalar_one_or_none()
-    comp_name = comp.name if comp else "Seller Company"
-
-    stmt_b = select(SellerBankAccount).where(SellerBankAccount.company_id == s.company_id)
-    bank_acc = (await db.execute(stmt_b)).scalar_one_or_none()
+    owner_name = await resolve_wallet_owner_display(s.company_id, db)
+    bank_acc = (
+        await db.execute(select(SellerBankAccount).where(SellerBankAccount.company_id == s.company_id))
+    ).scalar_one_or_none()
     bank_out = None
     dec_num = None
     dec_ifsc = None
     if bank_acc:
         dec_num = decrypt_bank_field(bank_acc.encrypted_account_number)
         dec_ifsc = decrypt_bank_field(bank_acc.encrypted_ifsc_code)
-        bank_out = BankAccountOut(
-            id=bank_acc.id,
-            company_id=bank_acc.company_id,
-            bank_name=bank_acc.bank_name,
-            account_holder_name=bank_acc.account_holder_name,
-            masked_account_number=mask_account_number(dec_num),
-            account_type=bank_acc.account_type,
-            verification_status=bank_acc.verification_status,
-            updated_at=bank_acc.updated_at
-        )
+        bank_out = _bank_account_to_out(bank_acc, raw_account_num=dec_num)
 
     return PayoutSettlementOut(
         id=s.id,
         company_id=s.company_id,
-        company_name=comp_name,
+        company_name=owner_name,
         amount=s.amount,
         settlement_policy=s.settlement_policy,
         status=s.status,
@@ -7279,7 +8346,7 @@ async def admin_process_settlement(
         decrypted_ifsc_code=dec_ifsc,
         rejection_reason=s.rejection_reason,
         settled_at=s.settled_at,
-        created_at=s.created_at
+        created_at=s.created_at,
     )
 
 
@@ -8252,6 +9319,44 @@ async def startup():
             updated_at VARCHAR(50) NOT NULL
         )""",
         "CREATE INDEX IF NOT EXISTS idx_website_sections_company_key ON company_website_sections (company_id, section_key)",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS is_sales_partner_lead BOOLEAN DEFAULT FALSE NOT NULL",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS sales_partner_id VARCHAR(36)",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS total_deal_value DOUBLE PRECISION",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS lead_value DOUBLE PRECISION",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS is_sold_out BOOLEAN DEFAULT FALSE NOT NULL",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS sold_to_user_id VARCHAR(36)",
+        "CREATE INDEX IF NOT EXISTS idx_enquiries_sales_partner_id ON enquiries (sales_partner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_enquiries_sold_to_user_id ON enquiries (sold_to_user_id)",
+        """CREATE TABLE IF NOT EXISTS sales_partner_lead_deals (
+            id VARCHAR(36) PRIMARY KEY,
+            lead_id VARCHAR(36) NOT NULL,
+            sales_partner_id VARCHAR(36) NOT NULL,
+            buyer_user_id VARCHAR(36) NOT NULL,
+            buyer_company_id VARCHAR(36),
+            total_deal_value DOUBLE PRECISION NOT NULL,
+            lead_value_base DOUBLE PRECISION NOT NULL,
+            gst_amount DOUBLE PRECISION NOT NULL,
+            total_paid DOUBLE PRECISION NOT NULL,
+            partner_share_amount DOUBLE PRECISION NOT NULL,
+            refund_share_amount DOUBLE PRECISION NOT NULL,
+            razorpay_order_id VARCHAR(255),
+            razorpay_payment_id VARCHAR(255),
+            invoice_id VARCHAR(36),
+            status VARCHAR(50) DEFAULT 'UNLOCKED' NOT NULL,
+            bill_image_url VARCHAR(1024),
+            bill_notes TEXT,
+            bill_uploaded_at VARCHAR(255),
+            fake_report_reason TEXT,
+            fake_reported_at VARCHAR(255),
+            admin_decision_notes TEXT,
+            resolved_by VARCHAR(50),
+            resolved_at VARCHAR(255),
+            created_at VARCHAR(255) NOT NULL,
+            updated_at VARCHAR(255) NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_sp_deals_lead_id ON sales_partner_lead_deals (lead_id)",
+        "CREATE INDEX IF NOT EXISTS idx_sp_deals_partner_id ON sales_partner_lead_deals (sales_partner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_sp_deals_buyer_id ON sales_partner_lead_deals (buyer_user_id)",
     ]
 
     for q in migrations:

@@ -56,6 +56,7 @@ import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 import RefundPolicyPage from "@/pages/RefundPolicyPage";
 import TenantWebsitePage from "@/pages/TenantWebsitePage";
 import CompanyAdminPage from "@/pages/CompanyAdminPage";
+import SalesPartnerPage from "@/pages/SalesPartnerPage";
 
 const Layout = ({ children }) => {
   const { user } = useAuth();
@@ -154,6 +155,7 @@ function App() {
                   <Route path="/account-security" element={<AccountSecurityPage />} />
                   <Route path="/post-enquiry" element={<PostEnquiryPage />} />
                   <Route path="/leads" element={<LeadsPage />} />
+                  <Route path="/sales-partner" element={<SalesPartnerPage />} />
                   <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/company/:id" element={<CompanyDetailPage />} />
                   <Route path="/companies" element={<CompaniesPage />} />

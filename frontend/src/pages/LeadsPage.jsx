@@ -1,16 +1,48 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
-import api from "../lib/api";
-import { whatsappLink } from "../lib/api";
+import api, { whatsappLink, formatApiError } from "../lib/api";
 import {
   Phone, MapPin, Tag, Clock, MessageSquare, Play, Lock, Sparkles, X,
-  ShieldCheck, Loader2, CheckCircle, Mail, AlertTriangle, Search, ChevronDown, CheckCircle2, Image, Zap, Trash2
+  ShieldCheck, Loader2, CheckCircle, Mail, AlertTriangle, Search, ChevronDown, CheckCircle2, Image, Zap, Trash2,
+  FileText, ExternalLink, Eye, IndianRupee, UserCheck, ShieldAlert
 } from "lucide-react";
-import { Navigate, useNavigate, Link } from "react-router-dom";
+import { Navigate, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 import { LocationPicker } from "../components/LocationPicker";
 import { useLeadInterests } from "../context/LeadInterestContext";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
+
+function resolveBackendUrl(url) {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url) || url.startsWith("data:") || url.startsWith("blob:")) {
+    return url;
+  }
+  return `${BACKEND_URL}${url.startsWith("/") ? url : `/${url}`}`;
+}
+
+function isPdfUrl(url) {
+  return String(url || "").toLowerCase().split("?")[0].endsWith(".pdf");
+}
+
+function formatINR(val, maxDecimals = 0) {
+  return `₹${Number(val || 0).toLocaleString("en-IN", { maximumFractionDigits: maxDecimals })}`;
+}
+
+function loadRazorpayScript() {
+  return new Promise((resolve) => {
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
 
 // ─── OTP Unlock Modal (same as RequirementsPage) ──────────────────────────────
 function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, onSuccess }) {
@@ -42,20 +74,6 @@ function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, on
         .finally(() => setTopupLoading(false));
     }
   }, [quotaFull, enqId]);
-
-  const loadRazorpayScript = () => {
-    return new Promise((resolve) => {
-      if (window.Razorpay) {
-        resolve(true);
-        return;
-      }
-      const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
-  };
 
   const handlePayTopup = async () => {
     setBuyingTopup(true);
@@ -94,7 +112,7 @@ function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, on
                 toast("Tax Invoice ready", {
                   action: {
                     label: "Download Invoice",
-                    onClick: () => window.open(verifyRes.data.download_url, "_blank"),
+                    onClick: () => window.open(resolveBackendUrl(verifyRes.data.download_url), "_blank"),
                   },
                   duration: 8000,
                 });
@@ -340,6 +358,544 @@ function UnlockModal({ stats, enqId, initialToken, initialEmailHint, onClose, on
   );
 }
 
+// ─── Sales Partner Lead Purchase Modal ────────────────────────────────────────
+function SalesPartnerBuyModal({ lead, user, onClose, onSuccess }) {
+  const [paying, setPaying] = useState(false);
+
+  const totalDealValue = Number(lead.total_deal_value || 0);
+  const baseLeadValue = Number(lead.lead_value ?? Math.round(totalDealValue * 0.02));
+  const gstAmount = Number((baseLeadValue * 0.18).toFixed(2));
+  const totalPayable = Number((baseLeadValue + gstAmount).toFixed(2));
+  const protectionAmount = Number((baseLeadValue * 0.5).toFixed(2));
+
+  const handlePayAndUnlock = async () => {
+    setPaying(true);
+    try {
+      const loaded = await loadRazorpayScript();
+      if (!loaded || !window.Razorpay) {
+        toast.error("Failed to load Razorpay payment gateway.");
+        setPaying(false);
+        return;
+      }
+
+      const { data: orderData } = await api.post(`/sales-partner/leads/${lead.id}/create-order`);
+
+      const options = {
+        key: orderData.key,
+        amount: orderData.amount,
+        currency: orderData.currency || "INR",
+        name: "Indian Industrial Platform",
+        description: `Sales Partner Lead Unlock (${formatINR(orderData.base_price)} + ${formatINR(orderData.gst, 2)} GST = ${formatINR(orderData.total, 2)})`,
+        order_id: orderData.order_id,
+        prefill: {
+          name: user?.name || "Buyer",
+          email: user?.email || undefined,
+          contact: user?.mobile || undefined,
+        },
+        handler: async function (response) {
+          try {
+            const verifyRes = await api.post(`/sales-partner/leads/${lead.id}/verify-payment`, {
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+            if (verifyRes.data?.ok) {
+              toast.success("Sales Partner lead purchased & unlocked!");
+              if (verifyRes.data.download_url) {
+                const invoiceUrl = resolveBackendUrl(verifyRes.data.download_url);
+                toast("Tax Invoice ready", {
+                  description: verifyRes.data.invoice_number ? `Invoice #${verifyRes.data.invoice_number}` : undefined,
+                  action: {
+                    label: "Download Invoice",
+                    onClick: () => window.open(invoiceUrl, "_blank"),
+                  },
+                  duration: 10000,
+                });
+              }
+              onSuccess(lead.id, verifyRes.data);
+            } else {
+              toast.error("Payment verification did not complete.");
+            }
+          } catch (err) {
+            toast.error(formatApiError(err.response?.data?.detail) || "Payment verification failed.");
+          } finally {
+            setPaying(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setPaying(false);
+            toast.info("Payment cancelled.");
+          },
+        },
+        theme: {
+          color: "#4f46e5",
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", function (response) {
+        toast.error(response.error?.description || "Transaction failed");
+        setPaying(false);
+      });
+      rzp.open();
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "Failed to initiate payment");
+      setPaying(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+      onClick={(e) => e.target === e.currentTarget && !paying && onClose()}
+      data-testid="sales-partner-buy-modal"
+    >
+      <div
+        className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden"
+        style={{ animation: "slideUp 0.25s ease" }}
+      >
+        <div className="bg-gradient-to-r from-indigo-900 via-blue-900 to-amber-700 px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <IndianRupee size={18} className="text-amber-300 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-white font-bold text-sm truncate">Buy Sales Partner Lead</div>
+              <div className="text-[10px] text-amber-200 font-semibold uppercase tracking-wider">
+                Paid Unlock Only • Exclusive Lead
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={paying}
+            className="text-white/70 hover:text-white disabled:opacity-40"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+            <div className="text-xs font-extrabold text-slate-900 line-clamp-1">
+              {lead.product_name || lead.requirement?.slice(0, 60)}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+              <span>{lead.category}</span>
+              {lead.location && <span>• {lead.location}</span>}
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2 text-xs">
+            <div className="flex items-center justify-between text-slate-600">
+              <span>Deal Value</span>
+              <span className="font-bold text-slate-900">{formatINR(totalDealValue)}</span>
+            </div>
+            <div className="flex items-center justify-between text-slate-600">
+              <span>Base Lead Value (2%)</span>
+              <span className="font-bold text-slate-900">{formatINR(baseLeadValue, 2)}</span>
+            </div>
+            <div className="flex items-center justify-between text-slate-600">
+              <span>GST (18%)</span>
+              <span className="font-bold text-slate-900">{formatINR(gstAmount, 2)}</span>
+            </div>
+            <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-sm">
+              <span className="font-extrabold text-slate-900">Total Payable</span>
+              <span className="font-black text-indigo-700" data-testid="partner-modal-total">
+                {formatINR(totalPayable, 2)}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2">
+              <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">Excluded from monthly packages:</span> Sales Partner leads are verified high-intent deals unlocked individually via direct payment and never consume package credits.
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2">
+              <ShieldCheck size={15} className="text-emerald-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">50% Fake-Lead Protection:</span> If admin confirms this lead is fake, 50% ({formatINR(protectionAmount, 2)}) is refunded to your wallet.
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={paying}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handlePayAndUnlock}
+              disabled={paying}
+              data-testid="pay-unlock-partner-lead-btn"
+              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-amber-600 hover:from-indigo-700 hover:to-amber-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all disabled:opacity-60"
+            >
+              {paying ? (
+                <><Loader2 size={14} className="animate-spin" /> Processing…</>
+              ) : (
+                <><Lock size={14} /> Pay &amp; Unlock Lead</>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+      <style>{`@keyframes slideUp { from{transform:translateY(40px);opacity:0} to{transform:translateY(0);opacity:1} }`}</style>
+    </div>
+  );
+}
+
+// ─── Report Fake Lead Modal ───────────────────────────────────────────────────
+function FakeReportModal({ target, onClose, onSubmit, submitting }) {
+  const [reason, setReason] = useState("");
+
+  if (!target) return null;
+
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    if (!reason.trim()) {
+      toast.error("Please describe why you are reporting this lead as fake.");
+      return;
+    }
+    onSubmit(target.deal.id, reason.trim());
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+      onClick={(e) => e.target === e.currentTarget && !submitting && onClose()}
+      data-testid="fake-report-modal"
+    >
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+        <div className="bg-gradient-to-r from-rose-700 to-rose-600 px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-white">
+            <ShieldAlert size={18} />
+            <span className="font-bold text-sm">Report Fake Lead</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="text-white/70 hover:text-white"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleFormSubmit} className="p-5 space-y-4">
+          <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-900">
+            <div className="font-bold mb-0.5">{target.leadTitle}</div>
+            <p className="text-rose-800">
+              Our admin team will review your dispute. If confirmed fake, 50% of the base lead price (
+              <strong>{formatINR(target.deal.refund_share_amount ?? Number(target.deal.lead_value_base || 0) * 0.5, 2)}</strong>) will be refunded to your wallet.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Reason for Reporting Fake Lead *
+            </label>
+            <textarea
+              required
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Explain the issue (e.g., invalid/disconnected client number, client confirmed no such requirement, bogus bill uploaded...)"
+              className="w-full rounded-xl border border-slate-300 p-3 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-300 focus:border-rose-400"
+              data-testid="fake-report-reason-input"
+              autoFocus
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !reason.trim()}
+              data-testid="submit-fake-report-btn"
+              className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-60"
+            >
+              {submitting ? (
+                <><Loader2 size={14} className="animate-spin" /> Submitting…</>
+              ) : (
+                <><AlertTriangle size={14} /> Submit Fake Report</>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Bill Preview Modal ───────────────────────────────────────────────────────
+function BillPreviewModal({ bill, onClose }) {
+  if (!bill) return null;
+  const fullUrl = resolveBackendUrl(bill.url);
+  const pdf = isPdfUrl(fullUrl);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+      data-testid="bill-preview-modal"
+    >
+      <div
+        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+              <FileText size={16} className="text-indigo-600 shrink-0" />
+              Uploaded Transaction Bill
+            </h3>
+            {bill.uploadedAt && (
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Uploaded on {new Date(bill.uploadedAt).toLocaleString("en-IN")}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={fullUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-bold inline-flex items-center gap-1"
+            >
+              <ExternalLink size={13} /> Open in New Tab
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 overflow-auto flex-1 bg-slate-50 flex flex-col items-center justify-center gap-3">
+          {bill.notes && (
+            <div className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700">
+              <span className="font-bold text-slate-900">Partner Notes: </span>
+              {bill.notes}
+            </div>
+          )}
+          {pdf ? (
+            <div className="w-full text-center space-y-3 py-8">
+              <FileText size={40} className="mx-auto text-rose-500" />
+              <p className="text-xs text-slate-600 font-medium">PDF Document attached by Sales Partner.</p>
+              <a
+                href={fullUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700"
+              >
+                <ExternalLink size={14} /> View / Download PDF Bill
+              </a>
+            </div>
+          ) : (
+            <img
+              src={fullUrl}
+              alt="Uploaded Transaction Bill"
+              className="max-w-full max-h-[65vh] rounded-xl border border-slate-200 shadow-sm object-contain bg-white"
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sales Partner Deal Lifecycle & Verification Panel ────────────────────────
+function SalesPartnerDealPanel({ lead, approvingDealId, onApproveBill, onOpenFakeReport, onViewBill }) {
+  const deal = lead?.deal;
+  if (!deal) return null;
+
+  const status = deal.status;
+  const refundAmt = Number(deal.refund_share_amount ?? Number(deal.lead_value_base || 0) * 0.5);
+  const partnerAmt = Number(deal.partner_share_amount ?? Number(deal.lead_value_base || 0) * 0.5);
+
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100 space-y-2.5" data-testid={`partner-deal-panel-${deal.id}`}>
+      {/* Sales Partner Contact Details alongside client contact */}
+      <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-2.5 flex items-center justify-between gap-2 flex-wrap text-xs">
+        <div className="min-w-0">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1">
+            <UserCheck size={11} /> Sales Partner Contact
+          </div>
+          <div className="font-bold text-slate-900 mt-0.5">
+            {deal.sales_partner_name || "Verified Sales Partner"}
+          </div>
+          {deal.sales_partner_mobile && (
+            <div className="text-slate-600 inline-flex items-center gap-1 mt-0.5">
+              <Phone size={11} /> {deal.sales_partner_mobile}
+            </div>
+          )}
+        </div>
+        {deal.sales_partner_mobile && (
+          <a
+            href={`tel:${deal.sales_partner_mobile}`}
+            className="px-3 py-1.5 bg-white text-indigo-800 border border-indigo-200 rounded-lg text-xs font-bold inline-flex items-center gap-1 hover:bg-indigo-100 shrink-0"
+          >
+            <Phone size={12} /> Call Partner
+          </a>
+        )}
+      </div>
+
+      {/* Deal Lifecycle & Verification Status */}
+      {status === "UNLOCKED" && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2.5">
+          <div className="flex items-start gap-2 text-xs text-amber-900">
+            <Clock size={14} className="text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">Awaiting transaction bill upload from Sales Partner</div>
+              <div className="text-[11px] text-amber-800 mt-0.5">
+                Once your deal proceeds, the Sales Partner will upload the transaction bill for your approval.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenFakeReport(lead, deal)}
+            data-testid={`report-fake-btn-${deal.id}`}
+            className="px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-bold inline-flex items-center gap-1.5 transition-colors"
+          >
+            <ShieldAlert size={13} /> Report Fake Lead
+          </button>
+        </div>
+      )}
+
+      {status === "INVOICE_UPLOADED" && (
+        <div className="bg-gradient-to-br from-indigo-50 via-blue-50 to-amber-50 border-2 border-indigo-300 rounded-xl p-3.5 space-y-3 shadow-xs">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2">
+              <FileText size={16} className="text-indigo-700 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-xs font-extrabold text-indigo-950">
+                  Transaction Bill Uploaded by Sales Partner
+                </div>
+                {deal.bill_notes && (
+                  <p className="text-[11px] text-slate-700 mt-0.5">Notes: {deal.bill_notes}</p>
+                )}
+              </div>
+            </div>
+            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200 shrink-0">
+              Action Needed
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {deal.bill_image_url && (
+              <button
+                type="button"
+                onClick={() => onViewBill(deal)}
+                data-testid={`view-bill-btn-${deal.id}`}
+                className="px-3 py-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-800 hover:bg-indigo-50 text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs"
+              >
+                <Eye size={13} /> View Uploaded Bill
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onApproveBill(deal.id)}
+              disabled={approvingDealId === deal.id}
+              data-testid={`approve-bill-btn-${deal.id}`}
+              className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm disabled:opacity-60"
+            >
+              {approvingDealId === deal.id ? (
+                <><Loader2 size={13} className="animate-spin" /> Approving…</>
+              ) : (
+                <><CheckCircle2 size={13} /> Approve Invoice &amp; Release 50% ({formatINR(partnerAmt, 2)})</>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenFakeReport(lead, deal)}
+              data-testid={`report-fake-btn-${deal.id}`}
+              className="px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-bold inline-flex items-center gap-1.5"
+            >
+              <ShieldAlert size={13} /> Report Fake Lead
+            </button>
+          </div>
+        </div>
+      )}
+
+      {status === "FAKE_REPORTED" && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 space-y-1.5 text-xs">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[11px]">
+            <AlertTriangle size={12} /> Fake Lead Reported — Pending Admin Decision
+          </div>
+          {deal.fake_report_reason && (
+            <p className="text-rose-900 mt-1">
+              <span className="font-bold">Your Reason: </span>
+              {deal.fake_report_reason}
+            </p>
+          )}
+        </div>
+      )}
+
+      {status === "APPROVED" && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-1.5 text-xs">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px]">
+              <CheckCircle2 size={12} /> Invoice Approved • Deal Completed
+            </span>
+            <span className="text-[11px] font-semibold text-emerald-700">
+              {deal.resolved_by ? "Approved via Admin Override" : "Approved by Buyer"}
+            </span>
+          </div>
+          {deal.bill_image_url && (
+            <button
+              type="button"
+              onClick={() => onViewBill(deal)}
+              className="text-[11px] font-bold text-emerald-800 hover:underline inline-flex items-center gap-1"
+            >
+              <Eye size={12} /> View Uploaded Bill
+            </button>
+          )}
+          {deal.admin_decision_notes && (
+            <p className="text-[11px] text-emerald-900">
+              <span className="font-bold">Admin Notes: </span>
+              {deal.admin_decision_notes}
+            </p>
+          )}
+        </div>
+      )}
+
+      {status === "REFUNDED" && (
+        <div className="bg-rose-50 border border-emerald-200 rounded-xl p-3 space-y-1 text-xs">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-rose-200 font-bold text-[11px]">
+            <ShieldCheck size={12} /> 50% Refunded ({formatINR(refundAmt, 2)}) to Your Wallet
+          </div>
+          {deal.admin_decision_notes && (
+            <p className="text-[11px] text-slate-700 mt-1">
+              <span className="font-bold">Admin Decision Notes: </span>
+              {deal.admin_decision_notes}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Media thumbnail strip (always visible, not gated) ────────────────────────
 function LeadMediaStrip({ urls }) {
   const [lightbox, setLightbox] = useState(null);
@@ -417,6 +973,13 @@ function LeadMediaStrip({ urls }) {
 export default function LeadsPage() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTabParam = searchParams.get("tab");
+  const initialStatusFilter =
+    initialTabParam === "partner_leads" || initialTabParam === "partner_purchased"
+      ? initialTabParam
+      : "All";
+
   const {
     selectedLeads,
     selectedLeadIds,
@@ -436,13 +999,29 @@ export default function LeadsPage() {
   const [filter, setFilter] = useState({ category: "", sort: "recent" });
   const [loc, setLoc] = useState({ state: "", city: "", industrial_area: "" });
   const [categories, setCategories] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // OTP State
+  // OTP State (standard leads)
   const [modalLeadId, setModalLeadId] = useState(null);
   const [pendingUnlock, setPendingUnlock] = useState(null); // {id, token, emailHint}
   const [unlockStats, setUnlockStats] = useState(null);
+
+  // Sales Partner Lead Purchase & Deal Lifecycle State
+  const [buyPartnerLead, setBuyPartnerLead] = useState(null);
+  const [approvingDealId, setApprovingDealId] = useState(null);
+  const [fakeReportTarget, setFakeReportTarget] = useState(null); // { leadTitle, deal }
+  const [reportingFake, setReportingFake] = useState(false);
+  const [billPreview, setBillPreview] = useState(null); // { url, notes, uploadedAt }
+
+  // Sync URL ?tab= changes (e.g. navigating from header/profile to ?tab=partner_purchased)
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam === "partner_leads" || tabParam === "partner_purchased") {
+      setStatusFilter(tabParam);
+      setShowRecommendedOnly(false);
+    }
+  }, [searchParams]);
 
   // ── Fetch categories ──
   useEffect(() => {
@@ -467,9 +1046,53 @@ export default function LeadsPage() {
           params.set("lead_ids", selectedLeadIds.join(","));
         }
       }
-      
-      const { data } = await api.get(`/requirements?${params}`);
-      setLeads(data);
+
+      const [reqRes, purchasedRes] = await Promise.all([
+        api.get(`/requirements?${params}`),
+        statusFilter === "partner_purchased"
+          ? api.get("/sales-partner/purchased-deals").catch(() => ({ data: [] }))
+          : Promise.resolve({ data: [] }),
+      ]);
+
+      const baseLeads = Array.isArray(reqRes.data) ? reqRes.data : [];
+      const purchasedDeals = Array.isArray(purchasedRes.data) ? purchasedRes.data : [];
+
+      if (statusFilter === "partner_purchased" && purchasedDeals.length > 0) {
+        const dealByLeadId = new Map(purchasedDeals.map((d) => [d.lead_id, d]));
+        const seenIds = new Set();
+        const merged = baseLeads.map((l) => {
+          seenIds.add(l.id);
+          const pd = dealByLeadId.get(l.id);
+          if (!pd) return l;
+          return {
+            ...l,
+            deal: {
+              ...(l.deal || {}),
+              ...pd,
+            },
+          };
+        });
+
+        purchasedDeals.forEach((pd) => {
+          if (!seenIds.has(pd.lead_id) && pd.lead) {
+            const leadInfo = pd.lead;
+            merged.push({
+              ...leadInfo,
+              id: leadInfo.id || pd.lead_id,
+              is_sales_partner_lead: true,
+              is_sold_out: true,
+              sold_to_user_id: user.id,
+              is_unlocked: true,
+              created_at: leadInfo.created_at || pd.created_at,
+              requirement: leadInfo.requirement || "",
+              deal: pd,
+            });
+          }
+        });
+        setLeads(merged);
+      } else {
+        setLeads(baseLeads);
+      }
     } catch (err) {
       console.error("Error loading leads:", err);
       toast.error("Failed to load leads.");
@@ -482,9 +1105,10 @@ export default function LeadsPage() {
     loadLeads();
   }, [loadLeads]);
 
-  // ── Fetch unlock stats ──
+  // ── Fetch unlock stats (manufacturer/supplier/admin with paid plans only) ──
   const fetchStats = useCallback(async () => {
     if (!user) return;
+    if (!["manufacturer", "supplier", "admin"].includes(user.role)) return;
     const hasPlan = user.plan_name && user.plan_name.toLowerCase() !== "free" &&
       (!user.plan_expires_at || new Date(user.plan_expires_at) > new Date());
     if (hasPlan || user.role === "admin") {
@@ -502,9 +1126,23 @@ export default function LeadsPage() {
   if (authLoading) return <div className="p-10 text-center text-slate-400 font-semibold" data-testid="leads-loading">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
 
-  const isBusiness = user.role === "manufacturer" || user.role === "supplier" || user.role === "admin";
+  const canBrowseLeads = ["buyer", "manufacturer", "supplier", "admin"].includes(user.role);
   const hasPaidPlan = user.plan_name && user.plan_name.toLowerCase() !== "free" &&
     (!user.plan_expires_at || new Date(user.plan_expires_at) > new Date());
+
+  const handleStatusTabClick = (tabId) => {
+    setStatusFilter(tabId);
+    if (tabId === "recommended") setShowRecommendedOnly(true);
+    else setShowRecommendedOnly(false);
+
+    if (tabId === "partner_leads" || tabId === "partner_purchased") {
+      setSearchParams({ tab: tabId }, { replace: true });
+    } else if (searchParams.get("tab")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("tab");
+      setSearchParams(next, { replace: true });
+    }
+  };
 
   const handleUnlockClick = async (leadId) => {
     if (!hasPaidPlan && user.role !== "admin") {
@@ -542,6 +1180,67 @@ export default function LeadsPage() {
     fetchStats();
   };
 
+  const handlePartnerPurchaseSuccess = (leadId, verifyData) => {
+    setBuyPartnerLead(null);
+    setLeads((arr) =>
+      arr.map((l) =>
+        l.id === leadId
+          ? {
+              ...l,
+              is_unlocked: true,
+              is_sold_out: true,
+              sold_to_user_id: user.id,
+              mobile: verifyData?.mobile || l.mobile,
+              name: verifyData?.name || l.name,
+              deal: verifyData?.deal || l.deal,
+            }
+          : l
+      )
+    );
+    loadLeads();
+  };
+
+  const handleApprovePartnerBill = async (dealId) => {
+    setApprovingDealId(dealId);
+    try {
+      const { data } = await api.post(`/sales-partner/deals/${dealId}/approve-bill`);
+      if (data?.deal) {
+        setLeads((arr) =>
+          arr.map((l) =>
+            l.deal?.id === dealId ? { ...l, deal: { ...l.deal, ...data.deal } } : l
+          )
+        );
+      }
+      toast.success("Invoice approved! 50% share released to Sales Partner.");
+      loadLeads();
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "Failed to approve invoice");
+    } finally {
+      setApprovingDealId(null);
+    }
+  };
+
+  const handleSubmitFakeReport = async (dealId, reason) => {
+    setReportingFake(true);
+    try {
+      const { data } = await api.post(`/sales-partner/deals/${dealId}/report-fake`, { reason });
+      if (data?.deal) {
+        setLeads((arr) =>
+          arr.map((l) =>
+            l.deal?.id === dealId ? { ...l, deal: { ...l.deal, ...data.deal } } : l
+          )
+        );
+      }
+      toast.success("Fake lead dispute submitted to Admin for review.");
+      setFakeReportTarget(null);
+      loadLeads();
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "Failed to submit fake lead report");
+    } finally {
+      setReportingFake(false);
+    }
+  };
+
   const handleDeleteLead = async (leadId, e) => {
     if (e) e.stopPropagation();
     if (!window.confirm("Are you sure you want to delete this lead requirement? This cannot be undone.")) {
@@ -560,7 +1259,11 @@ export default function LeadsPage() {
   const filteredLeads = leads.filter((l) => {
     // 1. Status Tab filter
     let matchStatus = true;
-    if (statusFilter === "my_leads") {
+    if (statusFilter === "partner_leads") {
+      matchStatus = Boolean(l.is_sales_partner_lead);
+    } else if (statusFilter === "partner_purchased") {
+      matchStatus = Boolean(l.is_sales_partner_lead && l.is_unlocked && l.sold_to_user_id === user.id);
+    } else if (statusFilter === "my_leads") {
       matchStatus = l.is_unlocked;
     } else if (statusFilter === "new") {
       matchStatus = l.status === "new" || l.status === "pending";
@@ -575,9 +1278,10 @@ export default function LeadsPage() {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       matchQuery =
-        l.requirement.toLowerCase().includes(q) ||
+        (l.requirement || "").toLowerCase().includes(q) ||
         (l.product_name || "").toLowerCase().includes(q) ||
-        l.category.toLowerCase().includes(q);
+        (l.category || "").toLowerCase().includes(q) ||
+        (l.location || "").toLowerCase().includes(q);
     }
 
     return matchStatus && matchQuery;
@@ -602,9 +1306,9 @@ export default function LeadsPage() {
         </button>
       </div>
 
-      {!isBusiness ? (
+      {!canBrowseLeads ? (
         <div className="mt-6 bg-white border border-slate-200 rounded-2xl p-6 text-center text-sm text-slate-500" data-testid="leads-empty-state">
-          You are signed in as a Buyer. Switch to a Manufacturer or Supplier account to browse leads.
+          Switch to a Buyer, Manufacturer, or Supplier account to browse and unlock leads.
         </div>
       ) : (
         <>
@@ -712,25 +1416,34 @@ export default function LeadsPage() {
                 { id: "new", label: "New" },
                 { id: "in_progress", label: "In Progress" },
                 { id: "closed", label: "Closed" },
-                { id: "my_leads", label: "My Leads" }
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setStatusFilter(tab.id);
-                    if (tab.id === "recommended") setShowRecommendedOnly(true);
-                    else setShowRecommendedOnly(false);
-                  }}
-                  className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
-                    statusFilter === tab.id
-                      ? tab.id === "recommended" ? "bg-gradient-to-r from-blue-700 to-indigo-700 text-white shadow-sm ring-2 ring-blue-300" : "bg-orange-600 text-white shadow-sm"
-                      : tab.id === "recommended" ? "bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100" : "bg-white border border-slate-200 text-slate-600 hover:text-slate-900"
-                  }`}
-                  data-testid={`lead-status-tab-${tab.id.toLowerCase().replace("_", "-")}`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+                { id: "my_leads", label: "My Leads" },
+                { id: "partner_leads", label: "Sales Partner Leads" },
+                { id: "partner_purchased", label: "Purchased Partner Leads" },
+              ].map((tab) => {
+                const isPartnerTab = tab.id === "partner_leads" || tab.id === "partner_purchased";
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => handleStatusTabClick(tab.id)}
+                    className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                      statusFilter === tab.id
+                        ? tab.id === "recommended"
+                          ? "bg-gradient-to-r from-blue-700 to-indigo-700 text-white shadow-sm ring-2 ring-blue-300"
+                          : isPartnerTab
+                          ? "bg-gradient-to-r from-indigo-600 to-amber-600 text-white shadow-sm ring-2 ring-amber-200"
+                          : "bg-orange-600 text-white shadow-sm"
+                        : tab.id === "recommended"
+                        ? "bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100"
+                        : isPartnerTab
+                        ? "bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100"
+                        : "bg-white border border-slate-200 text-slate-600 hover:text-slate-900"
+                    }`}
+                    data-testid={`lead-status-tab-${tab.id.toLowerCase().replace(/_/g, "-")}`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Live Search bar */}
@@ -804,32 +1517,58 @@ export default function LeadsPage() {
           {/* Leads Card list */}
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredLeads.length === 0 && (
-              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500 shadow-sm">
-                No active buyer requirements matching your filters.
+              <div className="md:col-span-2 bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500 shadow-sm">
+                {loading
+                  ? "Loading leads..."
+                  : statusFilter === "partner_purchased"
+                  ? "You haven't purchased any Sales Partner leads yet."
+                  : statusFilter === "partner_leads"
+                  ? "No Sales Partner leads matching your filters right now."
+                  : "No active buyer requirements matching your filters."}
               </div>
             )}
 
             {filteredLeads.map((lead) => {
-              const isUnlocked = lead.is_unlocked;
+              const isUnlocked = Boolean(lead.is_unlocked);
+              const isPartnerLead = Boolean(lead.is_sales_partner_lead);
+              const isSoldOut = Boolean(isPartnerLead && lead.is_sold_out && !isUnlocked);
+              const dealValue = Number(lead.total_deal_value || 0);
+              const leadPrice = Number(lead.lead_value ?? Math.round(dealValue * 0.02));
               const isInterested = isLeadSelected(lead.id);
               return (
                 <article
                   key={lead.id}
                   className={`bg-white border rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition-all text-left ${
-                    isInterested ? "border-blue-400 ring-1 ring-blue-400/30" : "border-slate-200"
+                    isInterested
+                      ? "border-blue-400 ring-1 ring-blue-400/30"
+                      : isPartnerLead
+                      ? "border-amber-200/90"
+                      : "border-slate-200"
                   }`}
                   data-testid={`lead-card-${lead.id}`}
                 >
+                  {isPartnerLead && (
+                    <div className="mb-3 flex items-center justify-between gap-2 flex-wrap bg-gradient-to-r from-amber-50 via-indigo-50 to-amber-50 border border-amber-200 rounded-xl px-3 py-1.5">
+                      <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-indigo-900">
+                        <ShieldCheck size={12} className="text-amber-600 shrink-0" />
+                        Sales Partner Lead • Paid Unlock Only
+                      </span>
+                      <span className="text-[10px] font-semibold italic text-amber-800">
+                        Excluded from subscription packages
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <h3 className="font-display font-extrabold text-slate-900 text-base sm:text-lg leading-snug">
-                        {lead.product_name || lead.requirement.slice(0, 60)}
+                        {lead.product_name || (lead.requirement || "").slice(0, 60)}
                       </h3>
                       <div className="text-[10px] font-semibold uppercase tracking-wider text-blue-700 mt-1 inline-flex items-center gap-1.5">
                         <Tag size={11} /> {lead.category}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -848,9 +1587,13 @@ export default function LeadsPage() {
                         {isInterested ? "Interested ✓" : "I'm Interested"}
                       </button>
                       <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${
-                        isUnlocked ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                        isSoldOut
+                          ? "bg-rose-100 text-rose-700 border border-rose-200"
+                          : isUnlocked
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-amber-50 text-amber-700"
                       }`}>
-                        {isUnlocked ? "Unlocked" : "Locked"}
+                        {isSoldOut ? "SOLD OUT" : isUnlocked ? "Unlocked" : "Locked"}
                       </span>
 
                       {user?.role === "admin" && (
@@ -868,6 +1611,18 @@ export default function LeadsPage() {
                   </div>
 
                   <div className="mt-3.5 space-y-2 border-b border-slate-100 pb-3.5 text-xs text-slate-600">
+                    {isPartnerLead && (
+                      <div className="grid grid-cols-2 gap-2 py-2 px-3 rounded-xl bg-slate-50 border border-slate-200/80 mb-1">
+                        <div>
+                          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Deal Value</div>
+                          <div className="text-xs font-extrabold text-slate-900 mt-0.5">{formatINR(dealValue)}</div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-bold uppercase tracking-wider text-indigo-600">Lead Price (2%)</div>
+                          <div className="text-xs font-extrabold text-indigo-800 mt-0.5">{formatINR(leadPrice)} + 18% GST</div>
+                        </div>
+                      </div>
+                    )}
                     {lead.quantity && (
                       <div className="flex items-center gap-2">
                         <span className="w-14 font-bold text-slate-400 uppercase tracking-wider text-[9px]">Qty</span>
@@ -909,13 +1664,53 @@ export default function LeadsPage() {
 
                   <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                     <div className="text-xs">
-                      <div className="font-bold text-slate-900">{lead.name}</div>
+                      <div className="font-bold text-slate-900">{lead.name || lead.client_name}</div>
                       <div className={`text-slate-500 inline-flex items-center gap-1 ${isUnlocked ? "" : "blur-[3px] select-none"}`}>
-                        <Phone size={11} /> {lead.mobile}
+                        <Phone size={11} /> {lead.mobile || lead.client_mobile}
                       </div>
                     </div>
 
-                    {!isUnlocked ? (
+                    {isPartnerLead ? (
+                      isSoldOut ? (
+                        <button
+                          type="button"
+                          disabled
+                          data-testid={`lead-sold-out-btn-${lead.id}`}
+                          className="px-4 py-2 bg-slate-200 text-slate-500 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-not-allowed"
+                        >
+                          <Lock size={12} /> Sold Out
+                        </button>
+                      ) : !isUnlocked ? (
+                        <button
+                          type="button"
+                          onClick={() => setBuyPartnerLead(lead)}
+                          data-testid={`buy-partner-lead-btn-${lead.id}`}
+                          className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-amber-600 hover:from-indigo-700 hover:to-amber-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+                        >
+                          <Lock size={12} /> Buy Lead ({formatINR(leadPrice)})
+                        </button>
+                      ) : (
+                        <div className="flex gap-2 items-center flex-wrap">
+                          <a
+                            href={`tel:${lead.mobile || lead.client_mobile}`}
+                            className="px-3 py-1.5 bg-blue-50 text-blue-900 border border-blue-100 rounded-lg text-xs font-bold inline-flex items-center gap-1 hover:bg-blue-100"
+                          >
+                            <Phone size={12} /> Call
+                          </a>
+                          <a
+                            href={whatsappLink(
+                              lead.mobile || lead.client_mobile,
+                              `Hi ${lead.name || lead.client_name}, regarding your requirement: ${(lead.requirement || "").slice(0, 60)}`
+                            )}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3 py-1.5 bg-[#25D366] text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 hover:bg-[#20bd5a]"
+                          >
+                            <MessageSquare size={12} /> WhatsApp
+                          </a>
+                        </div>
+                      )
+                    ) : !isUnlocked ? (
                       <button
                         onClick={() => handleUnlockClick(lead.id)}
                         className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
@@ -931,7 +1726,7 @@ export default function LeadsPage() {
                           <Phone size={12} /> Call
                         </a>
                         <a
-                          href={whatsappLink(lead.mobile, `Hi ${lead.name}, regarding your requirement: ${lead.requirement.slice(0, 60)}`)}
+                          href={whatsappLink(lead.mobile, `Hi ${lead.name}, regarding your requirement: ${(lead.requirement || "").slice(0, 60)}`)}
                           target="_blank"
                           rel="noreferrer"
                           className="px-3 py-1.5 bg-[#25D366] text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 hover:bg-[#20bd5a]"
@@ -941,6 +1736,27 @@ export default function LeadsPage() {
                       </div>
                     )}
                   </div>
+
+                  {isPartnerLead && isUnlocked && (
+                    <SalesPartnerDealPanel
+                      lead={lead}
+                      approvingDealId={approvingDealId}
+                      onApproveBill={handleApprovePartnerBill}
+                      onOpenFakeReport={(targetLead, deal) =>
+                        setFakeReportTarget({
+                          leadTitle: targetLead.product_name || (targetLead.requirement || "").slice(0, 60),
+                          deal,
+                        })
+                      }
+                      onViewBill={(deal) =>
+                        setBillPreview({
+                          url: deal.bill_image_url,
+                          notes: deal.bill_notes,
+                          uploadedAt: deal.bill_uploaded_at,
+                        })
+                      }
+                    />
+                  )}
                 </article>
               );
             })}
@@ -1001,36 +1817,38 @@ export default function LeadsPage() {
             </div>
           )}
 
-          {/* Bottom Upgrade Banner */}
-          <div className="fixed bottom-[72px] right-4 z-20 md:left-4 md:right-4 md:max-w-lg md:mx-auto">
-            {/* Mobile Compact Floating Button */}
-            <button
-              onClick={() => {
-                toast.info("Opening subscription plans...");
-                navigate("/pricing");
-              }}
-              className="md:hidden px-4 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-extrabold text-xs uppercase tracking-wider rounded-full shadow-xl border border-orange-400/30 flex items-center gap-1.5 active:scale-95 transition-all"
-            >
-              <Zap size={14} className="text-yellow-200 fill-yellow-200" /> Upgrade Plan
-            </button>
-
-            {/* Desktop Banner Card */}
-            <div className="hidden md:flex bg-gradient-to-r from-blue-950 to-blue-900 text-white rounded-2xl p-4 shadow-lg border border-slate-800 items-center justify-between gap-4">
-              <div>
-                <h4 className="font-display font-black text-sm">Unlock Unlimited Leads</h4>
-                <p className="text-[10px] text-white/70 mt-0.5">Upgrade to premium and unlock all buyer contact details instantly.</p>
-              </div>
+          {/* Bottom Upgrade Banner — hidden for buyer role or when browsing partner leads */}
+          {user.role !== "buyer" && statusFilter !== "partner_leads" && statusFilter !== "partner_purchased" && (
+            <div className="fixed bottom-[72px] right-4 z-20 md:left-4 md:right-4 md:max-w-lg md:mx-auto">
+              {/* Mobile Compact Floating Button */}
               <button
                 onClick={() => {
                   toast.info("Opening subscription plans...");
                   navigate("/pricing");
                 }}
-                className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-extrabold text-[10px] uppercase rounded-xl transition-all shadow-sm active:scale-95"
+                className="md:hidden px-4 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-extrabold text-xs uppercase tracking-wider rounded-full shadow-xl border border-orange-400/30 flex items-center gap-1.5 active:scale-95 transition-all"
               >
-                Upgrade Plan
+                <Zap size={14} className="text-yellow-200 fill-yellow-200" /> Upgrade Plan
               </button>
+
+              {/* Desktop Banner Card */}
+              <div className="hidden md:flex bg-gradient-to-r from-blue-950 to-blue-900 text-white rounded-2xl p-4 shadow-lg border border-slate-800 items-center justify-between gap-4">
+                <div>
+                  <h4 className="font-display font-black text-sm">Unlock Unlimited Leads</h4>
+                  <p className="text-[10px] text-white/70 mt-0.5">Upgrade to premium and unlock all buyer contact details instantly.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    toast.info("Opening subscription plans...");
+                    navigate("/pricing");
+                  }}
+                  className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-extrabold text-[10px] uppercase rounded-xl transition-all shadow-sm active:scale-95"
+                >
+                  Upgrade Plan
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
 
@@ -1043,6 +1861,34 @@ export default function LeadsPage() {
           initialEmailHint={pendingUnlock?.emailHint}
           onClose={() => { setModalLeadId(null); setPendingUnlock(null); }}
           onSuccess={handleModalSuccess}
+        />
+      )}
+
+      {/* Sales Partner Lead Purchase Modal */}
+      {buyPartnerLead && (
+        <SalesPartnerBuyModal
+          lead={buyPartnerLead}
+          user={user}
+          onClose={() => setBuyPartnerLead(null)}
+          onSuccess={handlePartnerPurchaseSuccess}
+        />
+      )}
+
+      {/* Report Fake Lead Modal */}
+      {fakeReportTarget && (
+        <FakeReportModal
+          target={fakeReportTarget}
+          onClose={() => setFakeReportTarget(null)}
+          onSubmit={handleSubmitFakeReport}
+          submitting={reportingFake}
+        />
+      )}
+
+      {/* Uploaded Transaction Bill Preview Modal */}
+      {billPreview && (
+        <BillPreviewModal
+          bill={billPreview}
+          onClose={() => setBillPreview(null)}
         />
       )}
     </div>

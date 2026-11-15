@@ -9,6 +9,7 @@ const roles = [
   { id: "manufacturer", label: "Manufacturer" },
   { id: "supplier", label: "Supplier" },
   { id: "buyer", label: "Buyer" },
+  { id: "sales_partner", label: "Sales Partner" },
 ];
 
 export default function RegisterPage() {
@@ -56,19 +57,19 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-[100dvh] grid place-items-center px-4 py-8 bg-gradient-to-br from-slate-50 via-blue-50 to-orange-50">
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-md border border-slate-200 p-6">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-md border border-slate-200 p-6">
         <div className="flex flex-col items-center mb-4">
           <Logo size={48} withText={false} />
           <h1 className="mt-2 font-display text-xl font-bold text-slate-900">Create your IIP account</h1>
         </div>
         <form onSubmit={submit} className="space-y-3" data-testid="register-form">
-          <div className="grid grid-cols-3 gap-2" data-testid="role-selector">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="role-selector">
             {roles.map((r) => (
               <button
                 type="button" key={r.id}
                 onClick={() => setForm({ ...form, role: r.id })}
                 data-testid={`role-${r.id}-btn`}
-                className={`py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                className={`py-2 px-1.5 rounded-lg text-xs font-semibold border transition-colors ${
                   form.role === r.id
                     ? "bg-blue-800 text-white border-blue-800"
                     : "bg-white text-slate-700 border-slate-300 hover:border-blue-300"

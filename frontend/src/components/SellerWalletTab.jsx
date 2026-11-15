@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { Wallet, Landmark, ArrowUpRight, ArrowDownLeft, ShieldCheck, Clock, CheckCircle2, AlertCircle, RefreshCw, ChevronRight } from "lucide-react";
 import api, { formatApiError } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 
 export const SellerWalletTab = () => {
+  const { user } = useAuth();
+  const isSalesPartner = user?.role === "sales_partner";
   const [wallet, setWallet] = useState(null);
   const [bank, setBank] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -141,14 +144,16 @@ export const SellerWalletTab = () => {
         {/* Pending Balance */}
         <div className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-semibold uppercase tracking-wider mb-2">
-            <span>Pending (In Delivery)</span>
+            <span>{isSalesPartner ? "Pending (Escrow Deals)" : "Pending (In Delivery)"}</span>
             <Clock size={18} className="text-amber-500" />
           </div>
           <div className="text-3xl font-display font-bold text-slate-900">
             ₹{(wallet?.pending_balance || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
           </div>
           <p className="text-[11px] text-slate-500 mt-4">
-            Moved to available balance upon order completion.
+            {isSalesPartner
+              ? "Released to available balance when buyer approves uploaded bill."
+              : "Moved to available balance upon order completion."}
           </p>
         </div>
 
@@ -309,7 +314,7 @@ export const SellerWalletTab = () => {
         <h4 className="font-bold text-slate-900 text-base mb-3">Wallet Transaction Ledger</h4>
         {transactions.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs">
-            No wallet transactions recorded yet. Sales earnings will appear here upon order placement.
+            No wallet transactions recorded yet.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -324,23 +329,31 @@ export const SellerWalletTab = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {transactions.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-50/80">
-                    <td className="p-3 text-slate-500">{new Date(t.created_at).toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
-                    <td className="p-3 font-bold">
-                      {t.type === "CREDIT_SALE" ? (
-                        <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px]">CREDIT</span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-800 text-[10px]">DEBIT</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-slate-800 font-medium">{t.description}</td>
-                    <td className={`p-3 text-right font-bold ${t.type === "CREDIT_SALE" ? "text-emerald-600" : "text-slate-900"}`}>
-                      {t.type === "CREDIT_SALE" ? "+" : "-"}₹{t.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="p-3 text-right font-mono text-slate-600">₹{t.balance_after.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</td>
-                  </tr>
-                ))}
+                {transactions.map((t) => {
+                  const rawType = String(t.type || t.tx_type || "").toUpperCase();
+                  const isCredit = rawType.startsWith("CREDIT");
+                  return (
+                    <tr key={t.id} className="hover:bg-slate-50/80">
+                      <td className="p-3 text-slate-500">{new Date(t.created_at).toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
+                      <td className="p-3 font-bold">
+                        {isCredit ? (
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px]">CREDIT</span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-800 text-[10px]">DEBIT</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-slate-800 font-medium">{t.description}</td>
+                      <td className={`p-3 text-right font-bold ${isCredit ? "text-emerald-600" : "text-slate-900"}`}>
+                        {isCredit ? "+" : "-"}₹{Number(t.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="p-3 text-right font-mono text-slate-600">
+                        {t.balance_after != null
+                          ? `₹${Number(t.balance_after).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`
+                          : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

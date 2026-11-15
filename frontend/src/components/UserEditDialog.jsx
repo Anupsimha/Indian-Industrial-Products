@@ -119,6 +119,7 @@ export const UserEditDialog = ({ open, onClose, user, onSaved }) => {
               <option value="manufacturer">Manufacturer</option>
               <option value="supplier">Supplier</option>
               <option value="buyer">Buyer</option>
+              <option value="sales_partner">Sales Partner</option>
             </select>
           </div>
 

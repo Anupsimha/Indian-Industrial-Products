@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown, Newspaper, Receipt, Sparkles, ExternalLink, Menu, X, Globe } from "lucide-react";
+import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown, Newspaper, Receipt, Sparkles, ExternalLink, Menu, X, Globe, Target, PlusCircle, Briefcase } from "lucide-react";
 import { Logo } from "./Logo";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
@@ -42,6 +42,7 @@ export const TopHeader = () => {
 
   const isBuyer = user && user.role === "buyer";
   const isSeller = user && (user.role === "manufacturer" || user.role === "supplier");
+  const isSalesPartner = user && user.role === "sales_partner";
 
   return (
     <header
@@ -97,6 +98,47 @@ export const TopHeader = () => {
                 Profile
               </Link>
 
+              {isSalesPartner && (
+                <>
+                  <Link
+                    to="/sales-partner"
+                    onClick={() => setDropdownOpen(false)}
+                    className="block px-4 py-2 text-xs font-bold text-emerald-900 bg-emerald-50/80 hover:bg-emerald-100/80 transition-colors"
+                    data-testid="dropdown-sales-partner-hub-link"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Briefcase size={15} className="text-emerald-700 shrink-0" />
+                      <span>Sales Partner Hub</span>
+                    </div>
+                  </Link>
+                  <Link
+                    to="/post-enquiry"
+                    onClick={() => setDropdownOpen(false)}
+                    className="block px-4 py-2 text-xs font-bold text-orange-800 bg-orange-50/80 hover:bg-orange-100/80 transition-colors"
+                    data-testid="dropdown-post-partner-lead-link"
+                  >
+                    <div className="flex items-center gap-2">
+                      <PlusCircle size={15} className="text-orange-600 shrink-0" />
+                      <span>Post Partner Lead</span>
+                    </div>
+                  </Link>
+                </>
+              )}
+
+              {isBuyer && (
+                <Link
+                  to="/leads"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-2 text-xs font-bold text-orange-800 bg-orange-50/80 hover:bg-orange-100/80 transition-colors"
+                  data-testid="dropdown-buyer-leads-link"
+                >
+                  <div className="flex items-center gap-2">
+                    <Target size={15} className="text-orange-600 shrink-0" />
+                    <span>Browse Partner Leads</span>
+                  </div>
+                </Link>
+              )}
+
               {isSeller && (
                 <Link
                   to="/profile"
@@ -111,7 +153,7 @@ export const TopHeader = () => {
                 </Link>
               )}
 
-              {user.role !== "admin" && (
+              {user.role !== "admin" && !isSalesPartner && (
                 <Link
                   to="/membership"
                   onClick={() => setDropdownOpen(false)}

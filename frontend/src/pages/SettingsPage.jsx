@@ -6,6 +6,7 @@ import {
   Lock, Settings as SettingsIcon, LogOut, KeyRound, ShieldCheck, Mail, Wallet
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import api from "../lib/api";
 import { BackButton } from "../components/BackButton";
 import { toast } from "sonner";
 import { AdminSetupModal } from "../components/AdminSetupModal";
@@ -165,7 +166,7 @@ export default function SettingsPage() {
       <div className="space-y-5">
         
         {/* SECTION 0: Bank Account & Wallet Settlement Ledger */}
-        {user?.company_id && (
+        {user && user.role !== "admin" && (
           <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden" data-testid="section-wallet-ledger">
             <button
               onClick={() => setWalletOpen(!walletOpen)}
