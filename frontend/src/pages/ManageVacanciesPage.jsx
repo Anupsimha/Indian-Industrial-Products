@@ -74,8 +74,12 @@ export default function ManageVacanciesPage() {
 
   const handleDownloadResume = async (resumeUrl, filename) => {
     try {
+      const token = localStorage.getItem("iip_token") || localStorage.getItem("token");
       const url = resumeUrl.startsWith("http") ? resumeUrl : `${BACKEND_URL}${resumeUrl}`;
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+      });
       if (!response.ok) throw new Error("Failed to fetch file");
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
