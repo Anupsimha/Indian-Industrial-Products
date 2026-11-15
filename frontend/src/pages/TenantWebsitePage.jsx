@@ -31,7 +31,7 @@ export default function TenantWebsitePage() {
       const sample = getSampleDataForTemplate(tmpl);
 
       // Check if user is logged in to merge actual company & products
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("iip_token") || localStorage.getItem("token");
       if (token) {
         setLoading(true);
         api

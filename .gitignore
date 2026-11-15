@@ -105,6 +105,11 @@ uploads/
 postgres_data/
 /postgres_data/
 **/postgres_data/
+*.db
+*.db.*
+*.sqlite
+*.sqlite3
+backend/iip.db*
 *creds*.txt
 
 

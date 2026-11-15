@@ -50,7 +50,21 @@ async def test_env(monkeypatch, tmp_path):
 
     app.dependency_overrides[get_db] = override_get_db
     monkeypatch.setattr(server, "AsyncSessionLocal", Session)
+    try:
+        import backend.server as _bserver
+        app.dependency_overrides[_bserver.get_db] = override_get_db
+        monkeypatch.setattr(_bserver, "AsyncSessionLocal", Session)
+    except ImportError:
+        pass
     monkeypatch.setattr(server, "ENQUIRY_MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(server, "UPLOADS_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(server, "VACANCY_RESUME_DIR", tmp_path / "resumes")
+    server.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    server.VACANCY_RESUME_DIR.mkdir(parents=True, exist_ok=True)
+    server._revoked_token_hashes.clear()
+    server._otp_failed_attempts.clear()
+    server._auth_rate_buckets.clear()
+    server._razorpay_order_intents.clear()
 
     async def _noop_email(*args, **kwargs):
         return True
@@ -551,6 +565,8 @@ async def test_wallet_security_audit_non_company_and_order_guards(test_env):
             "delivery_option": "free",
             "payment_method": "razorpay",
             "payment_id": "pay_self_1",
+            "razorpay_order_id": "rzp_ord_self_1",
+            "razorpay_signature": _rzp_sig("rzp_ord_self_1", "pay_self_1"),
             "address": "Self Address",
         },
         headers=_auth("mfg_company_user"),
@@ -570,6 +586,8 @@ async def test_wallet_security_audit_non_company_and_order_guards(test_env):
             "delivery_option": "free",
             "payment_method": "razorpay",
             "payment_id": "pay_real_1",
+            "razorpay_order_id": "rzp_ord_real_1",
+            "razorpay_signature": _rzp_sig("rzp_ord_real_1", "pay_real_1"),
             "address": "Buyer Address",
         },
         headers=_auth("buyer_1"),
@@ -595,9 +613,337 @@ async def test_wallet_security_audit_non_company_and_order_guards(test_env):
     import json as _json
     wh_body = _json.dumps({
         "event": "payment.captured",
-        "payload": {"payment": {"entity": {"order_id": "rzp_ord_webhook_1", "id": "pay_wh_1"}}},
+        "payload": {
+            "payment": {
+                "entity": {
+                    "order_id": "rzp_ord_webhook_1",
+                    "id": "pay_wh_1",
+                    "amount": int(round(pending_ord.json()["total"] * 100)),
+                    "currency": "INR",
+                    "status": "captured",
+                }
+            }
+        },
     }).encode("utf-8")
     wh_sig = hmac.new(server.RAZORPAY_WEBHOOK_SECRET.encode("utf-8"), wh_body, hashlib.sha256).hexdigest() if server.RAZORPAY_WEBHOOK_SECRET else ""
     wh_res = await client.post("/api/payments/webhook", content=wh_body, headers={"X-Razorpay-Signature": wh_sig})
     assert wh_res.status_code == 200
     assert (await client.get("/api/companies/me/wallet", headers=_auth("mfg_company_user"))).json()["available_balance"] == 3920.0
+
+
+@pytest.mark.anyio
+async def test_pentest_vulnerability_remediations(test_env):
+    client, Session = test_env
+
+    # C1: Privilege escalation blocked on /auth/register and /users/me
+    reg_admin = await client.post(
+        "/api/auth/register",
+        json={
+            "name": "Evil Admin",
+            "email": "evil_admin@test.com",
+            "mobile": "9888877777",
+            "password": "Password123!",
+            "role": "admin",
+        },
+    )
+    assert reg_admin.status_code in (403, 422), reg_admin.text
+
+    patch_me = await client.patch(
+        "/api/auth/me",
+        json={
+            "name": "Priya Updated",
+            "role": "admin",
+            "is_verified": False,
+            "plan_name": "Enterprise",
+        },
+        headers=_auth("buyer_1"),
+    )
+    assert patch_me.status_code == 200, patch_me.text
+    assert patch_me.json()["role"] == "buyer"
+    assert patch_me.json()["plan_name"] == "Premium"
+    assert patch_me.json()["is_verified"] is True
+
+    # C2 & C4: "free_plan" bypass rejected for paid plan & cross-flow intent replay blocked
+    async with Session() as s:
+        s.add(
+            server.Plan(
+                id="plan_paid_1",
+                name="Growth",
+                monthly_price=5000.0,
+                yearly_price=50000.0,
+                color="blue",
+                features=["Leads"],
+                created_at=now_iso(),
+            )
+        )
+        s.add(
+            Product(
+                id="prod_cart_1",
+                company_id="comp_mfg_1",
+                name="Lathe Chuck",
+                description="Heavy duty chuck",
+                category="Machining",
+                price="₹3,000",
+                moq="1 unit",
+                image_url="https://example.com/chuck.jpg",
+                created_at=now_iso(),
+            )
+        )
+        s.add(
+            server.MembershipInvoice(
+                id="inv_buyer_1",
+                invoice_number="INV-2026-9901",
+                user_id="buyer_1",
+                plan_id="plan_paid_1",
+                plan_name="Growth",
+                billing_cycle="monthly",
+                base_amount=5000.0,
+                gst_rate=18.0,
+                gst_amount=900.0,
+                total_amount=5900.0,
+                payment_id="pay_inv_seed_1",
+                razorpay_order_id="rzp_inv_seed_1",
+                created_at=now_iso(),
+            )
+        )
+        s.add(
+            server.WebsiteTemplate(
+                id="tmpl_private_other",
+                name="Other Co Private",
+                is_active=True,
+                is_custom=True,
+                assigned_company_id="comp_other_999",
+                created_at=now_iso(),
+                updated_at=now_iso(),
+            )
+        )
+        s.add(
+            server.CompanyWebsite(
+                id="web_mfg_1",
+                company_id="comp_mfg_1",
+                owner_id="mfg_company_user",
+                subdomain="apex-cnc",
+                template_id="industrial_modern",
+                created_at=now_iso(),
+                updated_at=now_iso(),
+            )
+        )
+        s.add(
+            server.Job(
+                id="job_sec_1",
+                company_id="comp_mfg_1",
+                company_name="Apex CNC Works",
+                title="CNC Operator",
+                location="Bengaluru",
+                type="Full-time",
+                description="CNC role",
+                posted="Today",
+                created_at=now_iso(),
+            )
+        )
+        s.add(
+            server.IndustrialGroup(
+                id="grp_pub_1",
+                name="Machining Buyers",
+                slug="machining-buyers",
+                location="Bengaluru",
+                description="Test group",
+                image_url="https://example.com/g.jpg",
+                created_at=now_iso(),
+            )
+        )
+        s.add(
+            Enquiry(
+                id="enq_grp_1",
+                user_id="buyer_1",
+                name="Hidden Contact Name",
+                mobile="9876543210",
+                requirement="Need CNC Turning Job Work",
+                category="Machining",
+                location="Bengaluru",
+                status="new",
+                group_id="grp_pub_1",
+                created_at=now_iso(),
+            )
+        )
+        await s.commit()
+
+    free_bypass = await client.post(
+        "/api/payments/verify",
+        json={
+            "plan_id": "plan_paid_1",
+            "billing_cycle": "monthly",
+            "razorpay_order_id": "free_plan",
+            "razorpay_payment_id": "free",
+            "razorpay_signature": "free",
+        },
+        headers=_auth("buyer_1"),
+    )
+    assert free_bypass.status_code == 400, free_bypass.text
+
+    # Zero-rupee cart bypass blocked & tampered cart amount overridden by DB price
+    zero_cart = await client.post(
+        "/api/payments/create-order-cart",
+        json={"amount": 0},
+        headers=_auth("buyer_1"),
+    )
+    assert zero_cart.status_code == 400, zero_cart.text
+
+    cart_order_res = await client.post(
+        "/api/payments/create-order-cart",
+        json={
+            "amount": 1.0,
+            "delivery_cost": 0.0,
+            "items": [{"product_id": "prod_cart_1", "name": "Lathe Chuck", "qty": 2, "price": "₹1"}],
+        },
+        headers=_auth("buyer_1"),
+    )
+    assert cart_order_res.status_code == 200, cart_order_res.text
+    cart_rzp_id = cart_order_res.json()["order_id"]
+    assert cart_order_res.json()["amount"] == 708000  # 2 * 3000 + 18% GST = 7080 INR
+
+    # Cross-flow intent replay: cart razorpay_order_id cannot buy a membership plan
+    cross_replay = await client.post(
+        "/api/payments/verify",
+        json={
+            "plan_id": "plan_paid_1",
+            "billing_cycle": "monthly",
+            "razorpay_order_id": cart_rzp_id,
+            "razorpay_payment_id": "pay_cross_1",
+            "razorpay_signature": _rzp_sig(cart_rzp_id, "pay_cross_1"),
+        },
+        headers=_auth("buyer_1"),
+    )
+    assert cross_replay.status_code == 400, cross_replay.text
+
+    # C3: Paid order without signature rejected; valid paid order can be placed and wallet reversed when rejected
+    unsigned_order = await client.post(
+        "/api/orders",
+        json={
+            "items": [{"product_id": "prod_cart_1", "name": "Lathe Chuck", "qty": 1, "price": "₹3,000"}],
+            "subtotal": 3000.0,
+            "delivery_cost": 0.0,
+            "gst": 540.0,
+            "total": 3540.0,
+            "delivery_option": "free",
+            "payment_method": "razorpay",
+            "payment_id": "pay_fake_only",
+            "address": "Test Address",
+        },
+        headers=_auth("buyer_1"),
+    )
+    assert unsigned_order.status_code == 400, unsigned_order.text
+
+    valid_paid_ord = await client.post(
+        "/api/orders",
+        json={
+            "items": [{"product_id": "prod_cart_1", "name": "Lathe Chuck", "qty": 1, "price": "₹3,000"}],
+            "subtotal": 3000.0,
+            "delivery_cost": 0.0,
+            "gst": 540.0,
+            "total": 3540.0,
+            "delivery_option": "free",
+            "payment_method": "razorpay",
+            "payment_id": "pay_cart_valid_1",
+            "razorpay_order_id": cart_rzp_id,
+            "razorpay_signature": _rzp_sig(cart_rzp_id, "pay_cart_valid_1"),
+            "address": "Buyer Address",
+        },
+        headers=_auth("buyer_1"),
+    )
+    assert valid_paid_ord.status_code == 200, valid_paid_ord.text
+    paid_ord_id = valid_paid_ord.json()["id"]
+    w_before_reject = (await client.get("/api/companies/me/wallet", headers=_auth("mfg_company_user"))).json()["available_balance"]
+    assert w_before_reject == 2940.0  # 3000 * 0.98
+
+    # Rejecting a paid order debits the seller wallet via DEBIT_REFUND
+    rej_res = await client.post(
+        f"/api/orders/{paid_ord_id}/reject",
+        headers=_auth("buyer_1"),
+    )
+    assert rej_res.status_code == 200, rej_res.text
+    w_after_reject = (await client.get("/api/companies/me/wallet", headers=_auth("mfg_company_user"))).json()["available_balance"]
+    assert w_after_reject == 0.0
+
+    # H6: Shipping track IDOR protection
+    assert (await client.get(f"/api/shipping/track/{paid_ord_id}")).status_code == 401
+    assert (await client.get(f"/api/shipping/track/{paid_ord_id}", headers=_auth("sp_1"))).status_code == 403
+    assert (await client.get(f"/api/shipping/track/{paid_ord_id}", headers=_auth("buyer_1"))).status_code == 200
+
+    # H3: Invoice download requires auth + owner/admin
+    assert (await client.get("/api/invoices/inv_buyer_1/download")).status_code == 401
+    assert (await client.get("/api/invoices/inv_buyer_1/download", headers=_auth("sp_1"))).status_code == 403
+    assert (await client.get(f"/api/invoices/inv_buyer_1/download?token={create_token('sp_1')}")).status_code == 403
+    inv_ok = await client.get(f"/api/invoices/inv_buyer_1/download?token={create_token('buyer_1')}")
+    assert inv_ok.status_code == 200, inv_ok.text
+
+    # C6 / H2: Upload requires auth & safe extension/content; VacancyResume blocks unauth & .json
+    assert (await client.post("/api/upload", files={"file": ("a.jpg", b"\xff\xd8\xff\xe0", "image/jpeg")})).status_code == 401
+    bad_ext = await client.post(
+        "/api/upload",
+        files={"file": ("shell.html", b"<script>alert(1)</script>", "text/html")},
+        headers=_auth("buyer_1"),
+    )
+    assert bad_ext.status_code == 400, bad_ext.text
+
+    job_dir = server.VACANCY_RESUME_DIR / "job_sec_1"
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "buyer_1.pdf").write_bytes(b"%PDF-1.4 sample")
+    (job_dir / "buyer_1.pdf.json").write_text('{"phone":"secret"}')
+    assert (await client.get("/VacancyResume/job_sec_1/buyer_1.pdf")).status_code == 401
+    assert (await client.get("/VacancyResume/job_sec_1/buyer_1.pdf", headers=_auth("sp_1"))).status_code == 403
+    assert (await client.get("/VacancyResume/job_sec_1/buyer_1.pdf.json", headers=_auth("buyer_1"))).status_code == 403
+    assert (await client.get("/VacancyResume/job_sec_1/buyer_1.pdf", headers=_auth("buyer_1"))).status_code == 200
+    assert (await client.get("/VacancyResume/job_sec_1/buyer_1.pdf", headers=_auth("mfg_company_user"))).status_code == 200
+
+    # H8 / Website / Group masking / Deleted user checks
+    assert (await client.post("/api/news/admin/fetch-now", headers=_auth("buyer_1"))).status_code == 403
+    bad_url = await client.patch(
+        "/api/companies/comp_mfg_1",
+        json={"website": "javascript:alert(1)"},
+        headers=_auth("mfg_company_user"),
+    )
+    assert bad_url.status_code == 400, bad_url.text
+    bad_tmpl = await client.put(
+        "/api/websites/my-website",
+        json={"template_id": "tmpl_private_other"},
+        headers=_auth("mfg_company_user"),
+    )
+    assert bad_tmpl.status_code == 403, bad_tmpl.text
+
+    grp_leads = await client.get("/api/industrial-groups/grp_pub_1/leads")
+    assert grp_leads.status_code == 200
+    assert "9876543210" not in str(grp_leads.json())
+    assert "Hidden Contact Name" not in str(grp_leads.json())
+
+    # M2: OTP brute-force attempt lockout after 5 wrong tries
+    from datetime import datetime, timedelta, timezone
+    async with Session() as s:
+        u = (await s.execute(select(User).where(User.id == "buyer_1"))).scalar_one()
+        u.is_verified = False
+        u.verification_code = "654321"
+        u.verification_expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        await s.commit()
+    for _ in range(5):
+        r_bad_otp = await client.post("/api/auth/verify-otp", json={"email": "buyer1@test.com", "otp": "000000"})
+        assert r_bad_otp.status_code == 400
+    r_locked_otp = await client.post("/api/auth/verify-otp", json={"email": "buyer1@test.com", "otp": "654321"})
+    assert r_locked_otp.status_code == 429
+
+    # Restore verified + test H1 token revocation & deleted-account gating
+    async with Session() as s:
+        u = (await s.execute(select(User).where(User.id == "buyer_1"))).scalar_one()
+        u.is_verified = True
+        await s.commit()
+
+    tok = create_token("buyer_1")
+    assert (await client.get("/api/auth/me", headers={"Authorization": f"Bearer {tok}"})).status_code == 200
+    assert (await client.post("/api/auth/logout", headers={"Authorization": f"Bearer {tok}"})).status_code == 200
+    assert (await client.get("/api/auth/me", headers={"Authorization": f"Bearer {tok}"})).status_code == 401
+
+    async with Session() as s:
+        u = (await s.execute(select(User).where(User.id == "sp_1"))).scalar_one()
+        u.is_deleted = True
+        await s.commit()
+    assert (await client.get("/api/sales-partner/my-leads", headers=_auth("sp_1"))).status_code == 403
+

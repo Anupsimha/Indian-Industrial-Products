@@ -178,7 +178,7 @@ export default function CartPage() {
     return true;
   };
 
-  const placeOrder = async (paymentId = null, method = selectedPayment) => {
+  const placeOrder = async (paymentId = null, method = selectedPayment, rzpOrderId = null, rzpSignature = null) => {
     if (!validatePhoneForLogistics()) return;
     setIsPlacing(true);
     setStep("processing");
@@ -199,6 +199,8 @@ export default function CartPage() {
         delivery_option: selectedDelivery,
         payment_method: method,
         payment_id: paymentId,
+        razorpay_order_id: rzpOrderId,
+        razorpay_signature: rzpSignature,
         address: user?.address || "Address on File",
         pincode: pincode || user?.pincode || ""
       };
@@ -242,7 +244,16 @@ export default function CartPage() {
     setIsPlacing(true);
     try {
       const orderRes = await api.post("/payments/create-order-cart", {
-        amount: cartTotal
+        amount: cartTotal,
+        delivery_cost: deliveryCost,
+        items: cart.map((item) => ({
+          product_id: item.id,
+          name: item.name,
+          price: item.price,
+          qty: item.quantity || 1,
+          image_url: item.image_url || "",
+          company_id: item.company_id || item.seller_id
+        })),
       });
       const orderData = orderRes.data;
       if (!orderData || !orderData.key || !orderData.order_id) {
@@ -268,7 +279,12 @@ export default function CartPage() {
               razorpay_signature: response.razorpay_signature,
             });
             toast.success("Payment successful!");
-            placeOrder(response.razorpay_payment_id, "razorpay");
+            placeOrder(
+              response.razorpay_payment_id,
+              "razorpay",
+              response.razorpay_order_id,
+              response.razorpay_signature
+            );
           } catch (verifyErr) {
             toast.error("Payment signature verification failed.");
             setStep("payment");

@@ -3256,11 +3256,13 @@ const CustomWebsitesAdminTab = () => {
 const ADMIN_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 
 const resolveAdminMediaUrl = (url) => {
-  if (!url) return "";
-  if (/^https?:\/\//i.test(url) || url.startsWith("data:") || url.startsWith("blob:")) {
-    return url;
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (/^(javascript|data|vbscript):/i.test(trimmed)) return "";
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("blob:")) {
+    return trimmed;
   }
-  return `${ADMIN_BACKEND_URL}${url.startsWith("/") ? url : `/${url}`}`;
+  return `${ADMIN_BACKEND_URL}${trimmed.startsWith("/") ? trimmed : `/${trimmed}`}`;
 };
 
 const isDealPdfUrl = (url) => String(url || "").toLowerCase().split("?")[0].endsWith(".pdf");

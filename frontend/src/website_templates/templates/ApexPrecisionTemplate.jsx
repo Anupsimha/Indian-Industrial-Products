@@ -933,19 +933,24 @@ function ProductCard({ product, company, onDetails, onEnquire }) {
         )}
 
         {/* External Link (if configured) */}
-        {product.external_url && (
-          <div className="pt-2 mb-2">
-            <a
-              href={product.external_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-1.5 px-3 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all border border-slate-200"
-            >
-              <span>{product.external_label || "Visit Official Website"}</span>
-              <ArrowUpRight size={13} />
-            </a>
-          </div>
-        )}
+        {(() => {
+          const rawUrl = String(product.external_url || "").trim();
+          const safeUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : null;
+          if (!safeUrl) return null;
+          return (
+            <div className="pt-2 mb-2">
+              <a
+                href={safeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-1.5 px-3 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all border border-slate-200"
+              >
+                <span>{product.external_label || "Visit Official Website"}</span>
+                <ArrowUpRight size={13} />
+              </a>
+            </div>
+          );
+        })()}
 
         {/* Card Actions */}
         <div className="flex items-center gap-2 pt-2">

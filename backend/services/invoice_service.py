@@ -14,6 +14,7 @@ import os
 import io
 from datetime import datetime
 from typing import Dict, Any, Optional
+from xml.sax.saxutils import escape as xml_escape
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -217,9 +218,9 @@ def generate_membership_invoice_pdf(invoice_data: Dict[str, Any]) -> bytes:
         [
             brand_block,
             Paragraph(
-                f"<b>Invoice No:</b> {invoice_data.get('invoice_number', 'INV-2026-0001')}<br/>"
-                f"<b>Date:</b> {invoice_data.get('invoice_date', datetime.now().strftime('%d %B %Y'))}<br/>"
-                f"<b>Payment Ref:</b> {invoice_data.get('payment_id', 'Online')}",
+                f"<b>Invoice No:</b> {xml_escape(str(invoice_data.get('invoice_number', 'INV-2026-0001')))}<br/>"
+                f"<b>Date:</b> {xml_escape(str(invoice_data.get('invoice_date', datetime.now().strftime('%d %B %Y'))))}<br/>"
+                f"<b>Payment Ref:</b> {xml_escape(str(invoice_data.get('payment_id', 'Online')))}",
                 table_cell_right
             )
         ]
@@ -236,22 +237,22 @@ def generate_membership_invoice_pdf(invoice_data: Dict[str, Any]) -> bytes:
 
     # 2. Supplier vs Bill To Section
     supplier_html = (
-        f"<b>{invoice_data.get('supplier_name', PLATFORM_NAME)}</b><br/>"
-        f"<b>GSTIN:</b> {invoice_data.get('supplier_gstin', PLATFORM_GSTIN)}<br/>"
-        f"<b>Address:</b> {invoice_data.get('supplier_address', PLATFORM_ADDRESS)}<br/>"
-        f"<b>Email:</b> {PLATFORM_EMAIL} | <b>Phone:</b> {PLATFORM_PHONE}"
+        f"<b>{xml_escape(str(invoice_data.get('supplier_name', PLATFORM_NAME)))}</b><br/>"
+        f"<b>GSTIN:</b> {xml_escape(str(invoice_data.get('supplier_gstin', PLATFORM_GSTIN)))}<br/>"
+        f"<b>Address:</b> {xml_escape(str(invoice_data.get('supplier_address', PLATFORM_ADDRESS)))}<br/>"
+        f"<b>Email:</b> {xml_escape(PLATFORM_EMAIL)} | <b>Phone:</b> {xml_escape(PLATFORM_PHONE)}"
     )
 
-    cust_name = invoice_data.get("customer_name") or "Valued Member"
-    cust_comp = invoice_data.get("customer_company")
-    cust_gstin = invoice_data.get("customer_gstin") or "Not Provided / Consumer"
-    cust_addr = invoice_data.get("customer_address") or "India"
+    cust_name = xml_escape(str(invoice_data.get("customer_name") or "Valued Member"))
+    cust_comp = xml_escape(str(invoice_data.get("customer_company"))) if invoice_data.get("customer_company") else None
+    cust_gstin = xml_escape(str(invoice_data.get("customer_gstin") or "Not Provided / Consumer"))
+    cust_addr = xml_escape(str(invoice_data.get("customer_address") or "India"))
 
     customer_html = (
         f"<b>{cust_name}</b>" + (f" ({cust_comp})" if cust_comp else "") + "<br/>"
         f"<b>Customer GSTIN:</b> {cust_gstin}<br/>"
         f"<b>Billing Address:</b> {cust_addr}<br/>"
-        f"<b>Payment Mode:</b> {invoice_data.get('payment_method', 'Razorpay Online')}"
+        f"<b>Payment Mode:</b> {xml_escape(str(invoice_data.get('payment_method', 'Razorpay Online')))}"
     )
 
     parties_data = [
@@ -281,7 +282,8 @@ def generate_membership_invoice_pdf(invoice_data: Dict[str, Any]) -> bytes:
     gst_amt = float(invoice_data.get("gst_amount", round(base_amt * 0.18, 2)))
     tot_amt = float(invoice_data.get("total_amount", round(base_amt + gst_amt, 2)))
 
-    desc_text = invoice_data.get("description") or f"{invoice_data.get('plan_name', 'Membership')} subscription"
+    desc_text = xml_escape(str(invoice_data.get("description") or f"{invoice_data.get('plan_name', 'Membership')} subscription"))
+    plan_name_safe = xml_escape(str(invoice_data.get("plan_name", "Membership Plan")))
     items_table_data = [
         [
             Paragraph("<b>Item / Service Description</b>", table_header),
@@ -289,7 +291,7 @@ def generate_membership_invoice_pdf(invoice_data: Dict[str, Any]) -> bytes:
             Paragraph("<b>Base Amount (Rs.)</b>", table_cell_right_bold),
         ],
         [
-            Paragraph(f"<b>{invoice_data.get('plan_name', 'Membership Plan')}</b><br/><font color='#64748b' size='8'>{desc_text}</font>", table_cell),
+            Paragraph(f"<b>{plan_name_safe}</b><br/><font color='#64748b' size='8'>{desc_text}</font>", table_cell),
             Paragraph("998313", table_cell),  # Information technology / portal service SAC
             Paragraph(f"Rs. {base_amt:,.2f}", table_cell_right),
         ],

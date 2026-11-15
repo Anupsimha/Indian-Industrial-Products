@@ -11,6 +11,7 @@ import hashlib
 import datetime
 from difflib import SequenceMatcher
 from typing import Optional, List, Dict, Any
+from urllib.parse import urlparse
 
 import feedparser
 from sqlalchemy.orm import Session
@@ -24,6 +25,19 @@ logger = logging.getLogger("iip.news")
 
 
 class IndustrialNewsService:
+
+    @staticmethod
+    def _safe_http_url(raw_url: Optional[str]) -> Optional[str]:
+        if not raw_url or not isinstance(raw_url, str):
+            return None
+        cleaned = raw_url.strip()
+        try:
+            parsed = urlparse(cleaned)
+        except Exception:
+            return None
+        if parsed.scheme.lower() in ("http", "https") and parsed.netloc:
+            return cleaned
+        return None
 
     @staticmethod
     def normalize_title(title: str) -> str:
@@ -141,9 +155,9 @@ class IndustrialNewsService:
             snippet = re.sub(r"<[^<]+?>", "", raw_summary).strip()
             snippet = snippet[:max_snippet_chars]
 
-            image_url = cls.extract_image(entry) if use_source_image else None
+            image_url = cls._safe_http_url(cls.extract_image(entry)) if use_source_image else None
             published = cls.parse_pub_date(entry)
-            article_url = entry.get("link", url)
+            article_url = cls._safe_http_url(entry.get("link")) or cls._safe_http_url(url) or ""
 
             item = NewsItem(
                 id=item_hash,

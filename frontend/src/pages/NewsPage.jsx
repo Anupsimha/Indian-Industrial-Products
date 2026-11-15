@@ -85,7 +85,9 @@ export default function NewsPage() {
     try {
       api.post(`/news/${item.id}/click`);
     } catch {}
-    window.open(item.url, "_blank", "noopener,noreferrer");
+    if (/^https?:\/\//i.test(String(item?.url || "").trim())) {
+      window.open(item.url.trim(), "_blank", "noopener,noreferrer");
+    }
   };
 
   const handleAdminToggleActive = async (itemId) => {

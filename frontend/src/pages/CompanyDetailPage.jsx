@@ -330,7 +330,7 @@ export default function CompanyDetailPage() {
               <KV k="Phone" v={supportContact.support_phone || c.mobile} icon={Phone} link={supportPhoneLink()} />
               <KV k="WhatsApp" v={supportContact.support_whatsapp || c.whatsapp} link={whatsappLink(c.whatsapp)} />
               <KV k="Email" v={supportContact.support_email || c.email} icon={Mail} link={supportEmailLink(`Inquiry regarding ${c.name}`)} />
-              <KV k="Website" v={c.website} icon={Globe} link={c.website} />
+              <KV k="Website" v={c.website} icon={Globe} link={safeWebsiteHref(c.website)} />
               <KV k="Address" v={supportContact.support_address || c.address} icon={MapPin} />
             </Card>
             {c.address && (
@@ -378,8 +378,21 @@ const Card = ({ title, icon: Icon, children }) => (
   </div>
 );
 
+const safeWebsiteHref = (url) => {
+  if (!url || typeof url !== "string") return null;
+  const s = url.trim();
+  if (!s || /^(javascript|data|vbscript):/i.test(s)) return null;
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/^[a-z0-9.-]+\.[a-z]{2,}/i.test(s)) return `https://${s}`;
+  return null;
+};
+
 const KV = ({ k, v, mono, icon: Icon, link }) => {
   if (!v) return null;
+  const safeLink =
+    link && typeof link === "string" && !/^(javascript|data|vbscript):/i.test(link.trim())
+      ? link.trim()
+      : null;
   const content = (
     <div className="flex items-start justify-between gap-2 py-1 border-b border-slate-50 last:border-0">
       <div className="text-[11px] font-semibold text-slate-500">{k}</div>
@@ -389,5 +402,5 @@ const KV = ({ k, v, mono, icon: Icon, link }) => {
       </div>
     </div>
   );
-  return link ? <a href={link} target="_blank" rel="noreferrer" className="block hover:bg-slate-50 -mx-1 px-1 rounded">{content}</a> : content;
+  return safeLink ? <a href={safeLink} target="_blank" rel="noopener noreferrer" className="block hover:bg-slate-50 -mx-1 px-1 rounded">{content}</a> : content;
 };

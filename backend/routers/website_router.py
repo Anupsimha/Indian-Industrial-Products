@@ -10,6 +10,7 @@ Provides endpoints for custom company website management:
 """
 
 import os
+import re
 import uuid
 import logging
 import socket
@@ -475,6 +476,8 @@ async def update_my_company_website(
         tmpl = (await db.execute(tmpl_stmt)).scalars().first()
         if not tmpl:
             raise HTTPException(status_code=400, detail="Invalid template ID.")
+        if getattr(tmpl, "is_custom", False) and getattr(tmpl, "assigned_company_id", None) not in (None, company_id):
+            raise HTTPException(status_code=403, detail="You are not authorized to use this custom template.")
         website.template_id = payload.template_id
 
     if payload.theme_config is not None:
@@ -541,6 +544,8 @@ async def get_public_site_data(
             status_code=404,
             detail=f"No website found matching subdomain or domain '{subdomain}'."
         )
+    if getattr(website, "status", "active") == "suspended":
+        raise HTTPException(status_code=403, detail="This company website is currently suspended.")
 
     # 2. Lookup Company
     comp_stmt = select(Company).where(Company.id == website.company_id)
@@ -1429,15 +1434,25 @@ async def stage_upload_and_validate_zip(
             f.write(content)
 
         with zipfile.ZipFile(zip_path, "r") as z:
-            file_list = z.namelist()
-            for fname in file_list:
+            info_list = z.infolist()
+            if len(info_list) > 2000:
+                raise HTTPException(status_code=400, detail="Zip archive contains too many entries (max 2000).")
+            file_list = []
+            total_uncompressed = 0
+            for info in info_list:
+                fname = info.filename
                 if fname.startswith("/") or ".." in fname:
                     raise HTTPException(status_code=400, detail=f"Insecure zip archive path: {fname}")
+                if (info.external_attr >> 16) & 0o170000 == 0o120000:
+                    raise HTTPException(status_code=400, detail=f"Symbolic links are not allowed in zip archive: {fname}")
+                total_uncompressed += info.file_size
+                if total_uncompressed > 150 * 1024 * 1024:
+                    raise HTTPException(status_code=400, detail="Uncompressed zip content exceeds 150MB limit.")
+                file_list.append(fname)
 
             has_index = any(f.endswith("index.html") for f in file_list)
             has_package_json = any(f.endswith("package.json") for f in file_list)
             has_build_or_dist = any("build/" in f or "dist/" in f for f in file_list)
-            total_uncompressed = sum(info.file_size for info in z.infolist())
 
             disallowed_exts = {".exe", ".bat", ".cmd", ".vbs", ".dll", ".so"}
             found_disallowed = [f for f in file_list if any(f.lower().endswith(ext) for ext in disallowed_exts)]
@@ -1449,7 +1464,7 @@ async def stage_upload_and_validate_zip(
         # Store validated archive permanently in backend storage
         storage_dir = os.path.join(os.path.dirname(__file__), "..", "storage", "custom_websites")
         os.makedirs(storage_dir, exist_ok=True)
-        domain_tag = req.assigned_domain or f"req_{req.id[:8]}"
+        domain_tag = re.sub(r"[^a-zA-Z0-9._-]", "_", req.assigned_domain or f"req_{req.id[:8]}")
         saved_zip_name = f"{domain_tag}_{int(datetime.utcnow().timestamp())}.zip"
         dest_path = os.path.join(storage_dir, saved_zip_name)
         shutil.copyfile(zip_path, dest_path)

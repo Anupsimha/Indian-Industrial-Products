@@ -30,11 +30,13 @@ import { SellerWalletTab } from "../components/SellerWalletTab";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 
 const resolveMediaUrl = (url) => {
-  if (!url) return "";
-  if (/^https?:\/\//i.test(url) || url.startsWith("data:") || url.startsWith("blob:")) {
-    return url;
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (/^(javascript|data|vbscript):/i.test(trimmed)) return "";
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("blob:")) {
+    return trimmed;
   }
-  return `${BACKEND_URL}${url.startsWith("/") ? url : `/${url}`}`;
+  return `${BACKEND_URL}${trimmed.startsWith("/") ? trimmed : `/${trimmed}`}`;
 };
 
 const isPdfUrl = (url) => String(url || "").toLowerCase().split("?")[0].endsWith(".pdf");

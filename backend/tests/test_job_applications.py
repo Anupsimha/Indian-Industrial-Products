@@ -79,9 +79,11 @@ def test_job_application_lifecycle(s, manu_token, buyer_token):
     assert priya_app["resume_filename"] == f"{buyer_id}.pdf"
     assert priya_app["resume_url"] == f"/VacancyResume/{job_id}/{buyer_id}.pdf"
 
-    # 4. Verify resume file can be retrieved via the static file server
+    # 4. Verify resume file requires authorization and is accessible to the job recruiter
     resume_url = f"{BASE_URL}{priya_app['resume_url']}"
-    r_file = s.get(resume_url)
+    r_unauth = s.get(resume_url)
+    assert r_unauth.status_code in (401, 403), r_unauth.text
+    r_file = s.get(resume_url, headers=h(manu_token))
     assert r_file.status_code == 200
     assert r_file.content == b"%PDF-1.4 mock content for testing"
 

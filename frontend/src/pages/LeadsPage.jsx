@@ -15,11 +15,13 @@ import { useLeadInterests } from "../context/LeadInterestContext";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 
 function resolveBackendUrl(url) {
-  if (!url) return "";
-  if (/^https?:\/\//i.test(url) || url.startsWith("data:") || url.startsWith("blob:")) {
-    return url;
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (/^(javascript|data|vbscript):/i.test(trimmed)) return "";
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("blob:")) {
+    return trimmed;
   }
-  return `${BACKEND_URL}${url.startsWith("/") ? url : `/${url}`}`;
+  return `${BACKEND_URL}${trimmed.startsWith("/") ? trimmed : `/${trimmed}`}`;
 }
 
 function isPdfUrl(url) {
@@ -902,7 +904,13 @@ function LeadMediaStrip({ urls }) {
   if (!urls || urls.length === 0) return null;
 
   const BASE = import.meta.env.VITE_API_BASE || "";
-  const toSrc = (u) => (u.startsWith("http") ? u : `${BASE}${u}`);
+  const toSrc = (u) => {
+    if (!u || typeof u !== "string") return "";
+    const trimmed = u.trim();
+    if (/^(javascript|data|vbscript):/i.test(trimmed)) return "";
+    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("blob:")) return trimmed;
+    return `${BASE}${trimmed.startsWith("/") ? trimmed : `/${trimmed}`}`;
+  };
 
   const isPdf = (u) => u.toLowerCase().endsWith(".pdf");
   const visible = urls.slice(0, 3);

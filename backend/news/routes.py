@@ -209,8 +209,12 @@ async def get_feed_health(
 
 @news_router.post("/admin/fetch-now")
 async def trigger_news_fetch_now(
+    user: dict = Depends(_get_current_user),
     db: AsyncSession = Depends(_get_db)
 ):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin permissions required")
+
     def _sync_fetch(sync_session):
         return IndustrialNewsService.fetch_all_sources(sync_session)
 

@@ -16,6 +16,11 @@ from ithink_utils import (
 from payout_crypto import encrypt_bank_field, decrypt_bank_field, mask_account_number
 
 import os
+import re
+import html
+import hmac
+import hashlib
+import secrets
 import asyncio
 import uuid
 import logging
@@ -24,6 +29,7 @@ import jwt
 import time
 import shutil
 import json
+from urllib.parse import urlparse
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Literal, Tuple
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query, File, UploadFile, Form
@@ -34,6 +40,7 @@ from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy import (
     Column, String, Text, Integer, Float, Boolean, JSON, select, update, delete, func, desc, and_, or_, text, distinct
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
 
@@ -92,7 +99,6 @@ app.mount("/api/products-images", StaticFiles(directory=str(PRODUCT_IMAGES_DIR))
 app.mount("/api/enquiry-media", StaticFiles(directory=str(ENQUIRY_MEDIA_DIR)), name="enquiry_media_api")
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
-app.mount("/VacancyResume", StaticFiles(directory=str(VACANCY_RESUME_DIR)), name="vacancy_resumes")
 app.mount("/reels-uploaded", StaticFiles(directory=str(REEL_DIR)), name="reels_local")
 app.mount("/products-images", StaticFiles(directory=str(PRODUCT_IMAGES_DIR)), name="products_images")
 app.mount("/enquiry-media", StaticFiles(directory=str(ENQUIRY_MEDIA_DIR)), name="enquiry_media")
@@ -103,7 +109,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iip")
 
 
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -112,8 +118,160 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"[UNHANDLED ERROR] {request.method} {request.url.path}\n{tb}")
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal server error: {type(exc).__name__}: {str(exc)}"}
+        content={"detail": "Internal server error"}
     )
+
+
+# -------------------- Security & Validation Helpers --------------------
+_DANGEROUS_UPLOAD_PATTERNS = (
+    b"<script",
+    b"<!doctype html",
+    b"<html",
+    b"<svg",
+    b"javascript:",
+    b"onload=",
+    b"onerror=",
+)
+_revoked_token_hashes: set[str] = set()
+_otp_failed_attempts: dict[str, int] = {}
+_auth_rate_buckets: dict[str, list[float]] = {}
+_razorpay_order_intents: dict[str, dict] = {}
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _check_auth_rate_limit(key: str, max_requests: int = 10, window_seconds: int = 60) -> None:
+    now_ts = time.time()
+    cutoff = now_ts - window_seconds
+    recent = [ts for ts in _auth_rate_buckets.get(key, []) if ts >= cutoff]
+    if len(recent) >= max_requests:
+        _auth_rate_buckets[key] = recent
+        raise HTTPException(status_code=429, detail="Too many requests. Please wait and try again.")
+    recent.append(now_ts)
+    _auth_rate_buckets[key] = recent
+    if len(_auth_rate_buckets) > 5000:
+        _auth_rate_buckets.clear()
+
+
+def _is_safe_http_or_local_url(url: str) -> bool:
+    if not url or not isinstance(url, str):
+        return False
+    cleaned = url.strip()
+    lower = cleaned.lower()
+    if lower.startswith(("javascript:", "data:", "vbscript:")):
+        return False
+    if cleaned.startswith(("/api/uploads/", "/uploads/", "/api/enquiry-media/", "/enquiry-media/")):
+        return ".." not in cleaned
+    parsed = urlparse(cleaned)
+    return parsed.scheme.lower() in ("http", "https") and bool(parsed.netloc)
+
+
+def _validate_safe_external_url(url: Optional[str], allow_missing_scheme: bool = False) -> Optional[str]:
+    if url is None:
+        return None
+    cleaned = url.strip()
+    if not cleaned:
+        return ""
+    lower = cleaned.lower()
+    if lower.startswith(("javascript:", "data:", "vbscript:")):
+        raise HTTPException(status_code=400, detail="Unsupported or unsafe URL scheme.")
+    if "://" not in cleaned and allow_missing_scheme:
+        cleaned = f"https://{cleaned}"
+    parsed = urlparse(cleaned)
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Website URL must start with http:// or https://")
+    return cleaned
+
+
+def _validate_uploaded_file(
+    upload: UploadFile,
+    allowed_exts: set[str],
+    allowed_mimes: Optional[set[str]] = None,
+) -> str:
+    filename = getattr(upload, "filename", "") or ""
+    ext = Path(filename).suffix.lower()
+    if not ext or ext not in allowed_exts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file extension '{ext or 'none'}'. Allowed: {', '.join(sorted(allowed_exts))}",
+        )
+    if allowed_mimes is not None:
+        content_type = (getattr(upload, "content_type", "") or "").split(";")[0].strip().lower()
+        if not content_type or content_type not in allowed_mimes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported MIME type '{content_type or 'missing'}'.",
+            )
+    if hasattr(upload, "file") and upload.file:
+        try:
+            upload.file.seek(0)
+            head = upload.file.read(4096)
+            upload.file.seek(0)
+        except Exception:
+            head = b""
+        head_lower = head.lower() if isinstance(head, (bytes, bytearray)) else str(head).lower().encode("utf-8", errors="ignore")
+        if any(pat in head_lower for pat in _DANGEROUS_UPLOAD_PATTERNS):
+            raise HTTPException(status_code=400, detail="Potentially unsafe file content rejected.")
+    return ext
+
+
+def _verify_user_otp_code(user_obj: "User", submitted_otp: str) -> None:
+    attempts = _otp_failed_attempts.get(user_obj.id, 0)
+    if attempts >= 5:
+        user_obj.verification_code = None
+        user_obj.verification_expires_at = None
+        raise HTTPException(status_code=429, detail="Too many failed OTP attempts. Please request a new code.")
+
+    if not user_obj.verification_code or not user_obj.verification_expires_at:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification OTP code")
+
+    try:
+        exp_str = user_obj.verification_expires_at
+        if exp_str.endswith("Z"):
+            exp_str = exp_str[:-1] + "+00:00"
+        exp_dt = datetime.fromisoformat(exp_str)
+        if exp_dt.tzinfo is None:
+            exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        user_obj.verification_code = None
+        user_obj.verification_expires_at = None
+        raise HTTPException(status_code=400, detail="Verification OTP code has expired")
+
+    if datetime.now(timezone.utc) > exp_dt:
+        user_obj.verification_code = None
+        user_obj.verification_expires_at = None
+        raise HTTPException(status_code=400, detail="Verification OTP code has expired")
+
+    if not hmac.compare_digest(user_obj.verification_code.strip(), (submitted_otp or "").strip()):
+        _otp_failed_attempts[user_obj.id] = attempts + 1
+        raise HTTPException(status_code=400, detail="Invalid or expired verification OTP code")
+
+    _otp_failed_attempts.pop(user_obj.id, None)
+
+
+def _record_razorpay_intent(order_id: str, user_id: str, purpose: str, target_id: str, amount_paise: int) -> None:
+    if not order_id:
+        return
+    if len(_razorpay_order_intents) > 10000:
+        _razorpay_order_intents.clear()
+    _razorpay_order_intents[order_id] = {
+        "user_id": user_id,
+        "purpose": purpose,
+        "target_id": target_id,
+        "amount_paise": int(amount_paise),
+        "used": False,
+        "created_at": time.time(),
+    }
+
+
+def _mask_email(email: str) -> str:
+    if not email or "@" not in email:
+        return "***"
+    local, domain = email.split("@", 1)
+    prefix = local[:2] if len(local) >= 2 else local[:1]
+    return f"{prefix}***@{domain}"
 
 
 # -------------------- SQLAlchemy Models --------------------
@@ -649,6 +807,7 @@ class MembershipInvoice(Base):
 
 # -------------------- Models Pydantic --------------------
 RoleType = Literal["manufacturer", "supplier", "buyer", "sales_partner", "admin"]
+PublicRoleType = Literal["manufacturer", "supplier", "buyer", "sales_partner"]
 
 
 class UserPublic(BaseModel):
@@ -676,7 +835,7 @@ class RegisterIn(BaseModel):
     email: EmailStr
     mobile: str
     password: str
-    role: RoleType
+    role: PublicRoleType
     company_name: Optional[str] = None
 
 
@@ -1048,6 +1207,7 @@ class OrderItemIn(BaseModel):
     price: Optional[str] = None
     image_url: Optional[str] = None
     company_name: Optional[str] = None
+    company_id: Optional[str] = None
 
 
 class OrderCreate(BaseModel):
@@ -1060,6 +1220,7 @@ class OrderCreate(BaseModel):
     payment_method: str
     payment_id: Optional[str] = None
     razorpay_order_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
     address: Optional[str] = None
     pincode: Optional[str] = None
 
@@ -1206,6 +1367,8 @@ async def get_current_user(request: Request) -> dict:
         token = request.cookies.get("access_token")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    if _hash_token(token) in _revoked_token_hashes:
+        raise HTTPException(status_code=401, detail="Session has been logged out")
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
         async with AsyncSessionLocal() as session:
@@ -1213,6 +1376,12 @@ async def get_current_user(request: Request) -> dict:
             user = (await session.execute(stmt)).scalar_one_or_none()
             if not user:
                 raise HTTPException(status_code=401, detail="User not found")
+            if getattr(user, "is_deleted", False) and request.url.path not in (
+                "/api/user/cancel-deletion",
+                "/api/auth/logout",
+                "/api/auth/me",
+            ):
+                raise HTTPException(status_code=403, detail="Account is pending deletion or has been deleted.")
             return user_to_dict(user)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -1284,14 +1453,16 @@ async def notify_user(
     
     if send_email_flag and email_to:
         subj = email_subject or title
-        html = email_html or f"""
+        safe_title = html.escape(str(title or ""))
+        safe_body = html.escape(str(body or ""))
+        html_content = email_html or f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
             <div style="background-color: #1e3a8a; padding: 16px; text-align: center; border-radius: 8px 8px 0 0;">
                 <h2 style="color: #ffffff; margin: 0;">Indian Industrial Products</h2>
             </div>
             <div style="padding: 24px; color: #1e293b; background-color: #ffffff;">
-                <h3 style="color: #0f172a; margin-top: 0;">{title}</h3>
-                <p style="font-size: 15px; line-height: 1.6; color: #334155;">{body}</p>
+                <h3 style="color: #0f172a; margin-top: 0;">{safe_title}</h3>
+                <p style="font-size: 15px; line-height: 1.6; color: #334155;">{safe_body}</p>
                 <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #64748b;">
                     Thank you for choosing Indian Industrial Products (IIP).
                 </div>
@@ -1299,7 +1470,7 @@ async def notify_user(
         </div>
         """
         try:
-            asyncio.create_task(send_email(to=email_to, subject=subj, html_body=html))
+            asyncio.create_task(send_email(to=email_to, subject=subj, html_body=html_content))
         except Exception as err:
             logger.error(f"Failed to dispatch notification email to {email_to}: {err}")
 
@@ -1307,8 +1478,9 @@ async def notify_user(
 
 
 def set_auth_cookie(response: Response, token: str):
+    cookie_secure = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
     response.set_cookie(
-        key="access_token", value=token, httponly=True, secure=False,
+        key="access_token", value=token, httponly=True, secure=cookie_secure,
         samesite="lax", max_age=60 * 60 * 24 * 7, path="/",
     )
 
@@ -1510,6 +1682,9 @@ async def hydrate_reel(reel: Reel, current_user: Optional[dict], db: AsyncSessio
 # -------------------- Auth Endpoints --------------------
 @api.post("/auth/register")
 async def register(payload: RegisterIn, response: Response, db: AsyncSession = Depends(get_db)):
+    if getattr(payload, "role", None) == "admin":
+        raise HTTPException(status_code=403, detail="Cannot self-register as admin")
+
     email = payload.email.lower()
     
     stmt_email = select(User).where(User.email == email)
@@ -1523,11 +1698,10 @@ async def register(payload: RegisterIn, response: Response, db: AsyncSession = D
     user_id = str(uuid.uuid4())
     company_id = None
 
-    # Generate OTP for email verification
-    import random
-    otp = f"{random.randint(100000, 999999)}"
+    # Generate OTP for email verification using cryptographically secure RNG
+    otp = f"{secrets.randbelow(900000) + 100000}"
     expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
-    logger.info(f"Generated OTP for {email}: {otp}")
+    logger.info(f"Generated verification OTP for {email}")
 
     if payload.role in ("manufacturer", "supplier") and payload.company_name:
         company_id = str(uuid.uuid4())
@@ -1587,6 +1761,9 @@ class ResendOtpIn(BaseModel):
 
 @api.post("/auth/verify-otp")
 async def verify_otp(payload: VerifyOtpIn, request: Request, db: AsyncSession = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    _check_auth_rate_limit(f"verify_otp:{client_ip}", max_requests=15, window_seconds=60)
+
     cu = await get_optional_user(request)
     email = payload.email.strip().lower() if payload.email else (cu.get("email") if cu else None)
     if not email:
@@ -1600,8 +1777,11 @@ async def verify_otp(payload: VerifyOtpIn, request: Request, db: AsyncSession = 
     if user.is_verified:
         return {"ok": True, "message": "Account already verified", "user": user_to_dict(user)}
     
-    if not user.verification_code or user.verification_code.strip() != payload.otp.strip():
-        raise HTTPException(status_code=400, detail="Invalid verification code")
+    try:
+        _verify_user_otp_code(user, payload.otp)
+    except HTTPException:
+        await db.commit()
+        raise
     
     user.is_verified = True
     user.verification_code = None
@@ -1613,6 +1793,9 @@ async def verify_otp(payload: VerifyOtpIn, request: Request, db: AsyncSession = 
 
 @api.post("/auth/resend-otp")
 async def resend_otp(payload: ResendOtpIn, request: Request, db: AsyncSession = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    _check_auth_rate_limit(f"resend_otp:{client_ip}", max_requests=8, window_seconds=60)
+
     cu = await get_optional_user(request)
     email = payload.email.strip().lower() if (payload and payload.email) else (cu.get("email") if cu else None)
     if not email:
@@ -1623,12 +1806,12 @@ async def resend_otp(payload: ResendOtpIn, request: Request, db: AsyncSession = 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    import random
-    otp = f"{random.randint(100000, 999999)}"
+    otp = f"{secrets.randbelow(900000) + 100000}"
     expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
     
     user.verification_code = otp
     user.verification_expires_at = expires
+    _otp_failed_attempts.pop(user.id, None)
     await db.commit()
     
     try:
@@ -1688,17 +1871,18 @@ class SecuritySetupUpdateIn(BaseModel):
 
 @api.post("/auth/security-setup/request-otp")
 async def security_setup_request_otp(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    _check_auth_rate_limit(f"sec_req:{user['id']}", max_requests=8, window_seconds=60)
     stmt = select(User).where(User.id == user["id"])
     db_user = (await db.execute(stmt)).scalar_one_or_none()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    import random
-    otp = f"{random.randint(100000, 999999)}"
+    otp = f"{secrets.randbelow(900000) + 100000}"
     expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
     
     db_user.verification_code = otp
     db_user.verification_expires_at = expires
+    _otp_failed_attempts.pop(db_user.id, None)
     await db.commit()
 
     try:
@@ -1712,13 +1896,17 @@ async def security_setup_request_otp(user: dict = Depends(get_current_user), db:
 
 @api.post("/auth/security-setup/verify-and-update")
 async def security_setup_verify_and_update(payload: SecuritySetupUpdateIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    _check_auth_rate_limit(f"sec_ver:{user['id']}", max_requests=10, window_seconds=60)
     stmt = select(User).where(User.id == user["id"])
     db_user = (await db.execute(stmt)).scalar_one_or_none()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not db_user.verification_code or db_user.verification_code.strip() != payload.otp.strip():
-        raise HTTPException(status_code=400, detail="Invalid or expired verification OTP code")
+    try:
+        _verify_user_otp_code(db_user, payload.otp)
+    except HTTPException:
+        await db.commit()
+        raise
 
     if payload.email:
         new_email = payload.email.strip().lower()
@@ -1777,18 +1965,20 @@ class ResetViaSecurityIn(BaseModel):
 
 
 @api.post("/auth/forgot-password/request-primary")
-async def forgot_request_primary(payload: ForgotPrimaryIn, db: AsyncSession = Depends(get_db)):
+async def forgot_request_primary(payload: ForgotPrimaryIn, request: Request, db: AsyncSession = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    _check_auth_rate_limit(f"forgot_pri:{client_ip}", max_requests=8, window_seconds=60)
     ident = payload.identifier.strip().lower()
     stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
     user = (await db.execute(stmt)).scalar_one_or_none()
     if not user:
-        return {"ok": True, "message": "If the account exists, an OTP has been sent to primary email.", "email": ident}
+        return {"ok": True, "message": "If the account exists, an OTP has been sent to primary email.", "email": _mask_email(ident)}
     
-    import random
-    otp = f"{random.randint(100000, 999999)}"
+    otp = f"{secrets.randbelow(900000) + 100000}"
     expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
     user.verification_code = otp
     user.verification_expires_at = expires
+    _otp_failed_attempts.pop(user.id, None)
     await db.commit()
 
     try:
@@ -1798,22 +1988,24 @@ async def forgot_request_primary(payload: ForgotPrimaryIn, db: AsyncSession = De
         logger.error(f"Failed sending password reset OTP to primary email {user.email}: {e}")
         raise HTTPException(status_code=500, detail="Failed to send reset code email. Please verify SMTP server settings.")
 
-    return {"ok": True, "message": f"Password reset OTP sent to primary email ({user.email[:3]}***@{user.email.split('@')[-1]})", "email": user.email}
+    return {"ok": True, "message": f"Password reset OTP sent to primary email ({_mask_email(user.email)})", "email": _mask_email(user.email)}
 
 
 @api.post("/auth/forgot-password/request-secondary")
-async def forgot_request_secondary(payload: ForgotSecondaryIn, db: AsyncSession = Depends(get_db)):
+async def forgot_request_secondary(payload: ForgotSecondaryIn, request: Request, db: AsyncSession = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    _check_auth_rate_limit(f"forgot_sec:{client_ip}", max_requests=8, window_seconds=60)
     ident = payload.identifier.strip().lower()
     stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
     user = (await db.execute(stmt)).scalar_one_or_none()
     if not user or not user.secondary_email:
         raise HTTPException(status_code=400, detail="No secondary recovery email configured for this account")
 
-    import random
-    otp = f"{random.randint(100000, 999999)}"
+    otp = f"{secrets.randbelow(900000) + 100000}"
     expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
     user.verification_code = otp
     user.verification_expires_at = expires
+    _otp_failed_attempts.pop(user.id, None)
     await db.commit()
 
     try:
@@ -1823,35 +2015,42 @@ async def forgot_request_secondary(payload: ForgotSecondaryIn, db: AsyncSession 
         logger.error(f"Failed sending reset OTP to secondary email {user.secondary_email}: {e}")
         raise HTTPException(status_code=500, detail="Failed to send reset code email to secondary address. Please verify SMTP server settings.")
 
-    sec_masked = f"{user.secondary_email[:3]}***@{user.secondary_email.split('@')[-1]}"
-    return {"ok": True, "message": f"Reset code sent to secondary email ({sec_masked})", "email": user.email}
+    sec_masked = _mask_email(user.secondary_email)
+    return {"ok": True, "message": f"Reset code sent to secondary email ({sec_masked})", "email": _mask_email(user.email)}
 
 
 @api.post("/auth/forgot-password/get-question")
-async def forgot_get_question(payload: GetQuestionIn, db: AsyncSession = Depends(get_db)):
+async def forgot_get_question(payload: GetQuestionIn, request: Request, db: AsyncSession = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    _check_auth_rate_limit(f"forgot_q:{client_ip}", max_requests=10, window_seconds=60)
     ident = payload.identifier.strip().lower()
     stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
     user = (await db.execute(stmt)).scalar_one_or_none()
     if not user or not user.security_question:
-        raise HTTPException(status_code=400, detail="No security question configured for this account")
+        raise HTTPException(status_code=400, detail="Unable to look up recovery details for this identifier")
 
     return {
         "ok": True,
-        "email": user.email,
+        "email": _mask_email(user.email),
         "security_question": user.security_question
     }
 
 
 @api.post("/auth/forgot-password/reset-via-otp")
-async def reset_via_otp(payload: ResetViaOtpIn, db: AsyncSession = Depends(get_db)):
+async def reset_via_otp(payload: ResetViaOtpIn, request: Request, db: AsyncSession = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    _check_auth_rate_limit(f"reset_otp:{client_ip}", max_requests=10, window_seconds=60)
     ident = payload.identifier.strip().lower()
     stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
     user = (await db.execute(stmt)).scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=400, detail="Invalid or expired reset OTP code")
 
-    if not user.verification_code or user.verification_code.strip() != payload.otp.strip():
-        raise HTTPException(status_code=400, detail="Invalid reset OTP code")
+    try:
+        _verify_user_otp_code(user, payload.otp)
+    except HTTPException:
+        await db.commit()
+        raise
 
     user.password_hash = hash_password(payload.new_password)
     user.verification_code = None
@@ -1862,7 +2061,9 @@ async def reset_via_otp(payload: ResetViaOtpIn, db: AsyncSession = Depends(get_d
 
 
 @api.post("/auth/forgot-password/reset-via-security")
-async def reset_via_security(payload: ResetViaSecurityIn, db: AsyncSession = Depends(get_db)):
+async def reset_via_security(payload: ResetViaSecurityIn, request: Request, db: AsyncSession = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    _check_auth_rate_limit(f"reset_sec:{client_ip}:{payload.identifier.strip().lower()}", max_requests=5, window_seconds=300)
     ident = payload.identifier.strip().lower()
     stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
     user = (await db.execute(stmt)).scalar_one_or_none()
@@ -1880,7 +2081,9 @@ async def reset_via_security(payload: ResetViaSecurityIn, db: AsyncSession = Dep
 
 
 @api.post("/auth/login")
-async def login(payload: LoginIn, response: Response, db: AsyncSession = Depends(get_db)):
+async def login(payload: LoginIn, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    _check_auth_rate_limit(f"login:{client_ip}", max_requests=25, window_seconds=60)
     ident = payload.identifier.strip().lower()
     stmt = select(User).where(or_(User.email == ident, User.mobile == payload.identifier.strip()))
     user = (await db.execute(stmt)).scalar_one_or_none()
@@ -1931,7 +2134,17 @@ async def login(payload: LoginIn, response: Response, db: AsyncSession = Depends
 
 
 @api.post("/auth/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
+    token = None
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+    else:
+        token = request.cookies.get("access_token")
+    if token:
+        if len(_revoked_token_hashes) > 10000:
+            _revoked_token_hashes.clear()
+        _revoked_token_hashes.add(_hash_token(token))
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
 
@@ -2160,7 +2373,6 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     avatar_url: Optional[str] = None
     mobile: Optional[str] = None
-    role: Optional[RoleType] = None
 
 
 @api.get("/auth/me", response_model=UserPublic)
@@ -2174,7 +2386,10 @@ async def update_me(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    raw_dump = payload.model_dump()
+    for restricted_key in ("role", "is_verified", "is_deleted", "plan_id", "plan_name", "admin_setup_completed"):
+        raw_dump.pop(restricted_key, None)
+    upd = {k: v for k, v in raw_dump.items() if v is not None}
     if upd:
         if "mobile" in upd and upd["mobile"] and upd["mobile"] != user.get("mobile"):
             stmt_m = select(User).where(User.mobile == upd["mobile"], User.id != user["id"])
@@ -2463,6 +2678,8 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
         raise HTTPException(status_code=403, detail="Forbidden")
     
     update_data = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "website" in update_data and update_data["website"] is not None:
+        update_data["website"] = _validate_safe_external_url(update_data["website"], allow_missing_scheme=True)
 
     # Auto-assign pickup_location_name if not already assigned
     pickup_nickname = company.pickup_location_name or f"IIP_WH_{company_id[:8].upper()}"
@@ -2793,9 +3010,12 @@ async def create_reel(
                 raise HTTPException(status_code=400, detail="Video size must be less than 100 MB")
 
             filename = getattr(file, "filename", "") or ""
-            file_ext = Path(filename).suffix if filename else ".mp4"
-            if not file_ext:
-                file_ext = ".mp4"
+            if hasattr(file, "filename"):
+                file_ext = _validate_uploaded_file(file, allowed_exts={".mp4", ".webm", ".mov"})
+            else:
+                file_ext = Path(filename).suffix.lower() if filename else ".mp4"
+                if file_ext not in {".mp4", ".webm", ".mov"}:
+                    raise HTTPException(status_code=400, detail="Unsupported reel video extension.")
 
             unique_filename = f"{user['id']}-{rid}{file_ext}"
             file_path = REEL_DIR / unique_filename
@@ -3346,9 +3566,9 @@ async def credit_seller_wallet_for_order(order: Order, db: AsyncSession):
                 stmt_p = select(Product).where(Product.id == prod_id)
                 prod = (await db.execute(stmt_p)).scalar_one_or_none()
 
-            comp_id = prod.company_id if prod else (item.get("company_id") or "").strip()
-            if not comp_id:
+            if not prod or not prod.company_id:
                 continue
+            comp_id = prod.company_id
 
             # Prevent self-dealing: buyer cannot earn wallet funds from buying their own company's product
             stmt_comp = select(Company).where(Company.id == comp_id)
@@ -3357,9 +3577,11 @@ async def credit_seller_wallet_for_order(order: Order, db: AsyncSession):
                 logger.warning(f"Skipped self-dealing wallet credit for Order {order.id} (buyer == seller {order.user_id})")
                 continue
 
-            # Prefer authoritative DB Product price when parseable; fall back to order item price
-            prod_price = _parse_product_price(prod.price) if prod else 0.0
-            item_price = prod_price if prod_price > 0 else _parse_product_price(item.get("price"))
+            # Strictly require authoritative DB Product price (never trust client price fallback)
+            prod_price = _parse_product_price(prod.price)
+            if prod_price <= 0:
+                continue
+            item_price = prod_price
 
             qty = max(1, int(item.get("qty", 1) or 1))
             item_total = round(item_price * qty, 2)
@@ -3411,19 +3633,68 @@ async def credit_seller_wallet_for_order(order: Order, db: AsyncSession):
 
 
 # -------------------- Orders --------------------
+async def _resolve_and_price_order_items(items: List[OrderItemIn], db: AsyncSession) -> Tuple[List[dict], float]:
+    if not items:
+        raise HTTPException(status_code=400, detail="Order must contain at least one item.")
+    resolved: List[dict] = []
+    subtotal = 0.0
+    for item in items:
+        prod = (await db.execute(select(Product).where(Product.id == item.product_id))).scalar_one_or_none()
+        if not prod:
+            raise HTTPException(status_code=400, detail=f"Invalid product_id: {item.product_id}")
+        qty = max(1, int(item.qty))
+        unit_price = _parse_product_price(prod.price)
+        subtotal = round(subtotal + unit_price * qty, 2)
+        d = item.dict()
+        d["qty"] = qty
+        d["company_id"] = prod.company_id
+        d["price"] = prod.price
+        resolved.append(d)
+    return resolved, subtotal
+
+
 @api.post("/orders", response_model=OrderOut)
 async def create_order(payload: OrderCreate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     order_id = str(uuid.uuid4())
-    items_data = [item.dict() for item in payload.items]
-    status = "paid" if payload.payment_id else "pending"
+    items_data, calc_subtotal = await _resolve_and_price_order_items(payload.items, db)
+    delivery_cost = max(0.0, round(float(payload.delivery_cost or 0.0), 2))
+    if calc_subtotal > 0:
+        auth_subtotal = calc_subtotal
+        auth_gst = round((auth_subtotal + delivery_cost) * 0.18, 2)
+        auth_total = round(auth_subtotal + delivery_cost + auth_gst, 2)
+    else:
+        auth_subtotal = round(float(payload.subtotal), 2)
+        auth_gst = round(float(payload.gst), 2)
+        auth_total = round(float(payload.total), 2)
+
+    status = "pending"
+    if payload.payment_id:
+        if not payload.razorpay_order_id or not payload.razorpay_signature:
+            raise HTTPException(
+                status_code=400,
+                detail="razorpay_order_id and razorpay_signature are required for paid orders",
+            )
+        await _validate_and_consume_razorpay_payment(
+            razorpay_order_id=payload.razorpay_order_id,
+            razorpay_payment_id=payload.payment_id,
+            razorpay_signature=payload.razorpay_signature,
+            user_id=user["id"],
+            purpose="cart",
+            expected_amount_paise=None,
+            target_id="cart",
+            db=db,
+            consume=True,
+        )
+        status = "paid"
+
     order = Order(
         id=order_id,
         user_id=user["id"],
         items=items_data,
-        subtotal=payload.subtotal,
-        delivery_cost=payload.delivery_cost,
-        gst=payload.gst,
-        total=payload.total,
+        subtotal=auth_subtotal,
+        delivery_cost=delivery_cost,
+        gst=auth_gst,
+        total=auth_total,
         delivery_option=payload.delivery_option,
         payment_method=payload.payment_method,
         payment_id=payload.payment_id,
@@ -3643,6 +3914,8 @@ async def reject_order(order_id: str, user: dict = Depends(get_current_user), db
         raise HTTPException(status_code=404, detail="Order not found")
     if order.user_id != user["id"] and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Forbidden")
+    if order.status in ("rejected", "cancelled", "delivered"):
+        raise HTTPException(status_code=400, detail=f"Order cannot be rejected in '{order.status}' status")
         
     created_str = order.created_at
     if created_str.endswith('Z'):
@@ -3653,8 +3926,54 @@ async def reject_order(order_id: str, user: dict = Depends(get_current_user), db
     
     if datetime.now(timezone.utc) > limit_time:
         raise HTTPException(status_code=400, detail="Cannot reject order within 72 hours of scheduled delivery")
-        
+
+    prev_status = order.status
     order.status = "rejected"
+
+    if prev_status == "paid":
+        credit_txs = (
+            await db.execute(
+                select(WalletTransaction).where(
+                    WalletTransaction.order_id == order.id,
+                    WalletTransaction.type == "CREDIT_SALE",
+                )
+            )
+        ).scalars().all()
+        for ctx in credit_txs:
+            already_rev = (
+                await db.execute(
+                    select(WalletTransaction.id).where(
+                        WalletTransaction.wallet_id == ctx.wallet_id,
+                        WalletTransaction.order_id == order.id,
+                        WalletTransaction.type == "DEBIT_REFUND",
+                    )
+                )
+            ).scalar_one_or_none()
+            if already_rev:
+                continue
+            w = (
+                await db.execute(
+                    select(SellerWallet).where(SellerWallet.id == ctx.wallet_id).with_for_update()
+                )
+            ).scalar_one_or_none()
+            if w:
+                rev_amt = round(float(ctx.amount or 0.0), 2)
+                w.available_balance = round(max(0.0, (w.available_balance or 0.0) - rev_amt), 2)
+                w.updated_at = now_iso()
+                db.add(
+                    WalletTransaction(
+                        id=str(uuid.uuid4()),
+                        wallet_id=w.id,
+                        company_id=w.company_id,
+                        order_id=order.id,
+                        type="DEBIT_REFUND",
+                        amount=rev_amt,
+                        balance_after=w.available_balance,
+                        description=f"Sale credit reversed on Order #{order.id[:8]} rejection",
+                        created_at=now_iso(),
+                    )
+                )
+
     await db.commit()
     return {"ok": True, "status": "rejected"}
 
@@ -3800,10 +4119,7 @@ async def apply_job(
     job_dir = VACANCY_RESUME_DIR / job_id
     job_dir.mkdir(exist_ok=True)
     
-    orig_filename = resume.filename or ""
-    _, ext = os.path.splitext(orig_filename)
-    if not ext:
-        ext = ".pdf"
+    ext = _validate_uploaded_file(resume, allowed_exts={".pdf", ".doc", ".docx"})
         
     resume_filename = f"{user_id}{ext}"
     resume_path = job_dir / resume_filename
@@ -3856,6 +4172,84 @@ async def list_job_applications(
                     pass
     apps.sort(key=lambda x: x.get("applied_at", ""), reverse=True)
     return apps
+
+
+async def _serve_protected_resume(
+    job_id: str,
+    filename: str,
+    request: Request,
+    token: Optional[str],
+    db: AsyncSession,
+):
+    if (
+        not job_id
+        or not filename
+        or ".." in job_id
+        or "/" in job_id
+        or "\\" in job_id
+        or ".." in filename
+        or "/" in filename
+        or "\\" in filename
+        or filename.lower().endswith(".json")
+    ):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    cu = await get_optional_user(request)
+    if not cu and token and _hash_token(token) not in _revoked_token_hashes:
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+            usr = (await db.execute(select(User).where(User.id == payload["sub"]))).scalar_one_or_none()
+            if usr and not getattr(usr, "is_deleted", False):
+                cu = user_to_dict(usr)
+        except Exception:
+            cu = None
+    if not cu:
+        raise HTTPException(status_code=401, detail="Authentication required to access resume")
+
+    job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    is_admin = cu.get("role") == "admin"
+    is_job_owner = bool(job.company_id and cu.get("company_id") == job.company_id)
+    is_applicant = filename.startswith(cu["id"])
+    if not (is_admin or is_job_owner or is_applicant):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    file_path = (VACANCY_RESUME_DIR / job_id / filename).resolve()
+    base_dir = VACANCY_RESUME_DIR.resolve()
+    if base_dir not in file_path.parents or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Resume file not found")
+
+    return FileResponse(
+        path=str(file_path),
+        headers={
+            "Content-Disposition": f'attachment; filename="{file_path.name}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.get("/VacancyResume/{job_id}/{filename}")
+async def get_protected_vacancy_resume_root(
+    job_id: str,
+    filename: str,
+    request: Request,
+    token: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _serve_protected_resume(job_id, filename, request, token, db)
+
+
+@api.get("/VacancyResume/{job_id}/{filename}")
+async def get_protected_vacancy_resume_api(
+    job_id: str,
+    filename: str,
+    request: Request,
+    token: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _serve_protected_resume(job_id, filename, request, token, db)
 
 
 @api.delete("/posts/{post_id}")
@@ -4027,19 +4421,17 @@ async def _create_enquiry_impl(
         media_files = form.getlist("media")
         for upload in media_files:
             if hasattr(upload, "filename") and upload.filename:
-                m_type = getattr(upload, "content_type", "") or ""
-                if m_type and m_type not in ALLOWED_ENQUIRY_MEDIA_TYPES:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"File '{upload.filename}' has unsupported type '{m_type}'. Allowed: JPG, PNG, WEBP, GIF, PDF."
-                    )
+                file_ext = _validate_uploaded_file(
+                    upload,
+                    allowed_exts={".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf", ".mp4", ".webm", ".mov"},
+                    allowed_mimes=ALLOWED_ENQUIRY_MEDIA_TYPES | {"video/mp4", "video/webm", "video/quicktime"},
+                )
                 file_data = await upload.read()
                 if len(file_data) > MAX_ENQUIRY_MEDIA_SIZE:
                     raise HTTPException(
                         status_code=400,
                         detail=f"File '{upload.filename}' exceeds 10 MB size limit."
                     )
-                file_ext = Path(upload.filename).suffix.lower() or ".jpg"
                 unique_filename = f"{uuid.uuid4().hex}{file_ext}"
                 file_path = ENQUIRY_MEDIA_DIR / unique_filename
                 with file_path.open("wb") as buf:
@@ -5094,13 +5486,12 @@ async def list_requirements(
 # Unlock OTP Store  (in-memory, server-restart will clear — acceptable for OTP)
 # token -> {user_id, enq_id, otp, expires_at}
 # ---------------------------------------------------------------------------
-import random
 import string
 _unlock_otp_store: dict = {}
 
 
 def _generate_otp(length: int = 6) -> str:
-    return "".join(random.choices(string.digits, k=length))
+    return "".join(secrets.choice(string.digits) for _ in range(length))
 
 
 def _clean_expired_otps() -> None:
@@ -5470,7 +5861,13 @@ async def confirm_unlock(
         del _unlock_otp_store[payload.token]
         raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
 
-    if entry["otp"] != payload.otp.strip():
+    attempts = int(entry.get("attempts", 0))
+    if attempts >= 5:
+        del _unlock_otp_store[payload.token]
+        raise HTTPException(status_code=429, detail="Too many failed OTP attempts. Please request a new OTP.")
+
+    if not hmac.compare_digest(str(entry["otp"]), payload.otp.strip()):
+        entry["attempts"] = attempts + 1
         raise HTTPException(status_code=400, detail="Incorrect OTP. Please try again.")
 
     # OTP valid — consume it
@@ -5607,7 +6004,7 @@ async def unlock_requirement(enq_id: str, user: dict = Depends(get_current_user)
         if not is_admin:
             monthly_used = _get_monthly_used(u)
             limit = await _get_plan_monthly_limit(plan_name, db)
-            if len(monthly_used) >= limit:
+            if limit is not None and len(monthly_used) >= limit:
                 raise HTTPException(
                     status_code=403,
                     detail=(
@@ -5971,11 +6368,19 @@ async def get_group_products(
     return out
 
 
-@api.get("/industrial-groups/{group_id}/leads", response_model=List[EnquiryOut])
+@api.get("/industrial-groups/{group_id}/leads")
 async def get_group_leads(
     group_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
+    cu = await get_optional_user(request)
+    unlocked_ids = set()
+    if cu:
+        u = (await db.execute(select(User).where(User.id == cu["id"]))).scalar_one_or_none()
+        if u and u.unlocked_enquiries:
+            unlocked_ids = set(u.unlocked_enquiries)
+
     stmt_g = select(IndustrialGroup).where(IndustrialGroup.id == group_id)
     grp = (await db.execute(stmt_g)).scalar_one_or_none()
     
@@ -5993,18 +6398,8 @@ async def get_group_leads(
     docs = (await db.execute(stmt)).scalars().all()
     if not docs:
         docs = (await db.execute(select(Enquiry).limit(10))).scalars().all()
-        
-    out = []
-    for d in docs:
-        out.append(EnquiryOut(
-            id=d.id, name=d.name, mobile=d.mobile, requirement=d.requirement,
-            category=d.category, location=d.location, product_name=d.product_name,
-            quantity=d.quantity, state=d.state, city=d.city,
-            industrial_area=d.industrial_area, company_id=d.company_id,
-            post_id=d.post_id, status=d.status if d.status in ["new", "in_progress", "closed", "completed", "pending"] else "new",
-            created_at=d.created_at
-        ))
-    return out
+
+    return await _serialize_requirement_docs(docs, cu, unlocked_ids, db)
 
 
 @api.get("/industrial-groups/{group_id}/jobs", response_model=List[JobOut])
@@ -6141,6 +6536,8 @@ class VerifyPaymentIn(BaseModel):
 
 class CreateCartOrderIn(BaseModel):
     amount: float
+    items: Optional[List[OrderItemIn]] = None
+    delivery_cost: Optional[float] = 0.0
 
 class VerifyCartPaymentIn(BaseModel):
     razorpay_payment_id: str
@@ -6187,6 +6584,7 @@ async def create_payment_order(payload: CreateOrderIn, user: dict = Depends(get_
             logger.error(f"Razorpay error: {r.text}")
             raise HTTPException(status_code=500, detail="Failed to create order with payment gateway")
         order_data = r.json()
+        _record_razorpay_intent(order_data["id"], user["id"], "plan", plan.id, amount_paise)
         return {
             "order_id": order_data["id"],
             "amount": amount_paise,
@@ -6196,25 +6594,40 @@ async def create_payment_order(payload: CreateOrderIn, user: dict = Depends(get_
             "key": RAZORPAY_KEY_ID,
             "currency": "INR"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed calling Razorpay: {str(e)}")
         raise HTTPException(status_code=500, detail="Payment gateway connection error")
 
 @api.post("/payments/verify")
 async def verify_payment(payload: VerifyPaymentIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if payload.razorpay_order_id != "free_plan":
-        import hmac
-        import hashlib
-        msg = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
-        generated = hmac.new(RAZORPAY_KEY_SECRET.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(generated, payload.razorpay_signature):
-            raise HTTPException(status_code=400, detail="Payment signature verification failed")
-            
-    # Assign plan to user
     stmt_plan = select(Plan).where(Plan.id == payload.plan_id)
     plan = (await db.execute(stmt_plan)).scalar_one_or_none()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
+
+    base_price = float((plan.yearly_price if payload.billing_cycle == "yearly" else plan.monthly_price) or 0.0)
+    gst_rate = 18.0
+    gst_amount = round(base_price * 0.18, 2)
+    total_price = round(base_price + gst_amount, 2)
+    expected_amount_paise = int(round(total_price * 100))
+
+    if payload.razorpay_order_id == "free_plan":
+        if base_price != 0.0:
+            raise HTTPException(status_code=400, detail="Paid plans require valid Razorpay payment verification")
+    else:
+        await _validate_and_consume_razorpay_payment(
+            razorpay_order_id=payload.razorpay_order_id,
+            razorpay_payment_id=payload.razorpay_payment_id,
+            razorpay_signature=payload.razorpay_signature,
+            user_id=user["id"],
+            purpose="plan",
+            expected_amount_paise=expected_amount_paise,
+            target_id=plan.id,
+            db=db,
+            consume=True,
+        )
         
     days = 365 if payload.billing_cycle == "yearly" else plan.duration_days or 30
     expiry = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
@@ -6233,12 +6646,6 @@ async def verify_payment(payload: VerifyPaymentIn, user: dict = Depends(get_curr
     if usr_obj and usr_obj.company_id:
         stmt_comp = select(Company).where(Company.id == usr_obj.company_id)
         comp_obj = (await db.execute(stmt_comp)).scalar_one_or_none()
-
-    # Calculate pricing and GST (18%)
-    base_price = plan.yearly_price if payload.billing_cycle == "yearly" else plan.monthly_price
-    gst_rate = 18.0
-    gst_amount = round(base_price * 0.18, 2)
-    total_price = round(base_price + gst_amount, 2)
 
     # Generate sequential invoice count for user-facing invoice number
     inv_count_stmt = select(func.count(MembershipInvoice.id))
@@ -6320,10 +6727,10 @@ async def verify_payment(payload: VerifyPaymentIn, user: dict = Depends(get_curr
     email_html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 8px;">
         <h2 style="color: #1e3a8a;">Tax Invoice - Membership Subscription</h2>
-        <p>Dear {invoice_payload['customer_name']},</p>
-        <p>Thank you for subscribing to the <strong>{plan.name} Plan</strong> on <strong>{invoice_payload['supplier_name']}</strong>.</p>
+        <p>Dear {html.escape(str(invoice_payload['customer_name'] or ''))},</p>
+        <p>Thank you for subscribing to the <strong>{html.escape(str(plan.name or ''))} Plan</strong> on <strong>{html.escape(str(invoice_payload['supplier_name'] or ''))}</strong>.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
-            <tr><td style="padding: 6px 0; color: #64748b;">Invoice Number:</td><td style="font-weight: bold; text-align: right;">{invoice_number}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Invoice Number:</td><td style="font-weight: bold; text-align: right;">{html.escape(str(invoice_number))}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Invoice Date:</td><td style="font-weight: bold; text-align: right;">{invoice_date_str}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Plan Amount:</td><td style="text-align: right;">₹{base_price:,.2f}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">GST (18%):</td><td style="text-align: right;">₹{gst_amount:,.2f}</td></tr>
@@ -6429,12 +6836,85 @@ def _create_razorpay_order(amount_paise: int, receipt: str) -> dict:
 
 
 def _verify_razorpay_signature(order_id: str, payment_id: str, signature: str) -> None:
-    import hmac
-    import hashlib
     msg = f"{order_id}|{payment_id}"
     generated = hmac.new(RAZORPAY_KEY_SECRET.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(generated, signature):
+    if not hmac.compare_digest(generated, signature or ""):
         raise HTTPException(status_code=400, detail="Payment signature verification failed")
+
+
+async def _validate_and_consume_razorpay_payment(
+    razorpay_order_id: str,
+    razorpay_payment_id: str,
+    razorpay_signature: str,
+    user_id: str,
+    purpose: str,
+    expected_amount_paise: Optional[int],
+    target_id: Optional[str],
+    db: AsyncSession,
+    consume: bool = True,
+) -> None:
+    if not razorpay_order_id or not razorpay_payment_id or razorpay_order_id in ("free_plan", "free_cart"):
+        raise HTTPException(status_code=400, detail="Invalid Razorpay order or payment ID")
+
+    _verify_razorpay_signature(razorpay_order_id, razorpay_payment_id, razorpay_signature)
+
+    # Check server-side intent registry if order was created through create-order endpoints
+    intent = _razorpay_order_intents.get(razorpay_order_id)
+    if intent is not None:
+        if intent.get("used"):
+            raise HTTPException(status_code=400, detail="Payment or order ID has already been used")
+        if intent.get("user_id") != user_id:
+            raise HTTPException(status_code=400, detail="Razorpay order does not belong to the authenticated user")
+        if intent.get("purpose") != purpose:
+            raise HTTPException(status_code=400, detail="Razorpay order cannot be replayed across payment flows")
+        if target_id and intent.get("target_id") and intent.get("target_id") != target_id:
+            raise HTTPException(status_code=400, detail="Razorpay order target mismatch")
+        if expected_amount_paise is not None and int(intent.get("amount_paise", -1)) != int(expected_amount_paise):
+            raise HTTPException(status_code=400, detail="Razorpay payment amount mismatch")
+
+    # Enforce cross-table single-use uniqueness in DB
+    dup_inv = (
+        await db.execute(
+            select(MembershipInvoice.id).where(
+                or_(
+                    MembershipInvoice.payment_id == razorpay_payment_id,
+                    MembershipInvoice.razorpay_order_id == razorpay_order_id,
+                )
+            )
+        )
+    ).scalar_one_or_none()
+    if dup_inv:
+        raise HTTPException(status_code=400, detail="Payment or order ID has already been used")
+
+    dup_deal = (
+        await db.execute(
+            select(SalesPartnerLeadDeal.id).where(
+                or_(
+                    SalesPartnerLeadDeal.razorpay_payment_id == razorpay_payment_id,
+                    SalesPartnerLeadDeal.razorpay_order_id == razorpay_order_id,
+                )
+            )
+        )
+    ).scalar_one_or_none()
+    if dup_deal:
+        raise HTTPException(status_code=400, detail="Payment or order ID has already been used")
+
+    dup_order = (
+        await db.execute(
+            select(Order.id).where(
+                Order.status == "paid",
+                or_(
+                    Order.payment_id == razorpay_payment_id,
+                    Order.razorpay_order_id == razorpay_order_id,
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+    if dup_order:
+        raise HTTPException(status_code=400, detail="Payment or order ID has already been used")
+
+    if intent is not None and consume:
+        intent["used"] = True
 
 
 async def _create_lead_tax_invoice(
@@ -6665,8 +7145,8 @@ async def _execute_sales_partner_lead_purchase(
     email_html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0;">
         <h2 style="color: #1e3a8a;">Tax Invoice - Sales Partner Lead Purchase</h2>
-        <p>Dear {invoice_payload['customer_name']},</p>
-        <p>You have exclusively unlocked a Sales Partner lead on <strong>{invoice_payload['supplier_name']}</strong>.</p>
+        <p>Dear {html.escape(str(invoice_payload['customer_name'] or ''))},</p>
+        <p>You have exclusively unlocked a Sales Partner lead on <strong>{html.escape(str(invoice_payload['supplier_name'] or ''))}</strong>.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
             <tr><td style="padding: 6px 0; color: #64748b;">Invoice Number:</td><td style="font-weight: bold; text-align: right;">{invoice_number}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Total Deal Value:</td><td style="text-align: right;">₹{total_deal_val:,.2f}</td></tr>
@@ -6925,6 +7405,7 @@ async def _handle_topup_order_creation(lead_id: str, user: dict, db: AsyncSessio
     amount_paise = int(round(total_price * 100))
 
     order_data = _create_razorpay_order(amount_paise, f"receipt_lead_{lead_id[:8]}")
+    _record_razorpay_intent(order_data["id"], user["id"], "lead", lead_id, amount_paise)
     return {
         "order_id": order_data["id"],
         "amount": amount_paise,
@@ -6950,7 +7431,17 @@ async def _handle_topup_verification(
     user: dict,
     db: AsyncSession,
 ) -> dict:
-    _verify_razorpay_signature(razorpay_order_id, razorpay_payment_id, razorpay_signature)
+    await _validate_and_consume_razorpay_payment(
+        razorpay_order_id=razorpay_order_id,
+        razorpay_payment_id=razorpay_payment_id,
+        razorpay_signature=razorpay_signature,
+        user_id=user["id"],
+        purpose="lead",
+        expected_amount_paise=None,
+        target_id=lead_id,
+        db=db,
+        consume=True,
+    )
 
     enq = (await db.execute(select(Enquiry).where(Enquiry.id == lead_id).with_for_update())).scalars().first()
     if not enq:
@@ -7000,12 +7491,12 @@ async def _handle_topup_verification(
     email_html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0;">
         <h2 style="color: #1e3a8a;">Tax Invoice - Lead Unlock Top-Up</h2>
-        <p>Dear {invoice_payload['customer_name']},</p>
-        <p>Thank you for purchasing a lead unlock on <strong>{invoice_payload['supplier_name']}</strong>.</p>
+        <p>Dear {html.escape(str(invoice_payload['customer_name'] or ''))},</p>
+        <p>Thank you for purchasing a lead unlock on <strong>{html.escape(str(invoice_payload['supplier_name'] or ''))}</strong>.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
-            <tr><td style="padding: 6px 0; color: #64748b;">Invoice Number:</td><td style="font-weight: bold; text-align: right;">{invoice_number}</td></tr>
-            <tr><td style="padding: 6px 0; color: #64748b;">Lead Category:</td><td style="text-align: right;">{enq.category}</td></tr>
-            <tr><td style="padding: 6px 0; color: #64748b;">Valuation Range:</td><td style="text-align: right;">{rate_info['valuation_range']}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Invoice Number:</td><td style="font-weight: bold; text-align: right;">{html.escape(str(invoice_number))}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Lead Category:</td><td style="text-align: right;">{html.escape(str(enq.category or ''))}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Valuation Range:</td><td style="text-align: right;">{html.escape(str(rate_info['valuation_range'] or ''))}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Amount:</td><td style="text-align: right;">₹{base_price:,.2f}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">GST (18%):</td><td style="text-align: right;">₹{gst_amount:,.2f}</td></tr>
             <tr style="border-top: 1px solid #cbd5e1;"><td style="padding: 8px 0; font-weight: bold;">Total Paid:</td><td style="font-weight: bold; color: #1e3a8a; text-align: right;">₹{total_price:,.2f}</td></tr>
@@ -7247,13 +7738,14 @@ async def upload_sales_partner_deal_bill(
         bill_image_url = form.get("bill_image_url")
         upload = form.get("bill") or form.get("file")
         if upload and hasattr(upload, "filename") and upload.filename:
-            m_type = getattr(upload, "content_type", "") or ""
-            if m_type and m_type not in ALLOWED_ENQUIRY_MEDIA_TYPES:
-                raise HTTPException(status_code=400, detail="Unsupported bill file format. Upload JPG, PNG, WEBP, GIF, or PDF.")
+            file_ext = _validate_uploaded_file(
+                upload,
+                allowed_exts={".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf"},
+                allowed_mimes=ALLOWED_ENQUIRY_MEDIA_TYPES,
+            )
             file_data = await upload.read()
             if len(file_data) > MAX_ENQUIRY_MEDIA_SIZE:
                 raise HTTPException(status_code=400, detail="Bill file exceeds 10 MB size limit.")
-            file_ext = Path(upload.filename).suffix.lower() or ".jpg"
             unique_filename = f"bill_{deal_id[:8]}_{uuid.uuid4().hex[:8]}{file_ext}"
             file_path = ENQUIRY_MEDIA_DIR / unique_filename
             with file_path.open("wb") as buf:
@@ -7262,6 +7754,8 @@ async def upload_sales_partner_deal_bill(
 
     if not bill_image_url:
         raise HTTPException(status_code=400, detail="Bill image file or bill_image_url is required.")
+    if not _is_safe_http_or_local_url(str(bill_image_url)):
+        raise HTTPException(status_code=400, detail="Invalid bill image URL.")
 
     now_str = now_iso()
     deal.bill_image_url = str(bill_image_url).strip()
@@ -7467,12 +7961,25 @@ async def admin_resolve_sales_partner_deal(
     return {"ok": True, "deal": _serialize_deal(deal, partner, buyer)}
 
 @api.post("/payments/create-order-cart")
-async def create_payment_order_cart(payload: CreateCartOrderIn, user: dict = Depends(get_current_user)):
-    amount_paise = int(payload.amount * 100)
-    
-    if amount_paise == 0:
-        return {"order_id": "free_cart", "amount": 0, "key": RAZORPAY_KEY_ID, "currency": "INR"}
-        
+async def create_payment_order_cart(
+    payload: CreateCartOrderIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if payload.items:
+        _, calc_subtotal = await _resolve_and_price_order_items(payload.items, db)
+        if calc_subtotal > 0:
+            delivery_cost = max(0.0, round(float(payload.delivery_cost or 0.0), 2))
+            calc_total = round(calc_subtotal + delivery_cost + round((calc_subtotal + delivery_cost) * 0.18, 2), 2)
+            amount_paise = int(round(calc_total * 100))
+        else:
+            amount_paise = int(round(payload.amount * 100))
+    else:
+        amount_paise = int(round(payload.amount * 100))
+
+    if amount_paise <= 0:
+        raise HTTPException(status_code=400, detail="Cart payment amount must be greater than zero.")
+
     import requests
     auth = (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
     order_payload = {
@@ -7486,19 +7993,31 @@ async def create_payment_order_cart(payload: CreateCartOrderIn, user: dict = Dep
             logger.error(f"Razorpay error: {r.text}")
             raise HTTPException(status_code=500, detail="Failed to create order with payment gateway")
         order_data = r.json()
+        _record_razorpay_intent(order_data["id"], user["id"], "cart", "cart", amount_paise)
         return {"order_id": order_data["id"], "amount": amount_paise, "key": RAZORPAY_KEY_ID, "currency": "INR"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed calling Razorpay: {str(e)}")
         raise HTTPException(status_code=500, detail="Payment gateway connection error")
 
 @api.post("/payments/verify-cart")
-async def verify_cart_payment(payload: VerifyCartPaymentIn, user: dict = Depends(get_current_user)):
-    import hmac
-    import hashlib
-    msg = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
-    generated = hmac.new(RAZORPAY_KEY_SECRET.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(generated, payload.razorpay_signature):
-        raise HTTPException(status_code=400, detail="Payment signature verification failed")
+async def verify_cart_payment(
+    payload: VerifyCartPaymentIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _validate_and_consume_razorpay_payment(
+        razorpay_order_id=payload.razorpay_order_id,
+        razorpay_payment_id=payload.razorpay_payment_id,
+        razorpay_signature=payload.razorpay_signature,
+        user_id=user["id"],
+        purpose="cart",
+        expected_amount_paise=None,
+        target_id="cart",
+        db=db,
+        consume=False,
+    )
     return {"ok": True}
 
 @api.get("/invoices/my-invoices")
@@ -7536,18 +8055,40 @@ async def get_my_membership_invoices(
 @api.get("/invoices/{invoice_id}/download")
 async def download_membership_invoice(
     invoice_id: str,
+    request: Request,
     token: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Download or stream the generated PDF for a membership invoice.
-    Accepts standard Authorization header or ?token= for direct browser download clicks.
+    Requires authenticated owner or admin via Authorization header, cookie, or ?token=.
     """
+    cu = await get_optional_user(request)
+    if not cu and token:
+        if _hash_token(token) in _revoked_token_hashes:
+            raise HTTPException(status_code=401, detail="Session has been logged out")
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token expired")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        u_obj = (await db.execute(select(User).where(User.id == payload.get("sub")))).scalar_one_or_none()
+        if not u_obj:
+            raise HTTPException(status_code=401, detail="User not found")
+        if getattr(u_obj, "is_deleted", False):
+            raise HTTPException(status_code=403, detail="Account is pending deletion or has been deleted.")
+        cu = user_to_dict(u_obj)
+    if not cu:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
     # 1. Fetch invoice record
     stmt = select(MembershipInvoice).where(MembershipInvoice.id == invoice_id)
     inv = (await db.execute(stmt)).scalar_one_or_none()
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    if cu.get("role") != "admin" and inv.user_id != cu["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this invoice")
 
     # 2. Dynamic generation of clean PDF
     try:
@@ -7598,47 +8139,80 @@ async def download_membership_invoice(
 
 @api.post("/payments/webhook")
 async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    import hmac
-    import hashlib
-    
+    if not RAZORPAY_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook secret not configured")
+
     body_bytes = await request.body()
     sig_header = request.headers.get("X-Razorpay-Signature", "")
-    
-    if RAZORPAY_WEBHOOK_SECRET:
-        generated_sig = hmac.new(
-            RAZORPAY_WEBHOOK_SECRET.encode("utf-8"),
-            body_bytes,
-            hashlib.sha256
-        ).hexdigest()
-        
-        if not hmac.compare_digest(generated_sig, sig_header):
-            logger.warning("Razorpay Webhook: Invalid Signature")
-            raise HTTPException(status_code=400, detail="Invalid webhook signature")
-            
+    generated_sig = hmac.new(
+        RAZORPAY_WEBHOOK_SECRET.encode("utf-8"),
+        body_bytes,
+        hashlib.sha256,
+    ).hexdigest()
+    if not sig_header or not hmac.compare_digest(generated_sig, sig_header):
+        logger.warning("Razorpay Webhook: Invalid Signature")
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
     try:
         event = json.loads(body_bytes.decode("utf-8"))
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid webhook JSON")
-        
+
     event_type = event.get("event", "")
     logger.info(f"Razorpay Webhook Received Event: {event_type}")
-    
+
     if event_type in ["payment.captured", "order.paid"]:
         payment_entity = event.get("payload", {}).get("payment", {}).get("entity", {})
         razorpay_order_id = payment_entity.get("order_id")
         razorpay_payment_id = payment_entity.get("id")
-        
+        payment_status = (payment_entity.get("status") or "").lower()
+        paid_amount = int(payment_entity.get("amount") or 0)
+        paid_currency = (payment_entity.get("currency") or "INR").upper()
+
         if razorpay_order_id:
             stmt = select(Order).where(Order.razorpay_order_id == razorpay_order_id)
             order = (await db.execute(stmt)).scalar_one_or_none()
             if order and order.status != "paid":
+                expected_paise = int(round(float(order.total or 0) * 100))
+                if paid_currency != "INR" or payment_status not in ("captured", "authorized", ""):
+                    logger.warning(f"Razorpay Webhook rejected order {order.id}: status={payment_status} currency={paid_currency}")
+                    return {"status": "ignored"}
+                if expected_paise > 0 and paid_amount != expected_paise:
+                    logger.warning(f"Razorpay Webhook amount mismatch on order {order.id}: got={paid_amount} expected={expected_paise}")
+                    return {"status": "amount_mismatch"}
+
+                if razorpay_payment_id:
+                    dup_order = (
+                        await db.execute(
+                            select(Order.id).where(
+                                Order.id != order.id,
+                                Order.status == "paid",
+                                Order.payment_id == razorpay_payment_id,
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    dup_inv = (
+                        await db.execute(
+                            select(MembershipInvoice.id).where(MembershipInvoice.payment_id == razorpay_payment_id)
+                        )
+                    ).scalar_one_or_none()
+                    dup_deal = (
+                        await db.execute(
+                            select(SalesPartnerLeadDeal.id).where(SalesPartnerLeadDeal.razorpay_payment_id == razorpay_payment_id)
+                        )
+                    ).scalar_one_or_none()
+                    if dup_order or dup_inv or dup_deal:
+                        logger.warning(f"Razorpay Webhook replay blocked for payment_id={razorpay_payment_id}")
+                        return {"status": "replay_blocked"}
+
                 order.status = "paid"
                 order.payment_method = "razorpay"
+                order.payment_id = razorpay_payment_id or order.payment_id
                 await db.flush()
                 await credit_seller_wallet_for_order(order, db)
                 await db.commit()
                 logger.info(f"Webhook marked order {order.id} as paid and credited wallet (Razorpay Order: {razorpay_order_id})")
-                
+
     return {"status": "ok"}
 
 class ShippingCalculateIn(BaseModel):
@@ -7685,12 +8259,37 @@ async def calculate_shipping_rate(payload: ShippingCalculateIn, db: AsyncSession
         raise HTTPException(status_code=400, detail=res.get("error", "Could not calculate iThink Logistics rates"))
     return {"ok": True, "options": res.get("options", []), "pickup_pincode": pickup_pin}
 
+async def _user_owns_or_sells_order(order: Order, user: dict, db: AsyncSession) -> bool:
+    if user.get("role") == "admin" or order.user_id == user.get("id"):
+        return True
+    user_company_id = user.get("company_id")
+    if not user_company_id:
+        owned_comp = (await db.execute(select(Company.id).where(Company.owner_id == user.get("id")))).scalar_one_or_none()
+        user_company_id = owned_comp
+    if not user_company_id:
+        return False
+    for it in (order.items or []):
+        if not isinstance(it, dict):
+            continue
+        comp_id = it.get("company_id")
+        if comp_id and comp_id == user_company_id:
+            return True
+        prod_id = it.get("product_id") or it.get("id")
+        if prod_id:
+            prod = (await db.execute(select(Product).where(Product.id == prod_id))).scalar_one_or_none()
+            if prod and prod.company_id == user_company_id:
+                return True
+    return False
+
+
 @api.post("/shipping/create-order")
 async def create_shipping_order(payload: ShippingCreateOrderIn, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
     stmt = select(Order).where(Order.id == payload.order_id)
     order = (await db.execute(stmt)).scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if not await _user_owns_or_sells_order(order, user, db):
+        raise HTTPException(status_code=403, detail="Not authorized for this order")
 
     result = await auto_sync_order_to_ithink(order, user, db)
     if not result.get("ok"):
@@ -7698,11 +8297,13 @@ async def create_shipping_order(payload: ShippingCreateOrderIn, db: AsyncSession
     return {"ok": True, "shipment": result}
 
 @api.get("/shipping/track/{order_id}")
-async def track_shipping_order(order_id: str, db: AsyncSession = Depends(get_db)):
+async def track_shipping_order(order_id: str, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
     stmt = select(Order).where(Order.id == order_id)
     order = (await db.execute(stmt)).scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if not await _user_owns_or_sells_order(order, user, db):
+        raise HTTPException(status_code=403, detail="Not authorized for this order")
 
     res = {}
     if order.awb_number:
@@ -7731,6 +8332,9 @@ def moderate_message(text: str) -> str:
 
 @api.post("/chats/messages", response_model=ChatMessageOut)
 async def send_chat_message(payload: ChatMessageIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    receiver_exists = (await db.execute(select(User.id).where(User.id == payload.receiver_id))).scalar_one_or_none()
+    if not receiver_exists:
+        raise HTTPException(status_code=404, detail="Recipient user not found")
     msg_id = str(uuid.uuid4())
     moderated = moderate_message(payload.message)
     msg = ChatMessage(
@@ -8244,9 +8848,12 @@ async def admin_list_settlements(user: dict = Depends(get_current_user), db: Asy
         dec_num = None
         dec_ifsc = None
         if bank_acc:
-            dec_num = decrypt_bank_field(bank_acc.encrypted_account_number)
-            dec_ifsc = decrypt_bank_field(bank_acc.encrypted_ifsc_code)
-            bank_out = _bank_account_to_out(bank_acc, raw_account_num=dec_num)
+            raw_dec_num = decrypt_bank_field(bank_acc.encrypted_account_number)
+            raw_dec_ifsc = decrypt_bank_field(bank_acc.encrypted_ifsc_code)
+            bank_out = _bank_account_to_out(bank_acc, raw_account_num=raw_dec_num)
+            if s.status == "PENDING":
+                dec_num = raw_dec_num
+                dec_ifsc = raw_dec_ifsc
 
         out.append(PayoutSettlementOut(
             id=s.id,
@@ -8410,10 +9017,16 @@ async def upload_file(
     file: UploadFile = File(...),
     folder: str = "iip/uploads",
     resource_type: str = "image",
+    user: dict = Depends(get_current_user),
 ):
     is_video = resource_type == "video" or (file.content_type and file.content_type.startswith("video/"))
     max_bytes = MAX_VIDEO_SIZE_BYTES if is_video else MAX_IMAGE_SIZE_BYTES
     max_mb = MAX_VIDEO_SIZE_MB if is_video else MAX_IMAGE_SIZE_MB
+
+    file_ext = _validate_uploaded_file(
+        file,
+        allowed_exts={".mp4", ".webm", ".mov"} if is_video else {".jpg", ".jpeg", ".png", ".webp", ".gif"},
+    )
 
     # Check file size limit
     file.file.seek(0, 2)
@@ -8426,7 +9039,6 @@ async def upload_file(
             detail=f"{'Video' if is_video else 'Image'} file size ({file_size / (1024*1024):.1f} MB) exceeds maximum allowed limit of {max_mb} MB.",
         )
 
-    file_ext = Path(file.filename).suffix if file.filename else (".mp4" if is_video else ".jpg")
     unique_filename = f"{uuid.uuid4().hex}{file_ext}"
     file_path = UPLOADS_DIR / unique_filename
 
@@ -8610,6 +9222,8 @@ async def _seed_jobs_if_empty(db: AsyncSession):
 
 
 async def seed_data(db: AsyncSession):
+    if os.environ.get("DISABLE_DEFAULT_SEED_USERS", "false").lower() == "true":
+        return
     # Check admin
     stmt_admin = select(User).where(User.email == "admin@iip.com")
     if (await db.execute(stmt_admin)).scalar_one_or_none() is None:
@@ -9418,16 +10032,23 @@ default_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3001",
     "http://127.0.0.1:3000",
+    "https://indianindustrialplatform.com",
+    "https://www.indianindustrialplatform.com",
 ]
 if _cors_origins.strip() != "*":
     for o in _cors_origins.split(","):
         if o.strip() and o.strip() not in default_origins:
             default_origins.append(o.strip())
 
+_allow_wildcard_cors = (
+    _cors_origins.strip() == "*"
+    and os.environ.get("ALLOW_WILDCARD_CORS", "false").lower() == "true"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=default_origins,
-    allow_origin_regex=".*",
+    allow_origin_regex=".*" if _allow_wildcard_cors else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

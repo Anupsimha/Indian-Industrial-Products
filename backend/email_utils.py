@@ -24,6 +24,7 @@ Configuration (read from environment / .env):
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 import smtplib
@@ -198,10 +199,10 @@ def build_otp_email(otp: str, user_name: str, action: str = "unlock a lead conta
           <tr>
             <td style="padding:36px 32px 24px;">
               <p style="margin:0 0 8px;font-size:16px;color:#1e293b;font-weight:600;">
-                Hi {user_name},
+                Hi {html.escape(str(user_name or ""))},
               </p>
               <p style="margin:0 0 24px;font-size:14px;color:#475569;line-height:1.6;">
-                You requested to <strong>{action}</strong> on the IIP platform.
+                You requested to <strong>{html.escape(str(action or ""))}</strong> on the IIP platform.
                 Use the OTP below to confirm this action.
               </p>
 
@@ -213,7 +214,7 @@ def build_otp_email(otp: str, user_name: str, action: str = "unlock a lead conta
                   Your One-Time Password
                 </p>
                 <span style="font-size:42px;font-weight:900;color:#1e3a8a;letter-spacing:10px;">
-                  {otp}
+                  {html.escape(str(otp or ""))}
                 </span>
                 <p style="margin:12px 0 0;font-size:12px;color:#94a3b8;">
                   ⏱ Valid for <strong>10 minutes</strong>
@@ -267,7 +268,7 @@ def build_welcome_email(user_name: str) -> str:
         </tr>
         <tr>
           <td style="padding:36px 32px;">
-            <p style="font-size:16px;color:#1e293b;font-weight:600;">Welcome, {user_name}! 🎉</p>
+            <p style="font-size:16px;color:#1e293b;font-weight:600;">Welcome, {html.escape(str(user_name or ""))}! 🎉</p>
             <p style="font-size:14px;color:#475569;line-height:1.6;">
               Your account on <strong>Indian Industrial Platform</strong> has been created successfully.
               Start exploring verified buyer requirements, connect with suppliers, and grow your business.

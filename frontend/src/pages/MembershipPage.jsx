@@ -201,7 +201,13 @@ export default function MembershipPage() {
                     </div>
 
                     <a
-                      href={inv.download_url}
+                      href={(() => {
+                        const tok = localStorage.getItem("iip_token");
+                        const base = inv.download_url || "";
+                        if (!tok) return base;
+                        const sep = base.includes("?") ? "&" : "?";
+                        return `${base}${sep}token=${encodeURIComponent(tok)}`;
+                      })()}
                       target="_blank"
                       rel="noopener noreferrer"
                       download={`Tax_Invoice_${inv.invoice_number}.pdf`}
