@@ -3,9 +3,10 @@ import { X, Briefcase, MapPin, Banknote, FileText } from "lucide-react";
 import { MediaUploader } from "./MediaUploader";
 import api, { formatApiError } from "../lib/api";
 import { toast } from "sonner";
-import { CATEGORIES } from "../lib/constants";
+import { useCategories } from "../hooks/useCategories";
 
 export const PostDialog = ({ open, onClose, onSaved }) => {
+  const { categories, loading: categoriesLoading } = useCategories();
   const [content, setContent] = useState("");
   const [media, setMedia] = useState([]);
   const [category, setCategory] = useState("");
@@ -86,8 +87,8 @@ export const PostDialog = ({ open, onClose, onSaved }) => {
               data-testid="post-category-input"
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white font-medium"
             >
-              <option value="">Select Category...</option>
-              {CATEGORIES.map((cat) => (
+              <option value="">{categoriesLoading ? "Loading categories..." : "Select Category..."}</option>
+              {categories.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>

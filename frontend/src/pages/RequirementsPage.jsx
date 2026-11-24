@@ -2,12 +2,90 @@ import React, { useEffect, useState, useCallback } from "react";
 import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import {
-  MapPin, Tag, Clock, Package, Boxes, Trash2, CheckCircle2,
+  MapPin, Tag, Clock, Package, Wrench, Building2, Layers, Trash2, CheckCircle2,
   AlertCircle, Loader2, Plus, ClipboardList
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { BackButton } from "../components/BackButton";
+
+const LEAD_TYPE_FILTERS = [
+  { id: "all", label: "All Types", icon: Layers },
+  { id: "product", label: "Product", icon: Package },
+  { id: "service", label: "Service", icon: Wrench },
+  { id: "real_estate", label: "Real Estate", icon: Building2 },
+];
+
+const LEAD_TYPE_META = {
+  product: { label: "Product", icon: Package, badgeCls: "bg-blue-50 text-blue-700 border-blue-200" },
+  service: { label: "Service", icon: Wrench, badgeCls: "bg-teal-50 text-teal-700 border-teal-200" },
+  real_estate: { label: "Real Estate", icon: Building2, badgeCls: "bg-purple-50 text-purple-700 border-purple-200" },
+};
+
+function getLeadTitle(item) {
+  if (item?.product_name) return item.product_name;
+  const meta = item?.lead_metadata && typeof item.lead_metadata === "object" ? item.lead_metadata : {};
+  if ((item?.lead_type || "product") === "service" && meta.service_name) {
+    return meta.service_name;
+  }
+  if ((item?.lead_type || "product") === "real_estate") {
+    const title = [meta.transaction_type, meta.property_type].filter(Boolean).join(" - ");
+    if (title) return title;
+  }
+  return (item?.requirement || "").slice(0, 60);
+}
+
+function getLeadMetadataChips(item) {
+  const leadType = item?.lead_type || "product";
+  const meta = item?.lead_metadata && typeof item.lead_metadata === "object" ? item.lead_metadata : {};
+  const chips = [];
+
+  if (leadType === "service") {
+    if (meta.service_mode) {
+      chips.push({ label: "Mode", value: meta.service_mode, cls: "bg-teal-50 text-teal-800 border-teal-200" });
+    }
+    const durationVal = meta.project_duration || (!meta.project_duration && item?.quantity ? item.quantity : "");
+    if (durationVal) {
+      chips.push({ label: "Duration", value: durationVal, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+    if (meta.frequency) {
+      chips.push({ label: "Frequency", value: meta.frequency, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+    if (meta.scope_details) {
+      chips.push({ label: "Scope", value: meta.scope_details, cls: "bg-emerald-50 text-emerald-800 border-emerald-200" });
+    }
+  } else if (leadType === "real_estate") {
+    if (meta.transaction_type) {
+      chips.push({ label: "Deal", value: meta.transaction_type, cls: "bg-amber-50 text-amber-800 border-amber-200" });
+    }
+    if (meta.property_type) {
+      chips.push({ label: "Property", value: meta.property_type, cls: "bg-purple-50 text-purple-800 border-purple-200" });
+    }
+    if (meta.area_size) {
+      chips.push({
+        label: "Area",
+        value: [meta.area_size, meta.area_unit].filter(Boolean).join(" "),
+        cls: "bg-slate-100 text-slate-800 border-slate-200",
+      });
+    } else if (meta.area_sqft) {
+      chips.push({
+        label: "Area",
+        value: `${Number(meta.area_sqft).toLocaleString("en-IN")} sq.ft`,
+        cls: "bg-slate-100 text-slate-800 border-slate-200",
+      });
+    } else if (item?.quantity) {
+      chips.push({ label: "Area", value: item.quantity, cls: "bg-slate-100 text-slate-800 border-slate-200" });
+    }
+    if (meta.possession_timeline) {
+      chips.push({ label: "Possession", value: meta.possession_timeline, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+    if (meta.power_load_kva) {
+      chips.push({ label: "Power", value: `${meta.power_load_kva} kVA`, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+  }
+
+  return chips;
+}
 
 export default function RequirementsPage() {
   const { user, loading: authLoading } = useAuth();
@@ -16,20 +94,22 @@ export default function RequirementsPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("All"); // All, pending, completed
+  const [leadTypeFilter, setLeadTypeFilter] = useState("all"); // all, product, service, real_estate
 
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const { data } = await api.get("/requirements/my");
-      setItems(data);
+      const params = leadTypeFilter !== "all" ? { lead_type: leadTypeFilter } : {};
+      const { data } = await api.get("/requirements/my", { params });
+      setItems(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Error loading my requirements:", err);
       toast.error("Failed to load your requirements.");
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, leadTypeFilter]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -66,8 +146,10 @@ export default function RequirementsPage() {
     }
   };
 
-  // Filter items based on active status tabs
+  // Filter items based on active status & lead type tabs
   const filteredItems = items.filter((it) => {
+    const matchLeadType = leadTypeFilter === "all" || (it.lead_type || "product") === leadTypeFilter;
+    if (!matchLeadType) return false;
     if (statusFilter === "pending") return it.status !== "closed";
     if (statusFilter === "completed") return it.status === "closed";
     return true;
@@ -108,7 +190,7 @@ export default function RequirementsPage() {
       </div>
 
       {/* Status Segmented Control */}
-      <div className="flex bg-white border border-slate-200 p-1 rounded-full text-xs font-bold shadow-sm mb-4">
+      <div className="flex bg-white border border-slate-200 p-1 rounded-full text-xs font-bold shadow-sm mb-3">
         {[
           { id: "All", label: "All" },
           { id: "pending", label: "Pending" },
@@ -128,6 +210,35 @@ export default function RequirementsPage() {
         ))}
       </div>
 
+      {/* Lead Type Filter Pills */}
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 mb-4" data-testid="req-lead-type-filters">
+        {LEAD_TYPE_FILTERS.map((lt) => {
+          const Icon = lt.icon;
+          const active = leadTypeFilter === lt.id;
+          return (
+            <button
+              key={lt.id}
+              type="button"
+              onClick={() => setLeadTypeFilter(lt.id)}
+              data-testid={`req-lead-type-${lt.id}`}
+              aria-pressed={active}
+              className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all inline-flex items-center gap-1.5 ${
+                active
+                  ? lt.id === "service"
+                    ? "bg-teal-600 text-white border-teal-600 shadow-xs"
+                    : lt.id === "real_estate"
+                    ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                    : "bg-blue-900 text-white border-blue-900 shadow-xs"
+                  : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900"
+              }`}
+            >
+              <Icon size={12} />
+              <span>{lt.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Card List */}
       <div className="space-y-4">
         {filteredItems.length === 0 ? (
@@ -135,11 +246,11 @@ export default function RequirementsPage() {
             <AlertCircle className="mx-auto text-slate-300 mb-2" size={32} />
             <p className="font-medium text-slate-700">No requirements found</p>
             <p className="text-xs text-slate-400 mt-0.5">
-              {statusFilter === "All"
+              {statusFilter === "All" && leadTypeFilter === "all"
                 ? "You haven't posted any requirements yet."
-                : `You don't have any ${statusFilter} requirements.`}
+                : "No requirements match the selected status and lead type filters."}
             </p>
-            {statusFilter === "All" && (
+            {statusFilter === "All" && leadTypeFilter === "all" && (
               <button
                 onClick={() => navigate("/post-enquiry")}
                 className="mt-4 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-full text-xs font-bold shadow-sm transition-all"
@@ -151,6 +262,11 @@ export default function RequirementsPage() {
         ) : (
           filteredItems.map((it) => {
             const isCompleted = it.status === "closed";
+            const leadType = it.lead_type || "product";
+            const typeBadge = LEAD_TYPE_META[leadType] || LEAD_TYPE_META.product;
+            const TypeBadgeIcon = typeBadge.icon;
+            const metaChips = getLeadMetadataChips(it);
+            const cardTitle = getLeadTitle(it);
             return (
               <article
                 key={it.id}
@@ -159,15 +275,26 @@ export default function RequirementsPage() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <h3 className="font-display font-extrabold text-slate-900 text-base sm:text-lg leading-snug">
-                      {it.product_name || it.requirement.slice(0, 60)}
-                    </h3>
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1 inline-flex items-center gap-1.5">
-                      <Tag size={11} className="text-slate-400" /> {it.category}
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${typeBadge.badgeCls}`}
+                        data-testid={`req-lead-type-badge-${it.id}`}
+                      >
+                        <TypeBadgeIcon size={10} />
+                        {typeBadge.label}
+                      </span>
+                      {it.category && (
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider inline-flex items-center gap-1">
+                          <Tag size={10} className="text-slate-400" /> {it.category}
+                        </span>
+                      )}
                     </div>
+                    <h3 className="font-display font-extrabold text-slate-900 text-base sm:text-lg leading-snug">
+                      {cardTitle}
+                    </h3>
                   </div>
 
-                  <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full ${
+                  <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full shrink-0 ${
                     isCompleted
                       ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
                       : "bg-amber-50 text-amber-700 border border-amber-100"
@@ -176,8 +303,22 @@ export default function RequirementsPage() {
                   </span>
                 </div>
 
+                {metaChips.length > 0 && (
+                  <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid={`req-meta-chips-${it.id}`}>
+                    {metaChips.map((chip, idx) => (
+                      <span
+                        key={`${chip.label}-${idx}`}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] font-semibold ${chip.cls}`}
+                      >
+                        <span className="opacity-70 text-[10px] uppercase tracking-wider">{chip.label}:</span>
+                        <span className="font-bold">{chip.value}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 <div className="mt-3.5 space-y-2 border-b border-slate-100 pb-3.5 text-xs text-slate-600">
-                  {it.quantity && (
+                  {it.quantity && leadType === "product" && (
                     <div className="flex items-center gap-2">
                       <span className="w-8 font-bold text-slate-400 uppercase tracking-wider text-[9px]">Qty</span>
                       <span className="font-bold text-slate-900">{it.quantity}</span>

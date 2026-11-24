@@ -7,6 +7,7 @@ const LeadInterestContext = createContext();
 
 const LOCAL_STORAGE_LEADS_KEY = "iip_selected_leads";
 const LOCAL_STORAGE_ACTIVE_KEY = "iip_recommendations_active";
+const LOCAL_STORAGE_DISMISSED_KEY = "iip_interest_widget_dismissed";
 
 export const LeadInterestProvider = ({ children }) => {
   const { user } = useAuth();
@@ -18,6 +19,7 @@ export const LeadInterestProvider = ({ children }) => {
       return [];
     }
   });
+  const [backendLeadIds, setBackendLeadIds] = useState([]);
 
   const [isPersonalized, setIsPersonalized] = useState(() => {
     try {
@@ -27,7 +29,29 @@ export const LeadInterestProvider = ({ children }) => {
     }
   });
 
+  const [isWidgetDismissed, setIsWidgetDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(LOCAL_STORAGE_DISMISSED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  const dismissInterestWidget = useCallback(() => {
+    setIsWidgetDismissed(true);
+    try {
+      localStorage.setItem(LOCAL_STORAGE_DISMISSED_KEY, "true");
+    } catch {}
+  }, []);
+
+  const showInterestWidget = useCallback(() => {
+    setIsWidgetDismissed(false);
+    try {
+      localStorage.setItem(LOCAL_STORAGE_DISMISSED_KEY, "false");
+    } catch {}
+  }, []);
 
   // Sync with backend if user is authenticated
   useEffect(() => {
@@ -35,7 +59,8 @@ export const LeadInterestProvider = ({ children }) => {
 
     api.get("/recommendations/interests")
       .then((res) => {
-        if (res.data && res.data.lead_ids && res.data.lead_ids.length > 0) {
+        if (res.data && Array.isArray(res.data.lead_ids) && res.data.lead_ids.length > 0) {
+          setBackendLeadIds(res.data.lead_ids);
           setIsPersonalized(true);
           try {
             localStorage.setItem(LOCAL_STORAGE_ACTIVE_KEY, "true");
@@ -45,14 +70,10 @@ export const LeadInterestProvider = ({ children }) => {
       .catch(() => {});
   }, [user]);
 
-  // Persist local selection
+  // Persist local selection (never deactivate personalization here — only resetInterests() should)
   useEffect(() => {
     try {
       localStorage.setItem(LOCAL_STORAGE_LEADS_KEY, JSON.stringify(selectedLeads));
-      if (selectedLeads.length === 0) {
-        setIsPersonalized(false);
-        localStorage.removeItem(LOCAL_STORAGE_ACTIVE_KEY);
-      }
     } catch {}
   }, [selectedLeads]);
 
@@ -67,6 +88,12 @@ export const LeadInterestProvider = ({ children }) => {
   const toggleLeadInterest = useCallback(
     (lead) => {
       if (!lead || !lead.id) return;
+
+      // Make sure progress bar becomes visible again when user modifies interests
+      setIsWidgetDismissed(false);
+      try {
+        localStorage.setItem(LOCAL_STORAGE_DISMISSED_KEY, "false");
+      } catch {}
 
       setSelectedLeads((prev) => {
         const exists = prev.some((l) => l.id === lead.id);
@@ -116,6 +143,7 @@ export const LeadInterestProvider = ({ children }) => {
       }
       setIsPersonalized(true);
       setShowConfirmModal(false);
+      dismissInterestWidget();
       localStorage.setItem(LOCAL_STORAGE_ACTIVE_KEY, "true");
       toast.success(
         `Personalization activated for ${selectedLeads.length} selected industrial leads!`,
@@ -125,18 +153,22 @@ export const LeadInterestProvider = ({ children }) => {
       // Still enable locally for smooth UX even if offline
       setIsPersonalized(true);
       setShowConfirmModal(false);
+      dismissInterestWidget();
       localStorage.setItem(LOCAL_STORAGE_ACTIVE_KEY, "true");
       toast.success("Personalized recommendations activated locally!");
     }
-  }, [selectedLeads, user]);
+  }, [selectedLeads, user, dismissInterestWidget]);
 
   const resetInterests = useCallback(async () => {
     setSelectedLeads([]);
+    setBackendLeadIds([]);
     setIsPersonalized(false);
     setShowConfirmModal(false);
+    setIsWidgetDismissed(false);
     try {
       localStorage.removeItem(LOCAL_STORAGE_LEADS_KEY);
       localStorage.removeItem(LOCAL_STORAGE_ACTIVE_KEY);
+      localStorage.removeItem(LOCAL_STORAGE_DISMISSED_KEY);
       if (user) {
         await api.delete("/recommendations/interests");
       }
@@ -144,7 +176,8 @@ export const LeadInterestProvider = ({ children }) => {
     toast.info("Recommendations reset to standard feed.");
   }, [user]);
 
-  const selectedLeadIds = selectedLeads.map((l) => l.id);
+  const selectedLeadIds =
+    selectedLeads.length > 0 ? selectedLeads.map((l) => l.id) : backendLeadIds;
 
   return (
     <LeadInterestContext.Provider
@@ -153,6 +186,9 @@ export const LeadInterestProvider = ({ children }) => {
         selectedLeadIds,
         count: selectedLeads.length,
         isPersonalized,
+        isWidgetDismissed,
+        dismissInterestWidget,
+        showInterestWidget,
         showConfirmModal,
         setShowConfirmModal,
         isLeadSelected,

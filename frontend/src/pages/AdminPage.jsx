@@ -3280,6 +3280,10 @@ const DEAL_STATUS_META = {
     label: "FAKE_REPORTED",
     cls: "bg-rose-100 text-rose-800 border-rose-300",
   },
+  RELISTED: {
+    label: "RELISTED",
+    cls: "bg-sky-100 text-sky-800 border-sky-200",
+  },
   APPROVED: {
     label: "APPROVED",
     cls: "bg-emerald-100 text-emerald-800 border-emerald-200",
@@ -3295,24 +3299,37 @@ const DEAL_FILTER_PILLS = [
   { id: "FAKE_REPORTED", label: "Disputed (Fake Reported)" },
   { id: "INVOICE_UPLOADED", label: "Bill Uploaded" },
   { id: "UNLOCKED", label: "Unlocked" },
+  { id: "RELISTED", label: "Re-listed" },
   { id: "APPROVED", label: "Approved" },
   { id: "REFUNDED", label: "Refunded" },
 ];
 
+const DISPUTE_REASON_LABELS = {
+  deal_not_done: "Deal Not Done",
+  price_too_high: "Price Too High",
+  fake_lead: "Fake Lead",
+  wrong_phone: "Wrong Phone",
+};
+
 const RESOLVE_ACTION_META = {
+  approve_relist_refund: {
+    title: "Verify & Re-list Lead (50% Refund)",
+    description: "Refunds 50% of the base lead fee to the first buyer's wallet, cancels partner escrow, marks this deal RELISTED, and opens the lead for other buyers.",
+    btnCls: "bg-sky-600 hover:bg-sky-700 text-white",
+  },
+  approve_fake_refund: {
+    title: "Confirm Fake / Wrong Phone & Keep Sold Out (50% Refund)",
+    description: "Confirms the fake lead or wrong phone dispute, refunds 50% of the base lead fee to the Buyer's wallet, keeps the lead marked Sold Out, and marks this deal REFUNDED.",
+    btnCls: "bg-rose-600 hover:bg-rose-700 text-white",
+  },
   approve_partner_payout: {
     title: "Override & Approve Partner Payout (50%)",
     description: "Credits 50% of the base lead fee to the Sales Partner's wallet and marks this deal APPROVED.",
     btnCls: "bg-emerald-600 hover:bg-emerald-700 text-white",
   },
-  approve_fake_refund: {
-    title: "Confirm Fake & Refund Buyer (50%)",
-    description: "Confirms the fake lead claim, refunds 50% of the base lead fee to the Buyer's wallet, and marks this deal REFUNDED.",
-    btnCls: "bg-rose-600 hover:bg-rose-700 text-white",
-  },
   reject_fake_report: {
-    title: "Reject Fake Claim",
-    description: "Rejects the buyer's fake-lead dispute and restores the deal so bill upload / approval can continue.",
+    title: "Reject Dispute",
+    description: "Rejects the buyer's dispute and restores the deal so bill upload / approval can continue.",
     btnCls: "bg-amber-600 hover:bg-amber-700 text-white",
   },
 };
@@ -3379,7 +3396,7 @@ const SalesPartnerDealsTab = () => {
       if (d.status && acc[d.status] !== undefined) acc[d.status] += 1;
       return acc;
     },
-    { ALL: 0, FAKE_REPORTED: 0, INVOICE_UPLOADED: 0, UNLOCKED: 0, APPROVED: 0, REFUNDED: 0 }
+    { ALL: 0, FAKE_REPORTED: 0, INVOICE_UPLOADED: 0, UNLOCKED: 0, RELISTED: 0, APPROVED: 0, REFUNDED: 0 }
   );
 
   const filteredDeals = deals.filter((d) => {
@@ -3480,7 +3497,11 @@ const SalesPartnerDealsTab = () => {
               label: d.status || "UNKNOWN",
               cls: "bg-slate-100 text-slate-700 border-slate-200",
             };
-            const isFinalized = d.status === "APPROVED" || d.status === "REFUNDED";
+            const isFinalized = d.status === "APPROVED" || d.status === "REFUNDED" || d.status === "RELISTED";
+            const isRelistRecommended =
+              d.dispute_reason_code === "deal_not_done" || d.dispute_reason_code === "price_too_high";
+            const isFakeRecommended =
+              d.dispute_reason_code === "fake_lead" || d.dispute_reason_code === "wrong_phone";
             const splitAmount = Number(
               d.partner_share_amount ?? d.refund_share_amount ?? Number(d.lead_value_base || 0) * 0.5
             );
@@ -3493,6 +3514,8 @@ const SalesPartnerDealsTab = () => {
                 className={`bg-white border rounded-2xl p-4 sm:p-5 shadow-sm space-y-4 ${
                   d.status === "FAKE_REPORTED"
                     ? "border-rose-300 ring-1 ring-rose-200"
+                    : d.status === "RELISTED"
+                    ? "border-sky-200"
                     : d.status === "INVOICE_UPLOADED"
                     ? "border-indigo-200"
                     : "border-slate-200"
@@ -3583,14 +3606,14 @@ const SalesPartnerDealsTab = () => {
                 </div>
 
                 {/* Client Lead Snippet */}
-                {(d.lead?.client_name || d.lead?.client_mobile || d.lead?.requirement) && (
+                {(d.lead?.name || d.lead?.client_name || d.lead?.mobile || d.lead?.client_mobile || d.lead?.requirement) && (
                   <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-xs space-y-1">
                     <div className="flex items-center gap-3 flex-wrap text-slate-700">
-                      {d.lead?.client_name && (
-                        <span><strong className="text-slate-900">Lead Client:</strong> {d.lead.client_name}</span>
+                      {(d.lead?.name || d.lead?.client_name) && (
+                        <span><strong className="text-slate-900">Lead Client:</strong> {d.lead?.name || d.lead?.client_name}</span>
                       )}
-                      {d.lead?.client_mobile && (
-                        <span className="font-mono"><strong className="text-slate-900">Phone:</strong> {d.lead.client_mobile}</span>
+                      {(d.lead?.mobile || d.lead?.client_mobile) && (
+                        <span className="font-mono"><strong className="text-slate-900">Phone:</strong> {d.lead?.mobile || d.lead?.client_mobile}</span>
                       )}
                     </div>
                     {d.lead?.requirement && (
@@ -3643,66 +3666,116 @@ const SalesPartnerDealsTab = () => {
                   </div>
                 )}
 
-                {/* Fake Report Reason Box */}
-                {d.fake_report_reason && (
-                  <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs space-y-1">
-                    <div className="font-extrabold text-rose-900 flex items-center gap-1.5">
-                      <ShieldAlert size={14} className="text-rose-600" />
-                      Fake Lead Dispute Reported by Buyer
-                      {d.fake_reported_at && (
-                        <span className="font-normal text-rose-700 text-[11px]">
-                          • {new Date(d.fake_reported_at).toLocaleString("en-IN")}
+                {/* Lead Dispute Box */}
+                {(d.fake_report_reason || d.dispute_reason_code) && (
+                  <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="font-extrabold text-rose-900 flex items-center gap-1.5">
+                        <ShieldAlert size={14} className="text-rose-600" />
+                        Lead Dispute Reported by Buyer
+                        {d.fake_reported_at && (
+                          <span className="font-normal text-rose-700 text-[11px]">
+                            • {new Date(d.fake_reported_at).toLocaleString("en-IN")}
+                          </span>
+                        )}
+                      </div>
+                      {d.dispute_reason_code && (
+                        <span
+                          className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-white border border-rose-300 text-rose-800 font-extrabold text-[11px]"
+                          data-testid={`admin-dispute-reason-${d.id}`}
+                        >
+                          {DISPUTE_REASON_LABELS[d.dispute_reason_code] || d.dispute_reason_code}
                         </span>
                       )}
                     </div>
-                    <p className="text-rose-900 whitespace-pre-line">{d.fake_report_reason}</p>
+                    {d.fake_report_reason && (
+                      <p className="text-rose-900 whitespace-pre-line">{d.fake_report_reason}</p>
+                    )}
                   </div>
                 )}
 
                 {/* Admin Decision Notes (if resolved) */}
-                {(d.admin_decision_notes || d.resolved_at) && (
+                {(d.admin_decision_notes || d.resolved_at || d.relisted_at) && (
                   <div className="bg-slate-100 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 space-y-0.5">
                     <div className="font-bold text-slate-900">
                       Admin Resolution
-                      {d.resolved_at && (
+                      {(d.resolved_at || d.relisted_at) && (
                         <span className="font-normal text-slate-500 ml-1.5">
-                          ({new Date(d.resolved_at).toLocaleString("en-IN")})
+                          ({new Date(d.relisted_at || d.resolved_at).toLocaleString("en-IN")})
                         </span>
                       )}
                     </div>
+                    {d.relisted_at && (
+                      <p className="text-sky-800 font-semibold">
+                        Re-listed for other buyers • 50% refunded to first buyer, partner escrow cancelled.
+                      </p>
+                    )}
                     {d.admin_decision_notes && <p>{d.admin_decision_notes}</p>}
                   </div>
                 )}
 
                 {/* Resolution Actions for non-finalized deals */}
                 {!isFinalized && (
-                  <div className="pt-2 border-t border-slate-100 flex items-center gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => openResolveModal(d, "approve_partner_payout")}
-                      data-testid={`admin-approve-payout-${d.id}`}
-                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs"
-                    >
-                      <CheckCircle2 size={13} /> Override &amp; Approve Partner Payout (50%)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openResolveModal(d, "approve_fake_refund")}
-                      data-testid={`admin-confirm-refund-${d.id}`}
-                      className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs"
-                    >
-                      <IndianRupee size={13} /> Confirm Fake &amp; Refund Buyer (50%)
-                    </button>
-                    {d.status === "FAKE_REPORTED" && (
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         type="button"
-                        onClick={() => openResolveModal(d, "reject_fake_report")}
-                        data-testid={`admin-reject-fake-${d.id}`}
-                        className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold inline-flex items-center gap-1.5"
+                        onClick={() => openResolveModal(d, "approve_relist_refund")}
+                        data-testid={`admin-approve-relist-${d.id}`}
+                        title="Refunds 50% to first buyer, cancels partner escrow, and opens lead for other buyers"
+                        className={`px-3.5 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition-all ${
+                          isRelistRecommended
+                            ? "bg-sky-600 hover:bg-sky-700 text-white ring-2 ring-sky-400 ring-offset-1"
+                            : "bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300"
+                        }`}
                       >
-                        <AlertTriangle size={13} /> Reject Fake Claim
+                        <RefreshCw size={13} /> Verify &amp; Re-list Lead (50% Refund)
+                        {isRelistRecommended && (
+                          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/20 text-[10px] font-extrabold">
+                            Recommended
+                          </span>
+                        )}
                       </button>
-                    )}
+                      <button
+                        type="button"
+                        onClick={() => openResolveModal(d, "approve_fake_refund")}
+                        data-testid={`admin-confirm-refund-${d.id}`}
+                        title="Confirms fake/wrong phone, refunds 50% to buyer, and keeps lead marked Sold Out"
+                        className={`px-3.5 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition-all ${
+                          isFakeRecommended
+                            ? "bg-rose-600 hover:bg-rose-700 text-white ring-2 ring-rose-400 ring-offset-1"
+                            : "bg-rose-600 hover:bg-rose-700 text-white"
+                        }`}
+                      >
+                        <IndianRupee size={13} /> Confirm Fake / Wrong Phone &amp; Keep Sold Out (50% Refund)
+                        {isFakeRecommended && (
+                          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/20 text-[10px] font-extrabold">
+                            Recommended
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openResolveModal(d, "approve_partner_payout")}
+                        data-testid={`admin-approve-payout-${d.id}`}
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs"
+                      >
+                        <CheckCircle2 size={13} /> Override &amp; Approve Partner Payout (50%)
+                      </button>
+                      {d.status === "FAKE_REPORTED" && (
+                        <button
+                          type="button"
+                          onClick={() => openResolveModal(d, "reject_fake_report")}
+                          data-testid={`admin-reject-fake-${d.id}`}
+                          className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold inline-flex items-center gap-1.5"
+                        >
+                          <AlertTriangle size={13} /> Reject Dispute
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      <strong>Verify &amp; Re-list</strong> refunds 50% to first buyer, cancels partner escrow, and re-opens the lead for other buyers. <strong>Confirm Fake / Wrong Phone</strong> keeps the lead marked Sold Out.
+                    </p>
                   </div>
                 )}
               </div>

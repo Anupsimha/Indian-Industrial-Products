@@ -6,11 +6,13 @@ import { useSupportContact } from "../context/SupportContactContext";
 import { optimizedUrl } from "../lib/cloudinary";
 import {
   MapPin, Globe, Phone, Mail, Verified, UserPlus, UserCheck, Tag,
-  Edit, Plus, Trash2, Calendar, Users, FileBadge, Building, ShieldCheck, Briefcase
+  Edit, Plus, Trash2, Calendar, Users, FileBadge, Building, ShieldCheck, Briefcase,
+  Wrench, Clock
 } from "lucide-react";
 import { PostCard } from "../components/PostCard";
 import { EnquiryDialog } from "../components/EnquiryDialog";
 import { ProductDialog } from "../components/ProductDialog";
+import { ServiceDialog } from "../components/ServiceDialog";
 import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
 import { BackButton } from "../components/BackButton";
@@ -25,13 +27,17 @@ export default function CompanyDetailPage() {
   const [c, setC] = useState(null);
   const [posts, setPosts] = useState([]);
   const [products, setProducts] = useState([]);
+  const [services, setServices] = useState([]);
   const [reels, setReels] = useState([]);
   const [followersOpen, setFollowersOpen] = useState(false);
   const [tab, setTab] = useState("posts");
   const [enq, setEnq] = useState(false);
+  const [serviceEnq, setServiceEnq] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [serviceOpen, setServiceOpen] = useState(false);
+  const [editingService, setEditingService] = useState(null);
   const [postOpen, setPostOpen] = useState(false);
   const [reelOpen, setReelOpen] = useState(false);
   const { user } = useAuth();
@@ -49,13 +55,18 @@ export default function CompanyDetailPage() {
 
   const load = async () => {
     try {
-      const [a, b, d, e] = await Promise.all([
+      const [a, b, d, e, s] = await Promise.all([
         api.get(`/companies/${id}`),
         api.get(`/companies/${id}/posts`),
         api.get(`/companies/${id}/products`),
         api.get(`/companies/${id}/reels`),
+        api.get(`/companies/${id}/services`).catch(() => ({ data: [] })),
       ]);
-      setC(a.data); setPosts(b.data); setProducts(d.data); setReels(e.data);
+      setC(a.data);
+      setPosts(b.data);
+      setProducts(d.data);
+      setReels(e.data);
+      setServices(Array.isArray(s.data) ? s.data : []);
     } catch {}
   };
 
@@ -77,6 +88,10 @@ export default function CompanyDetailPage() {
   const deleteProduct = async (pid) => {
     if (!window.confirm("Delete this product?")) return;
     try { await api.delete(`/products/${pid}`); load(); toast.success("Deleted"); } catch { toast.error("Failed"); }
+  };
+  const deleteService = async (sid) => {
+    if (!window.confirm("Delete this service?")) return;
+    try { await api.delete(`/services/${sid}`); load(); toast.success("Service deleted"); } catch { toast.error("Failed"); }
   };
   const deletePost = async (pid) => {
     if (!window.confirm("Delete this post?")) return;
@@ -118,6 +133,16 @@ export default function CompanyDetailPage() {
               <h1 className="font-display text-xl font-bold text-slate-900 truncate">{c.name}</h1>
               <Verified size={16} className="text-blue-700" />
               <PlanBadge plan={c.plan_name} size="sm" />
+              <span
+                data-testid="company-provider-type-badge"
+                className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200"
+              >
+                {c.provider_type === "service"
+                  ? "Service Provider"
+                  : c.provider_type === "both"
+                    ? "Products & Services"
+                    : "Product Provider"}
+              </span>
             </div>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-600 mt-0.5">
               <span className="inline-flex items-center gap-1"><MapPin size={12} /> {c.location}</span>
@@ -173,10 +198,10 @@ export default function CompanyDetailPage() {
         </div>
 
         {/* Tabs */}
-        <div className="mt-4 grid grid-cols-4 gap-1 bg-slate-100 rounded-full p-1 text-xs font-semibold">
-          {["posts", "products", "reels", "about"].map((t) => (
+        <div className="mt-4 grid grid-cols-5 gap-1 bg-slate-100 rounded-full p-1 text-[11px] sm:text-xs font-semibold">
+          {["posts", "products", "services", "reels", "about"].map((t) => (
             <button key={t} onClick={() => setTab(t)} data-testid={`tab-${t}`}
-              className={`py-2 rounded-full transition-colors ${tab === t ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-800"}`}>
+              className={`py-2 rounded-full transition-colors truncate px-1 ${tab === t ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-800"}`}>
               {t.toUpperCase()}
             </button>
           ))}
@@ -253,6 +278,133 @@ export default function CompanyDetailPage() {
                       <a href={whatsappLink(p.whatsapp, `Hi, interested in ${p.name}`)} onClick={handleContactClick} target="_blank" rel="noreferrer"
                         className={`py-1 rounded-full bg-[#25D366] text-white text-[10px] font-semibold text-center hover:bg-[#128C7E] ${!canContact ? 'blur-[1px] opacity-70' : ''}`}
                         data-testid={`product-wa-${p.id}`}>WhatsApp</a>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* SERVICES tab */}
+        {tab === "services" && (
+          <div className="mt-4" data-testid="services-tab">
+            {c.is_owner && (
+              <button
+                onClick={() => {
+                  setEditingService(null);
+                  setServiceOpen(true);
+                }}
+                data-testid="add-service-btn"
+                className="w-full mb-3 py-3 rounded-xl border-2 border-dashed border-blue-300 text-blue-800 font-semibold inline-flex items-center justify-center gap-2 hover:bg-blue-50 transition-colors"
+              >
+                <Plus size={16} /> Add Service
+              </button>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {services.length === 0 && (
+                <div className="col-span-full text-center text-sm text-slate-500 py-8">
+                  No services listed yet.
+                </div>
+              )}
+              {services.map((s) => (
+                <div
+                  key={s.id}
+                  className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-all flex flex-col"
+                  data-testid={`company-service-${s.id}`}
+                >
+                  <div
+                    onClick={() => navigate(`/service/${s.id}`)}
+                    className="relative h-36 bg-gradient-to-br from-slate-100 via-blue-50 to-slate-100 flex items-center justify-center cursor-pointer"
+                  >
+                    {s.image_url ? (
+                      <img
+                        src={optimizedUrl(s.image_url, { w: 400 })}
+                        alt={s.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Wrench size={28} className="text-blue-800/50" />
+                    )}
+                    <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-slate-900/75 text-white text-[10px] font-bold">
+                      {s.service_mode}
+                    </span>
+                    {c.is_owner && (
+                      <div className="absolute top-2 right-2 flex gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingService(s);
+                            setServiceOpen(true);
+                          }}
+                          data-testid={`edit-service-${s.id}`}
+                          className="p-1.5 rounded-full bg-white shadow-sm text-blue-700 hover:bg-blue-50"
+                        >
+                          <Edit size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteService(s.id);
+                          }}
+                          data-testid={`delete-service-${s.id}`}
+                          className="p-1.5 rounded-full bg-white shadow-sm text-rose-600 hover:bg-rose-50"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-3 flex-1 flex flex-col justify-between">
+                    <div>
+                      <div
+                        onClick={() => navigate(`/service/${s.id}`)}
+                        className="font-semibold text-sm text-slate-900 hover:text-blue-800 cursor-pointer line-clamp-1"
+                      >
+                        {s.name}
+                      </div>
+                      <div className="text-[10px] uppercase tracking-wider text-slate-500 mt-0.5">
+                        {s.category}
+                      </div>
+                      <div className="font-display font-bold text-blue-800 mt-1 text-xs">
+                        {s.price_range || s.pricing_model || "Custom Quote"}
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[10px] text-slate-500 font-medium">
+                        {s.service_area && (
+                          <span className="inline-flex items-center gap-0.5">
+                            <Globe size={10} className="text-slate-400" /> {s.service_area}
+                          </span>
+                        )}
+                        {s.turnaround_time && (
+                          <span className="inline-flex items-center gap-0.5">
+                            <Clock size={10} className="text-slate-400" /> {s.turnaround_time}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1.5 mt-3">
+                      <button
+                        onClick={() => navigate(`/service/${s.id}`)}
+                        className="py-1.5 rounded-full border border-slate-200 text-slate-700 text-[10px] font-semibold hover:bg-slate-50"
+                      >
+                        Details
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          if (!canContact) {
+                            handleContactClick(e);
+                          } else {
+                            setServiceEnq(s);
+                          }
+                        }}
+                        className={`py-1.5 rounded-full bg-orange-600 text-white text-[10px] font-semibold hover:bg-orange-700 ${
+                          !canContact ? "blur-[1px] opacity-70" : ""
+                        }`}
+                        data-testid={`service-enquiry-${s.id}`}
+                      >
+                        Request Quote
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -359,8 +511,25 @@ export default function CompanyDetailPage() {
       </div>
 
       <EnquiryDialog open={enq} onClose={() => setEnq(false)} companyId={c.id} companyName={c.name} defaultCategory={c.category} />
+      <EnquiryDialog
+        open={Boolean(serviceEnq)}
+        onClose={() => setServiceEnq(null)}
+        companyId={c.id}
+        companyName={c.name}
+        defaultCategory={serviceEnq?.category || c.category}
+        defaultLeadType="service"
+      />
       <CompanyEditDialog open={editOpen} onClose={() => setEditOpen(false)} company={c} onSaved={load} />
       <ProductDialog open={productOpen} onClose={() => setProductOpen(false)} initial={editingProduct} onSaved={load} />
+      <ServiceDialog
+        open={serviceOpen}
+        onClose={() => {
+          setServiceOpen(false);
+          setEditingService(null);
+        }}
+        initial={editingService}
+        onSaved={load}
+      />
       <PostDialog open={postOpen} onClose={() => setPostOpen(false)} onSaved={load} />
       <ReelDialog open={reelOpen} onClose={() => setReelOpen(false)} onSaved={load} />
       <FollowersDialog open={followersOpen} onClose={() => setFollowersOpen(false)} companyId={c.id} initialTab="followers" />

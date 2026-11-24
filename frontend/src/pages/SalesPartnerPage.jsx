@@ -4,11 +4,13 @@ import {
   AlertTriangle,
   BadgeCheck,
   Briefcase,
+  Building2,
   CheckCircle2,
   Clock,
   ExternalLink,
   FileText,
   IndianRupee,
+  Layers,
   MapPin,
   Package,
   Phone,
@@ -19,6 +21,7 @@ import {
   Upload,
   User,
   Wallet,
+  Wrench,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -43,17 +46,106 @@ const isPdfUrl = (url) => String(url || "").toLowerCase().split("?")[0].endsWith
 
 const formatINR = (val) => `₹${Number(val || 0).toLocaleString("en-IN")}`;
 
+const DISPUTE_REASON_LABELS = {
+  deal_not_done: "Deal Not Done",
+  price_too_high: "Price Too High",
+  fake_lead: "Fake Lead",
+  wrong_phone: "Wrong Phone",
+};
+
 const STATUS_FILTERS = [
   { key: "all", label: "All" },
   { key: "available", label: "Available" },
   { key: "unlocked", label: "Purchased (Upload Bill)" },
   { key: "invoice_uploaded", label: "Bill Uploaded" },
   { key: "approved", label: "Approved" },
+  { key: "relisted", label: "Re-listed" },
   { key: "disputed", label: "Disputed / Refunded" },
 ];
 
+const LEAD_TYPE_FILTERS = [
+  { key: "all", label: "All Types", icon: Layers },
+  { key: "product", label: "Product", icon: Package },
+  { key: "service", label: "Service", icon: Wrench },
+  { key: "real_estate", label: "Real Estate", icon: Building2 },
+];
+
+const LEAD_TYPE_META = {
+  product: { label: "Product", icon: Package, badgeCls: "bg-blue-50 text-blue-700 border-blue-200" },
+  service: { label: "Service", icon: Wrench, badgeCls: "bg-teal-50 text-teal-700 border-teal-200" },
+  real_estate: { label: "Real Estate", icon: Building2, badgeCls: "bg-purple-50 text-purple-700 border-purple-200" },
+};
+
+const getLeadTitle = (lead) => {
+  if (lead?.product_name) return lead.product_name;
+  const meta = lead?.lead_metadata && typeof lead.lead_metadata === "object" ? lead.lead_metadata : {};
+  if ((lead?.lead_type || "product") === "service" && meta.service_name) {
+    return meta.service_name;
+  }
+  if ((lead?.lead_type || "product") === "real_estate") {
+    const title = [meta.transaction_type, meta.property_type].filter(Boolean).join(" - ");
+    if (title) return title;
+  }
+  return "Industrial Lead";
+};
+
+const getLeadMetadataChips = (lead) => {
+  const leadType = lead?.lead_type || "product";
+  const meta = lead?.lead_metadata && typeof lead.lead_metadata === "object" ? lead.lead_metadata : {};
+  const chips = [];
+
+  if (leadType === "service") {
+    if (meta.service_mode) {
+      chips.push({ label: "Mode", value: meta.service_mode, cls: "bg-teal-50 text-teal-800 border-teal-200" });
+    }
+    const durationVal = meta.project_duration || (!meta.project_duration && lead?.quantity ? lead.quantity : "");
+    if (durationVal) {
+      chips.push({ label: "Duration", value: durationVal, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+    if (meta.frequency) {
+      chips.push({ label: "Frequency", value: meta.frequency, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+    if (meta.scope_details) {
+      chips.push({ label: "Scope", value: meta.scope_details, cls: "bg-emerald-50 text-emerald-800 border-emerald-200" });
+    }
+  } else if (leadType === "real_estate") {
+    if (meta.transaction_type) {
+      chips.push({ label: "Deal", value: meta.transaction_type, cls: "bg-amber-50 text-amber-800 border-amber-200" });
+    }
+    if (meta.property_type) {
+      chips.push({ label: "Property", value: meta.property_type, cls: "bg-purple-50 text-purple-800 border-purple-200" });
+    }
+    if (meta.area_size) {
+      chips.push({
+        label: "Area",
+        value: [meta.area_size, meta.area_unit].filter(Boolean).join(" "),
+        cls: "bg-slate-100 text-slate-800 border-slate-200",
+      });
+    } else if (meta.area_sqft) {
+      chips.push({
+        label: "Area",
+        value: `${Number(meta.area_sqft).toLocaleString("en-IN")} sq.ft`,
+        cls: "bg-slate-100 text-slate-800 border-slate-200",
+      });
+    } else if (lead?.quantity) {
+      chips.push({ label: "Area", value: lead.quantity, cls: "bg-slate-100 text-slate-800 border-slate-200" });
+    }
+    if (meta.possession_timeline) {
+      chips.push({ label: "Possession", value: meta.possession_timeline, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+    if (meta.power_load_kva) {
+      chips.push({ label: "Power", value: `${meta.power_load_kva} kVA`, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+  }
+
+  return chips;
+};
+
 const getLeadStatusMeta = (lead) => {
   const dealStatus = lead?.deal?.status;
+  const disputeCode = lead?.deal?.dispute_reason_code;
+  const disputeLabel = disputeCode ? DISPUTE_REASON_LABELS[disputeCode] || disputeCode : null;
+
   if (dealStatus === "UNLOCKED") {
     return {
       label: "Purchased • Upload Bill",
@@ -75,16 +167,25 @@ const getLeadStatusMeta = (lead) => {
       filterKey: "approved",
     };
   }
+  if (dealStatus === "RELISTED") {
+    return {
+      label: disputeLabel
+        ? `Re-listed for New Buyers (${disputeLabel})`
+        : "Re-listed for New Buyers (Deal Not Done / Price Too High)",
+      badgeCls: "bg-sky-50 text-sky-800 border-sky-200",
+      filterKey: "relisted",
+    };
+  }
   if (dealStatus === "FAKE_REPORTED") {
     return {
-      label: "Disputed • Fake Reported",
+      label: disputeLabel ? `Disputed • ${disputeLabel}` : "Disputed • Under Review",
       badgeCls: "bg-rose-50 text-rose-800 border-rose-200",
       filterKey: "disputed",
     };
   }
   if (dealStatus === "REFUNDED" || dealStatus === "FAKE_REFUNDED") {
     return {
-      label: "Refunded to Buyer",
+      label: "Disputed — Fake / Refunded",
       badgeCls: "bg-slate-100 text-slate-700 border-slate-300",
       filterKey: "disputed",
     };
@@ -119,6 +220,7 @@ export default function SalesPartnerPage() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [leadTypeFilter, setLeadTypeFilter] = useState("all");
 
   // Inline Bill Upload state
   const [activeUploadDealId, setActiveUploadDealId] = useState(null);
@@ -218,28 +320,45 @@ export default function SalesPartnerPage() {
     }
   };
 
+  const leadTypeCounts = useMemo(() => {
+    const counts = { all: leads.length, product: 0, service: 0, real_estate: 0 };
+    leads.forEach((lead) => {
+      const lt = lead?.lead_type || "product";
+      if (counts[lt] !== undefined) counts[lt] += 1;
+    });
+    return counts;
+  }, [leads]);
+
   const filterCounts = useMemo(() => {
     const counts = {
-      all: leads.length,
+      all: 0,
       available: 0,
       unlocked: 0,
       invoice_uploaded: 0,
       approved: 0,
+      relisted: 0,
       disputed: 0,
     };
     leads.forEach((lead) => {
+      const lt = lead?.lead_type || "product";
+      if (leadTypeFilter !== "all" && lt !== leadTypeFilter) return;
+      counts.all += 1;
       const meta = getLeadStatusMeta(lead);
       if (counts[meta.filterKey] !== undefined) {
         counts[meta.filterKey] += 1;
       }
     });
     return counts;
-  }, [leads]);
+  }, [leads, leadTypeFilter]);
 
   const filteredLeads = useMemo(() => {
-    if (statusFilter === "all") return leads;
-    return leads.filter((lead) => getLeadStatusMeta(lead).filterKey === statusFilter);
-  }, [leads, statusFilter]);
+    return leads.filter((lead) => {
+      const lt = lead?.lead_type || "product";
+      if (leadTypeFilter !== "all" && lt !== leadTypeFilter) return false;
+      if (statusFilter !== "all" && getLeadStatusMeta(lead).filterKey !== statusFilter) return false;
+      return true;
+    });
+  }, [leads, statusFilter, leadTypeFilter]);
 
   if (authLoading) {
     return (
@@ -413,6 +532,42 @@ export default function SalesPartnerPage() {
         </div>
       ) : (
         <div className="mt-5 space-y-4">
+          {/* Lead Type Filter Pills */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar" data-testid="sp-lead-type-filters">
+            {LEAD_TYPE_FILTERS.map((lt) => {
+              const Icon = lt.icon;
+              const active = leadTypeFilter === lt.key;
+              return (
+                <button
+                  key={lt.key}
+                  type="button"
+                  onClick={() => setLeadTypeFilter(lt.key)}
+                  data-testid={`sp-lead-type-${lt.key}`}
+                  aria-pressed={active}
+                  className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                    active
+                      ? lt.key === "service"
+                        ? "bg-teal-600 text-white border-teal-600 shadow-xs"
+                        : lt.key === "real_estate"
+                        ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                        : "bg-slate-900 text-white border-slate-900 shadow-xs"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900"
+                  }`}
+                >
+                  <Icon size={12} />
+                  <span>{lt.label}</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                      active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {leadTypeCounts[lt.key] ?? 0}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Status Filter Pills */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar" data-testid="sp-status-filters">
             {STATUS_FILTERS.map((f) => {
@@ -458,7 +613,7 @@ export default function SalesPartnerPage() {
                 <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
                   {leads.length === 0
                     ? "Start posting verified industrial leads with a total deal value to earn 50% commission when buyers unlock and approve the transaction bill."
-                    : "Try selecting another status filter above to view your other leads and deals."}
+                    : "Try selecting another lead type or status filter above to view your other leads and deals."}
                 </p>
               </div>
               {leads.length === 0 && (
@@ -488,6 +643,11 @@ export default function SalesPartnerPage() {
                 const locationText =
                   lead.location ||
                   [lead.industrial_area, lead.city, lead.state].filter(Boolean).join(", ");
+                const leadType = lead.lead_type || "product";
+                const typeBadge = LEAD_TYPE_META[leadType] || LEAD_TYPE_META.product;
+                const TypeBadgeIcon = typeBadge.icon;
+                const metaChips = getLeadMetadataChips(lead);
+                const cardTitle = getLeadTitle(lead);
 
                 return (
                   <div
@@ -497,10 +657,17 @@ export default function SalesPartnerPage() {
                   >
                     {/* Card Top Header */}
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5 border-b border-slate-100 pb-3.5">
-                      <div className="space-y-1 min-w-0">
+                      <div className="space-y-1.5 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${typeBadge.badgeCls}`}
+                            data-testid={`sp-lead-type-badge-${lead.id}`}
+                          >
+                            <TypeBadgeIcon size={10} />
+                            {typeBadge.label}
+                          </span>
                           <h3 className="font-display font-bold text-base sm:text-lg text-slate-900">
-                            {lead.product_name || "Industrial Lead"}
+                            {cardTitle}
                           </h3>
                           {lead.category && (
                             <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider">
@@ -508,6 +675,19 @@ export default function SalesPartnerPage() {
                             </span>
                           )}
                         </div>
+                        {metaChips.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5" data-testid={`sp-meta-chips-${lead.id}`}>
+                            {metaChips.map((chip, idx) => (
+                              <span
+                                key={`${chip.label}-${idx}`}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] font-semibold ${chip.cls}`}
+                              >
+                                <span className="opacity-70 text-[10px] uppercase tracking-wider">{chip.label}:</span>
+                                <span className="font-bold">{chip.value}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
                           {locationText && (
                             <span className="inline-flex items-center gap-1">
@@ -515,7 +695,7 @@ export default function SalesPartnerPage() {
                               {locationText}
                             </span>
                           )}
-                          {lead.quantity && (
+                          {lead.quantity && leadType === "product" && (
                             <span className="inline-flex items-center gap-1 font-medium text-slate-600">
                               <Package size={12} className="text-slate-400 shrink-0" />
                               Qty: {lead.quantity}
@@ -537,7 +717,9 @@ export default function SalesPartnerPage() {
                         >
                           {deal?.status === "APPROVED" ? (
                             <BadgeCheck size={13} />
-                          ) : deal?.status === "FAKE_REPORTED" || deal?.status === "REFUNDED" ? (
+                          ) : deal?.status === "RELISTED" ? (
+                            <RefreshCw size={13} />
+                          ) : deal?.status === "FAKE_REPORTED" || deal?.status === "REFUNDED" || deal?.status === "FAKE_REFUNDED" ? (
                             <AlertTriangle size={13} />
                           ) : (
                             <Clock size={13} />
@@ -721,29 +903,72 @@ export default function SalesPartnerPage() {
                           </div>
                         )}
 
-                        {/* Fake Report / Dispute Box */}
+                        {/* Lead Dispute / Relisted / Refunded Box */}
                         {(deal.fake_report_reason ||
+                          deal.dispute_reason_code ||
                           deal.status === "FAKE_REPORTED" ||
+                          deal.status === "RELISTED" ||
                           isRefunded) && (
                           <div
-                            className="rounded-xl border border-rose-200 bg-rose-50 p-3 space-y-1"
+                            className={`rounded-xl border p-3 space-y-1.5 ${
+                              deal.status === "RELISTED"
+                                ? "border-sky-200 bg-sky-50"
+                                : "border-rose-200 bg-rose-50"
+                            }`}
                             data-testid={`sp-dispute-box-${deal.id}`}
                           >
-                            <div className="flex items-center gap-1.5 text-xs font-extrabold text-rose-800">
-                              <AlertTriangle size={14} className="shrink-0" />
-                              <span>
-                                {isRefunded
-                                  ? "Deal Refunded to Buyer (Fake-Lead Guarantee Applied)"
-                                  : "Buyer Reported Fake / Invalid Lead"}
+                            <div
+                              className={`flex items-center justify-between gap-2 flex-wrap text-xs font-extrabold ${
+                                deal.status === "RELISTED" ? "text-sky-900" : "text-rose-800"
+                              }`}
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                {deal.status === "RELISTED" ? (
+                                  <RefreshCw size={14} className="shrink-0 text-sky-700" />
+                                ) : (
+                                  <AlertTriangle size={14} className="shrink-0" />
+                                )}
+                                <span>
+                                  {deal.status === "RELISTED"
+                                    ? "Re-listed for New Buyers (Deal Not Done / Price Too High)"
+                                    : isRefunded
+                                    ? "Disputed — Fake / Refunded"
+                                    : "Buyer Reported Lead Dispute"}
+                                </span>
                               </span>
+                              {deal.dispute_reason_code && (
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-full bg-white border text-[11px] font-bold ${
+                                    deal.status === "RELISTED"
+                                      ? "border-sky-200 text-sky-800"
+                                      : "border-rose-200 text-rose-800"
+                                  }`}
+                                  data-testid={`sp-dispute-reason-${deal.id}`}
+                                >
+                                  {DISPUTE_REASON_LABELS[deal.dispute_reason_code] || deal.dispute_reason_code}
+                                </span>
+                              )}
                             </div>
+                            {deal.status === "RELISTED" && deal.relisted_at && (
+                              <p className="text-[11px] text-sky-800 font-medium">
+                                Re-listed on {new Date(deal.relisted_at).toLocaleString("en-IN")} • Lead is open again for new buyers.
+                              </p>
+                            )}
                             {deal.fake_report_reason && (
-                              <p className="text-xs text-rose-700 leading-relaxed">
-                                <strong>Reason:</strong> {deal.fake_report_reason}
+                              <p
+                                className={`text-xs leading-relaxed ${
+                                  deal.status === "RELISTED" ? "text-sky-900" : "text-rose-700"
+                                }`}
+                              >
+                                <strong>Buyer Notes:</strong> {deal.fake_report_reason}
                               </p>
                             )}
                             {deal.admin_decision_notes && (
-                              <p className="text-xs text-rose-800/90 leading-relaxed">
+                              <p
+                                className={`text-xs leading-relaxed ${
+                                  deal.status === "RELISTED" ? "text-sky-900" : "text-rose-800/90"
+                                }`}
+                              >
                                 <strong>Admin Notes:</strong> {deal.admin_decision_notes}
                               </p>
                             )}

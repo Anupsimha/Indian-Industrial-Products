@@ -36,6 +36,8 @@ import SearchPage from "@/pages/SearchPage";
 import CompaniesPage from "@/pages/CompaniesPage";
 import ProductsPage from "@/pages/ProductsPage";
 import ProductDetailPage from "@/pages/ProductDetailPage";
+import ServicesPage from "@/pages/ServicesPage";
+import ServiceDetailPage from "@/pages/ServiceDetailPage";
 import JobsPage from "@/pages/JobsPage";
 import AdminPage from "@/pages/AdminPage";
 import { isTenantHost } from "@/utils/subdomain";
@@ -169,6 +171,8 @@ function App() {
                   <Route path="/search" element={<SearchPage />} />
                   <Route path="/products" element={<ProductsPage />} />
                   <Route path="/product/:id" element={<ProductDetailPage />} />
+                  <Route path="/services" element={<ServicesPage />} />
+                  <Route path="/service/:id" element={<ServiceDetailPage />} />
                   <Route path="/jobs" element={<JobsPage />} />
                   <Route path="/admin" element={<AdminPage />} />
                   <Route path="/company-admin" element={<CompanyAdminPage />} />

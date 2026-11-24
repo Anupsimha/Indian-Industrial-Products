@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 from types import SimpleNamespace
@@ -66,10 +67,22 @@ async def test_env(monkeypatch, tmp_path):
     server._auth_rate_buckets.clear()
     server._razorpay_order_intents.clear()
 
-    async def _noop_email(*args, **kwargs):
+    sent_emails = []
+
+    async def _spy_email(*args, **kwargs):
+        to = kwargs.get("to") if "to" in kwargs else (args[0] if len(args) > 0 else None)
+        subject = kwargs.get("subject") if "subject" in kwargs else (args[1] if len(args) > 1 else None)
+        html_body = kwargs.get("html_body") if "html_body" in kwargs else (args[2] if len(args) > 2 else None)
+        sent_emails.append((to, subject, html_body))
         return True
 
-    monkeypatch.setattr(server, "send_email", _noop_email)
+    monkeypatch.setattr(server, "send_email", _spy_email)
+    monkeypatch.setattr(server, "_test_sent_emails", sent_emails, raising=False)
+    try:
+        import backend.server as _bserver
+        monkeypatch.setattr(_bserver, "send_email", _spy_email)
+    except ImportError:
+        pass
 
     class _FakeResp:
         status_code = 200
@@ -81,8 +94,11 @@ async def test_env(monkeypatch, tmp_path):
         def json(self):
             return self._payload
 
+    _order_seq = {"n": 0}
+
     def _fake_requests_post(url, json=None, auth=None, timeout=10):
-        return _FakeResp({"id": f"order_rzp_{json.get('amount', 0)}"})
+        _order_seq["n"] += 1
+        return _FakeResp({"id": f"order_rzp_{json.get('amount', 0)}_{_order_seq['n']}"})
 
     import requests
     monkeypatch.setattr(requests, "post", _fake_requests_post)
@@ -155,6 +171,7 @@ async def test_env(monkeypatch, tmp_path):
         await s.commit()
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        client.sent_emails = sent_emails
         yield client, Session
 
     app.dependency_overrides.clear()
@@ -262,6 +279,28 @@ async def test_sales_partner_end_to_end_approval_flow(test_env):
     assert ver_data["deal"]["status"] == "UNLOCKED"
     assert ver_data["deal"]["total_paid"] == 2360.0
     assert ver_data["deal"]["partner_share_amount"] == 1000.0
+
+    # Admin deal listing & buyer purchased deals must serialize cleanly (no circular ref)
+    admin_deals_res = await client.get("/api/admin/sales-partner-deals", headers=_auth("admin_1"))
+    assert admin_deals_res.status_code == 200, admin_deals_res.text
+    admin_deals = admin_deals_res.json()
+    assert len(admin_deals) >= 1
+    admin_deal = next(d for d in admin_deals if d["id"] == deal_id)
+    assert admin_deal["lead"]["name"] == "Suresh Jindal"
+    assert admin_deal["lead"]["mobile"] == "9822223333"
+    assert admin_deal["lead"]["deal"] is None
+    assert admin_deal["sales_partner"]["name"] == "Ramesh Partner"
+    assert admin_deal["buyer"]["name"] == "Priya Buyer"
+
+    purchased_res = await client.get("/api/sales-partner/purchased-deals", headers=_auth("buyer_1"))
+    assert purchased_res.status_code == 200, purchased_res.text
+    purchased_deals = purchased_res.json()
+    assert len(purchased_deals) >= 1
+    purchased_deal = next(d for d in purchased_deals if d["id"] == deal_id)
+    assert purchased_deal["lead"]["name"] == "Suresh Jindal"
+    assert purchased_deal["lead"]["mobile"] == "9822223333"
+    assert purchased_deal["lead"]["deal"] is None
+    assert purchased_deal["sales_partner"]["name"] == "Ramesh Partner"
 
     # Check invoices generated with 18% GST
     inv_res = await client.get("/api/invoices/my-invoices", headers=_auth("buyer_1"))
@@ -946,4 +985,280 @@ async def test_pentest_vulnerability_remediations(test_env):
         u.is_deleted = True
         await s.commit()
     assert (await client.get("/api/sales-partner/my-leads", headers=_auth("sp_1"))).status_code == 403
+
+
+@pytest.mark.anyio
+async def test_structured_disputes_relist_soldout_and_emails(test_env):
+    client, Session = test_env
+
+    # 1. Sales partner posts ₹1,00,000 deal -> ₹2,000 base lead value -> ₹1,000 (50%) escrow / refund share
+    lead_res = await client.post(
+        "/api/sales-partner/leads",
+        json={
+            "name": "Mahesh Kulkarni",
+            "mobile": "9855556666",
+            "requirement": "Need Hydraulic Press 200T",
+            "product_name": "Hydraulic Press 200T",
+            "category": "Machinery",
+            "location": "Nashik, Maharashtra",
+            "quantity": "1 Unit",
+            "total_deal_value": 100000,
+        },
+        headers=_auth("sp_1"),
+    )
+    assert lead_res.status_code == 200, lead_res.text
+    lead_id = lead_res.json()["id"]
+
+    # 2. Buyer 1 unlocks the lead
+    ord1 = (await client.post(f"/api/sales-partner/leads/{lead_id}/create-order", headers=_auth("buyer_1"))).json()
+    ver1 = await client.post(
+        f"/api/sales-partner/leads/{lead_id}/verify-payment",
+        json={
+            "razorpay_order_id": ord1["order_id"],
+            "razorpay_payment_id": "pay_relist_1",
+            "razorpay_signature": _rzp_sig(ord1["order_id"], "pay_relist_1"),
+        },
+        headers=_auth("buyer_1"),
+    )
+    assert ver1.status_code == 200, ver1.text
+    deal1_id = ver1.json()["deal"]["id"]
+    assert ver1.json()["mobile"] == "9855556666"
+
+    # Validation check: omitting reason_code with short reason fails
+    bad_rep = await client.post(
+        f"/api/sales-partner/deals/{deal1_id}/report-fake",
+        json={"reason": "no"},
+        headers=_auth("buyer_1"),
+    )
+    assert bad_rep.status_code == 400
+
+    # 3. Buyer 1 reports structured dispute `deal_not_done` with optional empty notes
+    client.sent_emails.clear()
+    rep1 = await client.post(
+        f"/api/sales-partner/deals/{deal1_id}/report-fake",
+        json={"reason_code": "deal_not_done", "reason": ""},
+        headers=_auth("buyer_1"),
+    )
+    assert rep1.status_code == 200, rep1.text
+    rep1_data = rep1.json()
+    assert rep1_data["ok"] is True
+    assert "50% of the base lead will be refunded to your wallet" in rep1_data["message"]
+    assert rep1_data["deal"]["status"] == "FAKE_REPORTED"
+    assert rep1_data["deal"]["dispute_reason_code"] == "deal_not_done"
+    assert rep1_data["deal"]["fake_report_reason"] == "Deal not done"
+
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    email_recipients = {to for (to, _, _) in client.sent_emails}
+    assert "buyer1@test.com" in email_recipients
+    assert "partner@test.com" in email_recipients
+    assert "admin@test.com" in email_recipients
+
+    async with Session() as s:
+        buyer_notifs = (await s.execute(select(Notification).where(Notification.user_id == "buyer_1"))).scalars().all()
+        sp_notifs = (await s.execute(select(Notification).where(Notification.user_id == "sp_1"))).scalars().all()
+        adm_notifs = (await s.execute(select(Notification).where(Notification.user_id == "admin_1"))).scalars().all()
+        assert any("50% of the base lead will be refunded" in n.body for n in buyer_notifs)
+        assert any("Deal not done" in n.body or "Deal not done" in n.title for n in sp_notifs)
+        assert any("Deal not done" in n.body or "Deal not done" in n.title for n in adm_notifs)
+
+    # While FAKE_REPORTED, partner pending commission still reflects ₹1,000
+    my_leads_disputed = (await client.get("/api/sales-partner/my-leads", headers=_auth("sp_1"))).json()
+    assert my_leads_disputed["summary"]["pending_commission"] == 1000.0
+
+    # 4. Admin resolves deal_1 with `approve_relist_refund`
+    client.sent_emails.clear()
+    rel_res = await client.post(
+        f"/api/admin/sales-partner-deals/{deal1_id}/resolve",
+        json={"action": "approve_relist_refund", "notes": "Buyer & partner confirmed deal did not close"},
+        headers=_auth("admin_1"),
+    )
+    assert rel_res.status_code == 200, rel_res.text
+    rel_deal = rel_res.json()["deal"]
+    assert rel_deal["status"] == "RELISTED"
+    assert rel_deal["dispute_reason_code"] == "deal_not_done"
+    assert rel_deal["relisted_at"] is not None
+
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    rel_emails = {to: (subj, body) for (to, subj, body) in client.sent_emails}
+    assert "buyer1@test.com" in rel_emails
+    assert "partner@test.com" in rel_emails
+    assert "1,000.00" in rel_emails["buyer1@test.com"][1]
+    assert "re-listed" in rel_emails["partner@test.com"][1].lower()
+
+    # Double-resolution / double-refund is rejected on finalized RELISTED deal
+    for bad_action in ("approve_relist_refund", "approve_fake_refund", "reject_fake_report", "approve_partner_payout"):
+        dup_res = await client.post(
+            f"/api/admin/sales-partner-deals/{deal1_id}/resolve",
+            json={"action": bad_action},
+            headers=_auth("admin_1"),
+        )
+        assert dup_res.status_code == 400, f"Expected 400 for {bad_action} on RELISTED deal"
+
+    # Buyer 1 wallet received 50% (₹1,000.0), partner pending escrow returned to ₹0
+    buyer1_w = (await client.get("/api/wallet/me", headers=_auth("buyer_1"))).json()
+    assert buyer1_w["available_balance"] == 1000.0
+    buyer1_txs = (await client.get("/api/wallet/me/transactions", headers=_auth("buyer_1"))).json()
+    assert any(t["type"] == "CREDIT_DISPUTE_REFUND" and t["amount"] == 1000.0 for t in buyer1_txs)
+
+    sp_w_relist = (await client.get("/api/wallet/me", headers=_auth("sp_1"))).json()
+    assert sp_w_relist["pending_balance"] == 0.0
+    assert sp_w_relist["available_balance"] == 0.0
+
+    # Lead is open again (`is_sold_out=False`) on marketplace feed, Buyer 1 is no longer active owner,
+    # while Buyer 1 still sees historical RELISTED deal in `/api/sales-partner/purchased-deals`
+    feed_b1 = (await client.get("/api/requirements", headers=_auth("buyer_1"))).json()
+    feed_lead_b1 = next(x for x in feed_b1 if x["id"] == lead_id)
+    assert feed_lead_b1["is_sold_out"] is False
+    assert feed_lead_b1["is_unlocked"] is False
+    assert feed_lead_b1["mobile"] != "9855556666"
+    assert feed_lead_b1["deal"] is None
+
+    purchased_b1 = (await client.get("/api/sales-partner/purchased-deals", headers=_auth("buyer_1"))).json()
+    assert any(d["id"] == deal1_id and d["status"] == "RELISTED" for d in purchased_b1)
+
+    my_leads_relisted = (await client.get("/api/sales-partner/my-leads", headers=_auth("sp_1"))).json()
+    assert my_leads_relisted["summary"]["sold_leads"] == 0
+    assert my_leads_relisted["summary"]["pending_commission"] == 0.0
+
+    # 5. Buyer 2 (mfg_company_user) purchases the re-listed lead cleanly!
+    ord2 = await client.post(f"/api/sales-partner/leads/{lead_id}/create-order", headers=_auth("mfg_company_user"))
+    assert ord2.status_code == 200, ord2.text
+    ord2_id = ord2.json()["order_id"]
+
+    ver2 = await client.post(
+        f"/api/sales-partner/leads/{lead_id}/verify-payment",
+        json={
+            "razorpay_order_id": ord2_id,
+            "razorpay_payment_id": "pay_relist_2",
+            "razorpay_signature": _rzp_sig(ord2_id, "pay_relist_2"),
+        },
+        headers=_auth("mfg_company_user"),
+    )
+    assert ver2.status_code == 200, ver2.text
+    deal2 = ver2.json()["deal"]
+    deal2_id = deal2["id"]
+    assert deal2_id != deal1_id
+    assert deal2["status"] == "UNLOCKED"
+    assert ver2.json()["mobile"] == "9855556666"
+
+    # Multi-deal precedence checks: SP & Buyer 2 see active Deal 2; Buyer 1 sees Sold Out without Deal 2 leaked
+    my_leads_resold = (await client.get("/api/sales-partner/my-leads", headers=_auth("sp_1"))).json()
+    assert my_leads_resold["summary"]["sold_leads"] == 1
+    assert my_leads_resold["summary"]["pending_commission"] == 1000.0
+    sp_lead_row = next(x for x in my_leads_resold["leads"] if x["id"] == lead_id)
+    assert sp_lead_row["deal"]["id"] == deal2_id
+    assert sp_lead_row["deal"]["status"] == "UNLOCKED"
+    assert len(sp_lead_row["deals"]) == 2
+
+    feed_b2 = (await client.get("/api/requirements", headers=_auth("mfg_company_user"))).json()
+    feed_lead_b2 = next(x for x in feed_b2 if x["id"] == lead_id)
+    assert feed_lead_b2["is_sold_out"] is True
+    assert feed_lead_b2["is_unlocked"] is True
+    assert feed_lead_b2["deal"]["id"] == deal2_id
+
+    feed_b1_after = (await client.get("/api/requirements", headers=_auth("buyer_1"))).json()
+    feed_lead_b1_after = next(x for x in feed_b1_after if x["id"] == lead_id)
+    assert feed_lead_b1_after["is_sold_out"] is True
+    assert feed_lead_b1_after["is_unlocked"] is False
+    assert feed_lead_b1_after["deal"] is None
+
+    # 6. Buyer 2 reports `wrong_phone` with details -> Admin resolves with `approve_fake_refund`
+    client.sent_emails.clear()
+    rep2 = await client.post(
+        f"/api/sales-partner/deals/{deal2_id}/report-fake",
+        json={"reason_code": "wrong_phone", "reason": "Called twice, number belongs to unrelated salon"},
+        headers=_auth("mfg_company_user"),
+    )
+    assert rep2.status_code == 200, rep2.text
+    assert rep2.json()["deal"]["status"] == "FAKE_REPORTED"
+    assert rep2.json()["deal"]["dispute_reason_code"] == "wrong_phone"
+    assert rep2.json()["deal"]["fake_report_reason"] == "Wrong phone: Called twice, number belongs to unrelated salon"
+
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    rep2_emails = {to for (to, _, _) in client.sent_emails}
+    assert "mfg@test.com" in rep2_emails
+    assert "partner@test.com" in rep2_emails
+    assert "admin@test.com" in rep2_emails
+
+    client.sent_emails.clear()
+    fake_res = await client.post(
+        f"/api/admin/sales-partner-deals/{deal2_id}/resolve",
+        json={"action": "approve_fake_refund", "notes": "Confirmed wrong phone number"},
+        headers=_auth("admin_1"),
+    )
+    assert fake_res.status_code == 200, fake_res.text
+    assert fake_res.json()["deal"]["status"] == "REFUNDED"
+
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    fake_emails = {to: (subj, body) for (to, subj, body) in client.sent_emails}
+    assert "mfg@test.com" in fake_emails
+    assert "partner@test.com" in fake_emails
+    assert "1,000.00" in fake_emails["mfg@test.com"][1]
+    assert "sold out" in fake_emails["partner@test.com"][1].lower()
+
+    async with Session() as s:
+        mfg_notifs = (await s.execute(select(Notification).where(Notification.user_id == "mfg_company_user"))).scalars().all()
+        sp_notifs_after = (await s.execute(select(Notification).where(Notification.user_id == "sp_1"))).scalars().all()
+        assert any(n.type == "partner_fake_refund" and "1,000.00" in n.body for n in mfg_notifs)
+        assert any("Sold Out" in n.body or "Sold Out" in n.title for n in sp_notifs_after)
+
+    # Buyer 2's company wallet received ₹1,000 refund; SP pending is ₹0; lead stays permanently Sold Out
+    mfg_w = (await client.get("/api/companies/me/wallet", headers=_auth("mfg_company_user"))).json()
+    assert mfg_w["available_balance"] == 1000.0
+    sp_w_end = (await client.get("/api/wallet/me", headers=_auth("sp_1"))).json()
+    assert sp_w_end["pending_balance"] == 0.0
+
+    ord3 = await client.post(f"/api/sales-partner/leads/{lead_id}/create-order", headers=_auth("buyer_1"))
+    assert ord3.status_code == 400
+    assert "Sold Out" in ord3.json()["detail"]
+
+    # 7. Verify reject_fake_report & admin override payout also email both Buyer and Sales Partner
+    lead_c = (await client.post(
+        "/api/sales-partner/leads",
+        json={"name": "Lead C", "mobile": "9866667777", "requirement": "Air Compressors", "total_deal_value": 50000},
+        headers=_auth("sp_1"),
+    )).json()
+    ord_c = (await client.post(f"/api/sales-partner/leads/{lead_c['id']}/create-order", headers=_auth("buyer_1"))).json()
+    ver_c = (await client.post(
+        f"/api/sales-partner/leads/{lead_c['id']}/verify-payment",
+        json={
+            "razorpay_order_id": ord_c["order_id"],
+            "razorpay_payment_id": "pay_c_1",
+            "razorpay_signature": _rzp_sig(ord_c["order_id"], "pay_c_1"),
+        },
+        headers=_auth("buyer_1"),
+    )).json()
+    deal_c_id = ver_c["deal"]["id"]
+
+    await client.post(
+        f"/api/sales-partner/deals/{deal_c_id}/report-fake",
+        json={"reason_code": "price_too_high", "reason": "Quoted slightly higher than budget"},
+        headers=_auth("buyer_1"),
+    )
+    client.sent_emails.clear()
+    rej_c = await client.post(
+        f"/api/admin/sales-partner-deals/{deal_c_id}/resolve",
+        json={"action": "reject_fake_report", "notes": "Price negotiation normal"},
+        headers=_auth("admin_1"),
+    )
+    assert rej_c.status_code == 200
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert {"buyer1@test.com", "partner@test.com"}.issubset({to for (to, _, _) in client.sent_emails})
+
+    client.sent_emails.clear()
+    ov_c = await client.post(
+        f"/api/admin/sales-partner-deals/{deal_c_id}/resolve",
+        json={"action": "approve_partner_payout", "notes": "Confirmed offline delivery"},
+        headers=_auth("admin_1"),
+    )
+    assert ov_c.status_code == 200
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert {"buyer1@test.com", "partner@test.com"}.issubset({to for (to, _, _) in client.sent_emails})
+
 

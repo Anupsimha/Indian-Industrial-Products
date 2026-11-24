@@ -4,9 +4,10 @@ import { X, Loader2 } from "lucide-react";
 import { MediaUploader } from "./MediaUploader";
 import api, { formatApiError } from "../lib/api";
 import { toast } from "sonner";
-import { CATEGORIES } from "../lib/constants";
+import { useCategories } from "../hooks/useCategories";
 
 export const PostEditDialog = ({ open, onClose, post, onUpdated }) => {
+  const { loading: categoriesLoading, getOptions } = useCategories();
   const [content, setContent] = useState("");
   const [category, setCategory] = useState("");
   const [groupId, setGroupId] = useState("");
@@ -154,8 +155,8 @@ export const PostEditDialog = ({ open, onClose, post, onUpdated }) => {
               data-testid="post-edit-category-input"
               className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-medium"
             >
-              <option value="">Select Category...</option>
-              {CATEGORIES.map((cat) => (
+              <option value="">{categoriesLoading ? "Loading categories..." : "Select Category..."}</option>
+              {getOptions(category).map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>

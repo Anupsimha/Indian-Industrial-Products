@@ -16,10 +16,12 @@ import WebsiteSetupModal from "../components/WebsiteSetupModal";
 import CustomSectionManager from "../components/CustomSectionManager";
 import CmsMediaUploader from "../components/CmsMediaUploader";
 import { getTemplate } from "../website_templates/registry";
+import { useCategories } from "../hooks/useCategories";
 
 export default function CompanyAdminPage() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const { loading: categoriesLoading, getOptions } = useCategories();
 
   // Active CMS Section Tab
   const [activeTab, setActiveTab] = useState("overview"); // 'overview', 'products', 'company', 'posts', 'enquiries', 'domain', or custom section keys
@@ -61,6 +63,7 @@ export default function CompanyAdminPage() {
     gst: "",
     pan: "",
     business_type: "",
+    provider_type: "product",
     year_established: "",
     logo_url: "",
     cover_url: ""
@@ -108,6 +111,7 @@ export default function CompanyAdminPage() {
           gst: c.gst || "",
           pan: c.pan || "",
           business_type: c.business_type || "",
+          provider_type: c.provider_type || "product",
           year_established: c.year_established ? String(c.year_established) : "",
           logo_url: c.logo_url || "",
           cover_url: c.cover_url || ""
@@ -176,6 +180,7 @@ export default function CompanyAdminPage() {
         gst: companyForm.gst.trim(),
         pan: companyForm.pan.trim(),
         business_type: companyForm.business_type.trim(),
+        provider_type: companyForm.provider_type || "product",
         year_established: companyForm.year_established ? parseInt(companyForm.year_established, 10) : null,
         logo_url: companyForm.logo_url?.trim() || null,
         cover_url: companyForm.cover_url?.trim() || null
@@ -813,13 +818,33 @@ export default function CompanyAdminPage() {
 
                   <div className="space-y-1">
                     <label className="font-bold text-slate-300">Industry Category</label>
-                    <input
-                      type="text"
+                    <select
                       value={companyForm.category}
                       onChange={(e) => setCompanyForm({ ...companyForm, category: e.target.value })}
                       className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
                       required
-                    />
+                    >
+                      <option value="">{categoriesLoading ? "Loading categories..." : "Select Category..."}</option>
+                      {getOptions(companyForm.category).map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="font-bold text-slate-300">Offering Type</label>
+                    <select
+                      value={companyForm.provider_type}
+                      onChange={(e) => setCompanyForm({ ...companyForm, provider_type: e.target.value })}
+                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                      data-testid="cms-company-provider-type"
+                    >
+                      <option value="product">Product Provider</option>
+                      <option value="service">Service Provider</option>
+                      <option value="both">Product &amp; Service Provider (Both)</option>
+                    </select>
                   </div>
 
                   <div className="space-y-1 md:col-span-2">

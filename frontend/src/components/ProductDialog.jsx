@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { X, MapPin, ImagePlus, Loader2, Trash2, AlertTriangle } from "lucide-react";
 import api, { formatApiError } from "../lib/api";
 import { toast } from "sonner";
+import { useCategories } from "../hooks/useCategories";
 
 /** Upload a single file to the local /api/upload endpoint */
 async function uploadLocalFile(file) {
@@ -105,6 +106,7 @@ const LocalImageUploader = ({ images, onChange, testid = "product-media" }) => {
 
 export const ProductDialog = ({ open, onClose, onSaved, initial }) => {
   const isEdit = !!initial;
+  const { loading: categoriesLoading, getOptions } = useCategories();
   const [form, setForm] = useState({
     name: "",
     category: "",
@@ -271,14 +273,20 @@ export const ProductDialog = ({ open, onClose, onSaved, initial }) => {
             <label className="text-xs font-semibold text-slate-600 block mb-1">
               Category <span className="text-rose-500">*</span>
             </label>
-            <input
+            <select
               required
               value={form.category}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
-              placeholder="e.g. Steel, Chemicals, Plastics"
               data-testid="product-category-input"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 transition-all"
-            />
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300 transition-all"
+            >
+              <option value="">{categoriesLoading ? "Loading categories..." : "Select Category..."}</option>
+              {getOptions(form.category).map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Price & Stock */}

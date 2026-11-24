@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import api, { whatsappLink } from "../lib/api";
+import api, { directWhatsappLink } from "../lib/api";
 import { PostCard } from "../components/PostCard";
 import { HeroSlider } from "../components/HeroSlider";
 import { CategoryDrawer } from "../components/CategoryDrawer";
@@ -826,9 +826,19 @@ export default function HomePage() {
                       </div>
                       {it.is_unlocked ? (
                         <a
-                          href={whatsappLink(it.mobile, `Hi ${it.name}, regarding your enquiry: ${it.requirement.slice(0, 60)}`)}
+                          href={
+                            it.mobile && !String(it.mobile).includes("•")
+                              ? directWhatsappLink(
+                                  it.mobile,
+                                  `Hi ${it.name}, regarding your enquiry: ${(it.requirement || "").slice(0, 60)}`
+                                )
+                              : "#"
+                          }
                           target="_blank"
                           rel="noreferrer"
+                          onClick={(e) => {
+                            if (!it.mobile || String(it.mobile).includes("•")) e.preventDefault();
+                          }}
                           className="px-3 py-1.5 rounded-full bg-[#25D366] text-white text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#128C7E]"
                         >
                           WhatsApp

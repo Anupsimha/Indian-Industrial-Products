@@ -48,6 +48,29 @@ class LeadProfileExtractor:
         }
         return meaningful_tokens
 
+    def _get_field(self, lead: Any, key: str) -> Any:
+        if isinstance(lead, dict):
+            return lead.get(key)
+        return getattr(lead, key, None)
+
+    def _extract_from_metadata_value(self, value: Any) -> Set[str]:
+        """Recursively extract keywords from string/collection/dict values inside lead_metadata."""
+        if value is None:
+            return set()
+        if isinstance(value, str):
+            return self.extract_keywords(value)
+        if isinstance(value, (list, tuple, set)):
+            keywords: Set[str] = set()
+            for item in value:
+                keywords.update(self._extract_from_metadata_value(item))
+            return keywords
+        if isinstance(value, dict):
+            keywords: Set[str] = set()
+            for sub_val in value.values():
+                keywords.update(self._extract_from_metadata_value(sub_val))
+            return keywords
+        return set()
+
     def build_profile(self, leads: List[Any]) -> LeadPreferenceProfile:
         """
         Build a LeadPreferenceProfile from a collection of lead entities or dictionaries.
@@ -55,31 +78,36 @@ class LeadProfileExtractor:
         profile = LeadPreferenceProfile()
 
         for lead in leads:
-            lead_id = getattr(lead, "id", None) or (lead.get("id") if isinstance(lead, dict) else None)
+            lead_id = self._get_field(lead, "id")
             if lead_id:
                 profile.lead_ids.append(str(lead_id))
 
-            category = getattr(lead, "category", None) or (lead.get("category") if isinstance(lead, dict) else None)
+            category = self._get_field(lead, "category")
             if category and isinstance(category, str) and category.strip():
                 cat_clean = category.strip()
                 profile.categories.add(cat_clean)
                 # Also tokenize category into keywords (e.g. "CNC Machining" -> "cnc", "machining")
                 profile.keywords.update(self.extract_keywords(cat_clean))
 
-            product_name = getattr(lead, "product_name", None) or (lead.get("product_name") if isinstance(lead, dict) else None)
+            product_name = self._get_field(lead, "product_name")
             if product_name and isinstance(product_name, str):
                 profile.keywords.update(self.extract_keywords(product_name))
 
-            req_text = getattr(lead, "requirement", None) or (lead.get("requirement") if isinstance(lead, dict) else None)
+            req_text = self._get_field(lead, "requirement")
             if req_text and isinstance(req_text, str):
                 profile.raw_requirements.append(req_text)
                 profile.keywords.update(self.extract_keywords(req_text))
 
-            location = getattr(lead, "location", None) or (lead.get("location") if isinstance(lead, dict) else None)
+            lead_metadata = self._get_field(lead, "lead_metadata")
+            if isinstance(lead_metadata, dict):
+                for meta_val in lead_metadata.values():
+                    profile.keywords.update(self._extract_from_metadata_value(meta_val))
+
+            location = self._get_field(lead, "location")
             if location and isinstance(location, str) and location.strip():
                 profile.locations.add(location.strip().lower())
 
-            industrial_area = getattr(lead, "industrial_area", None) or (lead.get("industrial_area") if isinstance(lead, dict) else None)
+            industrial_area = self._get_field(lead, "industrial_area")
             if industrial_area and isinstance(industrial_area, str) and industrial_area.strip():
                 profile.industrial_areas.add(industrial_area.strip().lower())
 

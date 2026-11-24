@@ -31,7 +31,7 @@ import shutil
 import json
 from urllib.parse import urlparse
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Literal, Tuple
+from typing import Optional, List, Literal, Tuple, Dict, Any
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
@@ -336,6 +336,7 @@ class Company(Base):
     ithink_warehouse_code = Column(String(100), nullable=True)
     employees = Column(String(255), nullable=True)
     certifications = Column(JSON, default=list, nullable=True)
+    provider_type = Column(String(30), default="product", nullable=True)
     is_featured = Column(Boolean, default=False, nullable=False)
     created_at = Column(String(255), nullable=False)
 
@@ -378,6 +379,28 @@ class Product(Base):
     location = Column(String(255), nullable=True)
     created_at = Column(String(255), nullable=False)
 
+
+class Service(Base):
+    __tablename__ = "services"
+    id = Column(String(36), primary_key=True)
+    company_id = Column(String(36), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    category = Column(String(255), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    pricing_model = Column(String(50), default="Custom Quote", nullable=False)  # Fixed, Starting From, Per Hour, Per Project, Custom Quote
+    price_range = Column(String(255), nullable=True)
+    service_mode = Column(String(50), default="On-site", nullable=False)  # On-site, Remote, Both
+    service_area = Column(String(255), nullable=True)
+    turnaround_time = Column(String(255), nullable=True)
+    experience_years = Column(Integer, nullable=True)
+    certifications = Column(JSON, default=list, nullable=True)
+    image_url = Column(String(1024), nullable=True)
+    images = Column(JSON, default=list, nullable=True)
+    location = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(String(255), nullable=False)
+    updated_at = Column(String(255), nullable=False)
+
 class Job(Base):
     __tablename__ = "jobs"
     id = Column(String(36), primary_key=True)
@@ -413,6 +436,8 @@ class Enquiry(Base):
     post_id = Column(String(36), nullable=True)
     status = Column(String(50), nullable=False)  # new, in_progress, closed
     media_urls = Column(JSON, default=list, nullable=True)  # list of uploaded image/file URLs
+    lead_type = Column(String(30), default="product", nullable=False, index=True)
+    lead_metadata = Column(JSON, default=dict, nullable=True)
     is_sales_partner_lead = Column(Boolean, default=False, nullable=False)
     sales_partner_id = Column(String(36), nullable=True, index=True)
     total_deal_value = Column(Float, nullable=True)
@@ -438,12 +463,14 @@ class SalesPartnerLeadDeal(Base):
     razorpay_order_id = Column(String(255), nullable=True)
     razorpay_payment_id = Column(String(255), nullable=True)
     invoice_id = Column(String(36), nullable=True)
-    status = Column(String(50), default="UNLOCKED", nullable=False)  # UNLOCKED, INVOICE_UPLOADED, APPROVED, FAKE_REPORTED, REFUNDED
+    status = Column(String(50), default="UNLOCKED", nullable=False)  # UNLOCKED, INVOICE_UPLOADED, APPROVED, FAKE_REPORTED, REFUNDED, RELISTED
     bill_image_url = Column(String(1024), nullable=True)
     bill_notes = Column(Text, nullable=True)
     bill_uploaded_at = Column(String(255), nullable=True)
     fake_report_reason = Column(Text, nullable=True)
+    dispute_reason_code = Column(String(50), nullable=True)  # deal_not_done, price_too_high, fake_lead, wrong_phone
     fake_reported_at = Column(String(255), nullable=True)
+    relisted_at = Column(String(255), nullable=True)
     admin_decision_notes = Column(Text, nullable=True)
     resolved_by = Column(String(50), nullable=True)       # buyer, admin
     resolved_at = Column(String(255), nullable=True)
@@ -808,6 +835,8 @@ class MembershipInvoice(Base):
 # -------------------- Models Pydantic --------------------
 RoleType = Literal["manufacturer", "supplier", "buyer", "sales_partner", "admin"]
 PublicRoleType = Literal["manufacturer", "supplier", "buyer", "sales_partner"]
+ProviderType = Literal["product", "service", "both"]
+LeadType = Literal["product", "service", "real_estate"]
 
 
 class UserPublic(BaseModel):
@@ -837,6 +866,7 @@ class RegisterIn(BaseModel):
     password: str
     role: PublicRoleType
     company_name: Optional[str] = None
+    provider_type: Optional[ProviderType] = "product"
 
 
 class LoginIn(BaseModel):
@@ -870,6 +900,7 @@ class CompanyOut(BaseModel):
     ithink_warehouse_code: Optional[str] = None
     employees: Optional[str] = None
     certifications: Optional[List[str]] = None
+    provider_type: Optional[ProviderType] = "product"
     is_featured: bool = False
     followers_count: int = 0
     following_count: int = 0
@@ -904,6 +935,7 @@ class CompanyUpdate(BaseModel):
     pickup_location_name: Optional[str] = None
     employees: Optional[str] = None
     certifications: Optional[List[str]] = None
+    provider_type: Optional[ProviderType] = None
 
 
 class CompanyCreate(BaseModel):
@@ -918,6 +950,7 @@ class CompanyCreate(BaseModel):
     city: Optional[str] = None
     state: Optional[str] = None
     pincode: Optional[str] = None
+    provider_type: Optional[ProviderType] = "product"
 
 
 class IndustrialGroupCreate(BaseModel):
@@ -1103,6 +1136,8 @@ class EnquiryCreate(BaseModel):
     industrial_area: Optional[str] = None
     company_id: Optional[str] = None
     post_id: Optional[str] = None
+    lead_type: Optional[LeadType] = "product"
+    lead_metadata: Optional[Dict[str, Any]] = None
     total_deal_value: Optional[float] = None
     is_sales_partner_lead: Optional[bool] = None
 
@@ -1126,6 +1161,8 @@ class EnquiryOut(BaseModel):
     post_id: Optional[str] = None
     status: Literal["new", "in_progress", "closed", "completed", "pending"]
     media_urls: Optional[List[str]] = None
+    lead_type: Optional[LeadType] = "product"
+    lead_metadata: Optional[Dict[str, Any]] = None
     is_sales_partner_lead: bool = False
     sales_partner_id: Optional[str] = None
     total_deal_value: Optional[float] = None
@@ -1138,6 +1175,10 @@ class EnquiryOut(BaseModel):
 
 def hydrate_enquiry_out(d: Enquiry, deal: Optional[dict] = None) -> EnquiryOut:
     status_val = d.status if d.status in ["new", "in_progress", "closed", "completed", "pending"] else "new"
+    raw_lead_type = getattr(d, "lead_type", None) or "product"
+    lead_type_val = raw_lead_type if raw_lead_type in ("product", "service", "real_estate") else "product"
+    raw_meta = getattr(d, "lead_metadata", None)
+    lead_meta_val = raw_meta if isinstance(raw_meta, dict) else {}
     return EnquiryOut(
         id=d.id,
         user_id=getattr(d, "user_id", None),
@@ -1157,6 +1198,8 @@ def hydrate_enquiry_out(d: Enquiry, deal: Optional[dict] = None) -> EnquiryOut:
         post_id=d.post_id,
         status=status_val,
         media_urls=getattr(d, "media_urls", None),
+        lead_type=lead_type_val,
+        lead_metadata=lead_meta_val,
         is_sales_partner_lead=bool(getattr(d, "is_sales_partner_lead", False)),
         sales_partner_id=getattr(d, "sales_partner_id", None),
         total_deal_value=getattr(d, "total_deal_value", None),
@@ -1568,6 +1611,11 @@ async def hydrate_company(company: Company, current_user: Optional[dict], db: As
         ithink_warehouse_code=getattr(company, "ithink_warehouse_code", None),
         employees=company.employees,
         certifications=company.certifications,
+        provider_type=(
+            getattr(company, "provider_type", None)
+            if getattr(company, "provider_type", None) in ("product", "service", "both")
+            else "product"
+        ),
         is_featured=company.is_featured,
         followers_count=followers_count,
         following_count=following_count,
@@ -1713,6 +1761,7 @@ async def register(payload: RegisterIn, response: Response, db: AsyncSession = D
             cover_url=None,
             mobile=payload.mobile, whatsapp=payload.mobile,
             email=email, website=None, owner_id=user_id,
+            provider_type=(payload.provider_type or "product"),
             pickup_location_name=f"IIP_WH_{company_id[:8].upper()}",
             created_at=now_iso(),
         )
@@ -2586,11 +2635,30 @@ async def record_post_view(
 
 # -------------------- Companies --------------------
 @api.get("/companies", response_model=List[CompanyOut])
-async def list_companies(request: Request, featured: bool = False, limit: int = 50, db: AsyncSession = Depends(get_db)):
+async def list_companies(
+    request: Request,
+    featured: bool = False,
+    provider_type: Optional[str] = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
     cu = await get_optional_user(request)
     stmt = select(Company)
     if featured:
         stmt = stmt.where(Company.is_featured == True)
+    if provider_type and provider_type.strip():
+        pt_val = provider_type.strip().lower()
+        if pt_val == "product":
+            stmt = stmt.where(or_(Company.provider_type.in_(["product", "both"]), Company.provider_type.is_(None)))
+        elif pt_val == "service":
+            stmt = stmt.where(Company.provider_type.in_(["service", "both"]))
+        elif pt_val == "both":
+            stmt = stmt.where(Company.provider_type == "both")
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid provider_type. Must be one of: product, service, both.",
+            )
     stmt = stmt.order_by(desc(Company.created_at)).limit(limit)
     res = await db.execute(stmt)
     docs = res.scalars().all()
@@ -2681,6 +2749,10 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
     if "website" in update_data and update_data["website"] is not None:
         update_data["website"] = _validate_safe_external_url(update_data["website"], allow_missing_scheme=True)
 
+    warehouse_fields_updated = any(
+        k in update_data for k in ("address", "city", "state", "pincode", "pickup_location_name")
+    )
+
     # Auto-assign pickup_location_name if not already assigned
     pickup_nickname = company.pickup_location_name or f"IIP_WH_{company_id[:8].upper()}"
     update_data["pickup_location_name"] = pickup_nickname
@@ -2693,37 +2765,40 @@ async def update_company(company_id: str, payload: CompanyUpdate, user: dict = D
         stmt_c = select(Company).where(Company.id == company_id)
         company = (await db.execute(stmt_c)).scalar_one()
 
-        # Trigger iThink warehouse registration for dynamic seller warehouse routing
-        try:
-            it_res = register_ithink_warehouse({
-                "id": company.id,
-                "name": company.name,
-                "owner_name": company.owner_name,
-                "email": company.email,
-                "mobile": company.mobile,
-                "address": company.address,
-                "city": company.city,
-                "state": company.state,
-                "pincode": company.pincode,
-                "gstin": company.gst or ""
-            })
-            if it_res.get("ok"):
-                wh_code = it_res.get("warehouse_code")
-                upd_vals = {
-                    "ithink_warehouse_code": wh_code,
-                }
-                await db.execute(update(Company).where(Company.id == company_id).values(**upd_vals))
-                await db.commit()
-                company.ithink_warehouse_code = wh_code
-                logger.info(f"iThink warehouse registered for company '{company.name}': {wh_code}")
-            else:
-                logger.error(f"iThink warehouse registration failed for company '{company.name}': {it_res.get('error')}")
-                raise HTTPException(status_code=400, detail=it_res.get("error", "iThink warehouse registration failed"))
-        except HTTPException:
-            raise
-        except Exception as it_err:
-            logger.error(f"Failed registering warehouse with iThink Logistics: {str(it_err)}")
-            raise HTTPException(status_code=400, detail=f"Failed registering warehouse with iThink Logistics: {str(it_err)}")
+        effective_provider_type = getattr(company, "provider_type", None) or "product"
+        # Trigger iThink warehouse registration only when warehouse-relevant fields are updated
+        # for companies that offer physical products.
+        if warehouse_fields_updated and effective_provider_type != "service":
+            try:
+                it_res = register_ithink_warehouse({
+                    "id": company.id,
+                    "name": company.name,
+                    "owner_name": company.owner_name,
+                    "email": company.email,
+                    "mobile": company.mobile,
+                    "address": company.address,
+                    "city": company.city,
+                    "state": company.state,
+                    "pincode": company.pincode,
+                    "gstin": company.gst or ""
+                })
+                if it_res.get("ok"):
+                    wh_code = it_res.get("warehouse_code")
+                    upd_vals = {
+                        "ithink_warehouse_code": wh_code,
+                    }
+                    await db.execute(update(Company).where(Company.id == company_id).values(**upd_vals))
+                    await db.commit()
+                    company.ithink_warehouse_code = wh_code
+                    logger.info(f"iThink warehouse registered for company '{company.name}': {wh_code}")
+                else:
+                    logger.error(f"iThink warehouse registration failed for company '{company.name}': {it_res.get('error')}")
+                    raise HTTPException(status_code=400, detail=it_res.get("error", "iThink warehouse registration failed"))
+            except HTTPException:
+                raise
+            except Exception as it_err:
+                logger.error(f"Failed registering warehouse with iThink Logistics: {str(it_err)}")
+                raise HTTPException(status_code=400, detail=f"Failed registering warehouse with iThink Logistics: {str(it_err)}")
         
     return await hydrate_company(company, user, db)
 
@@ -4371,6 +4446,7 @@ async def admin_delete_company(company_id: str, user: dict = Depends(get_current
     await db.execute(delete(Post).where(Post.company_id == company_id))
     await db.execute(delete(Reel).where(Reel.company_id == company_id))
     await db.execute(delete(Product).where(Product.company_id == company_id))
+    await db.execute(delete(Service).where(Service.company_id == company_id))
     await db.commit()
     return {"ok": True}
 
@@ -4378,6 +4454,55 @@ async def admin_delete_company(company_id: str, user: dict = Depends(get_current
 # -------------------- Enquiries / Leads --------------------
 ALLOWED_ENQUIRY_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"}
 MAX_ENQUIRY_MEDIA_SIZE = 10 * 1024 * 1024  # 10 MB per file
+ALLOWED_LEAD_TYPES = ("product", "service", "real_estate")
+
+
+def _normalize_lead_type(raw_lead_type: Optional[Any], allow_none: bool = False) -> Optional[str]:
+    if raw_lead_type is None or str(raw_lead_type).strip() == "":
+        return None if allow_none else "product"
+    lt = str(raw_lead_type).strip().lower()
+    if lt not in ALLOWED_LEAD_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid lead_type. Must be one of: product, service, real_estate.",
+        )
+    return lt
+
+
+def _sanitize_lead_metadata(raw_meta: Any) -> Dict[str, Any]:
+    if raw_meta is None:
+        return {}
+    if isinstance(raw_meta, str):
+        stripped = raw_meta.strip()
+        if not stripped:
+            return {}
+        try:
+            parsed = json.loads(stripped)
+        except Exception:
+            raise HTTPException(status_code=400, detail="lead_metadata must be valid JSON.")
+        if not isinstance(parsed, dict):
+            raise HTTPException(status_code=400, detail="lead_metadata must be a JSON object.")
+        raw_meta = parsed
+    if not isinstance(raw_meta, dict):
+        raise HTTPException(status_code=400, detail="lead_metadata must be a JSON object.")
+    cleaned: Dict[str, Any] = {}
+    for k, v in raw_meta.items():
+        if k is None:
+            continue
+        key_str = str(k).strip()[:100]
+        if not key_str:
+            continue
+        cleaned[key_str] = v.strip() if isinstance(v, str) else v
+    return cleaned
+
+
+def _apply_lead_type_filter(stmt, lead_type: Optional[str]):
+    lt = _normalize_lead_type(lead_type, allow_none=True)
+    if not lt:
+        return stmt
+    if lt == "product":
+        return stmt.where(or_(Enquiry.lead_type == "product", Enquiry.lead_type.is_(None)))
+    return stmt.where(Enquiry.lead_type == lt)
 
 def _parse_bool_flag(val) -> bool:
     if isinstance(val, bool):
@@ -4456,6 +4581,8 @@ async def _create_enquiry_impl(
     industrial_area = _field("industrial_area")
     company_id = _field("company_id")
     post_id = _field("post_id")
+    lead_type = _normalize_lead_type(_field("lead_type"), allow_none=False)
+    lead_metadata = _sanitize_lead_metadata(_field("lead_metadata"))
     raw_total_deal_value = _field("total_deal_value")
     requested_sp_flag = _parse_bool_flag(_field("is_sales_partner_lead"))
 
@@ -4512,6 +4639,8 @@ async def _create_enquiry_impl(
         state=state, city=city,
         industrial_area=industrial_area,
         media_urls=saved_media_urls if saved_media_urls else None,
+        lead_type=lead_type,
+        lead_metadata=lead_metadata,
         is_sales_partner_lead=is_sp_lead,
         sales_partner_id=sales_partner_id,
         total_deal_value=total_deal_value,
@@ -4612,12 +4741,14 @@ async def update_enquiry_status(
 
 @api.get("/requirements/my", response_model=List[EnquiryOut])
 async def list_my_requirements(
+    lead_type: Optional[str] = None,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     stmt = select(Enquiry).where(
         or_(Enquiry.user_id == user["id"], Enquiry.mobile == user["mobile"])
-    ).order_by(desc(Enquiry.created_at))
+    )
+    stmt = _apply_lead_type_filter(stmt, lead_type).order_by(desc(Enquiry.created_at))
     docs = (await db.execute(stmt)).scalars().all()
     return [hydrate_enquiry_out(d) for d in docs]
 
@@ -5290,7 +5421,9 @@ def _serialize_deal(
         "bill_notes": deal.bill_notes,
         "bill_uploaded_at": deal.bill_uploaded_at,
         "fake_report_reason": deal.fake_report_reason,
+        "dispute_reason_code": getattr(deal, "dispute_reason_code", None),
         "fake_reported_at": deal.fake_reported_at,
+        "relisted_at": getattr(deal, "relisted_at", None),
         "admin_decision_notes": deal.admin_decision_notes,
         "resolved_by": deal.resolved_by,
         "resolved_at": deal.resolved_at,
@@ -5300,10 +5433,23 @@ def _serialize_deal(
         "sales_partner_mobile": partner.mobile if partner else None,
         "sales_partner_email": partner.email if partner else None,
     }
+    if partner:
+        out["sales_partner"] = {
+            "id": partner.id,
+            "name": partner.name,
+            "mobile": partner.mobile,
+            "email": partner.email,
+        }
     if buyer:
         out["buyer_name"] = buyer.name
         out["buyer_mobile"] = buyer.mobile
         out["buyer_email"] = buyer.email
+        out["buyer"] = {
+            "id": buyer.id,
+            "name": buyer.name,
+            "mobile": buyer.mobile,
+            "email": buyer.email,
+        }
     return out
 
 
@@ -5379,6 +5525,8 @@ def serialize_enquiry(
         "mobile": d.mobile if unlocked else _mask_mobile(d.mobile),
         "company_id": d.company_id,
         "media_urls": d.media_urls or [],
+        "lead_type": getattr(d, "lead_type", None) or "product",
+        "lead_metadata": getattr(d, "lead_metadata", None) or {},
         "is_sales_partner_lead": is_sp,
         "sales_partner_id": sp_id,
         "total_deal_value": getattr(d, "total_deal_value", None),
@@ -5401,7 +5549,9 @@ async def _serialize_requirement_docs(
     if sp_lead_ids and cu:
         deal_rows = (
             await db.execute(
-                select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.lead_id.in_(sp_lead_ids))
+                select(SalesPartnerLeadDeal)
+                .where(SalesPartnerLeadDeal.lead_id.in_(sp_lead_ids))
+                .order_by(SalesPartnerLeadDeal.created_at.asc())
             )
         ).scalars().all()
         partner_ids = {dl.sales_partner_id for dl in deal_rows if dl.sales_partner_id}
@@ -5410,8 +5560,26 @@ async def _serialize_requirement_docs(
             partners_by_id = {u.id: u for u in p_rows}
         cu_id = cu.get("id")
         cu_role = cu.get("role")
+        enq_by_id = {d.id: d for d in docs}
+
+        def _deal_rank(dl: SalesPartnerLeadDeal) -> tuple:
+            if cu_role == "admin" or dl.sales_partner_id == cu_id:
+                is_active = 1 if dl.status not in ("RELISTED", "REFUNDED", "FAKE_REFUNDED") else 0
+                is_own_buy = 1 if dl.buyer_user_id == cu_id else 0
+                return (is_active, is_own_buy, dl.created_at or "")
+            return (1 if dl.status != "RELISTED" else 0, dl.created_at or "")
+
         for dl in deal_rows:
-            if cu_role == "admin" or dl.buyer_user_id == cu_id or dl.sales_partner_id == cu_id:
+            if not (cu_role == "admin" or dl.buyer_user_id == cu_id or dl.sales_partner_id == cu_id):
+                continue
+            enq_obj = enq_by_id.get(dl.lead_id)
+            if dl.status == "RELISTED" and (
+                not getattr(enq_obj, "is_sold_out", False)
+                or (cu_role != "admin" and dl.sales_partner_id != cu_id and getattr(enq_obj, "sold_to_user_id", None) != cu_id)
+            ):
+                continue
+            prev = deals_by_lead.get(dl.lead_id)
+            if prev is None or _deal_rank(dl) >= _deal_rank(prev):
                 deals_by_lead[dl.lead_id] = dl
 
     return [
@@ -5436,12 +5604,14 @@ async def list_requirements(
     industrial_area: Optional[str] = None,
     city: Optional[str] = None,
     state: Optional[str] = None,
+    lead_type: Optional[str] = None,
     sort: Literal["recent", "trending"] = "recent",
     limit: int = 50,
     personalized: bool = False,
     lead_ids: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
+    normalized_lt = _normalize_lead_type(lead_type, allow_none=True)
     cu = await get_optional_user(request)
 
     user_id = cu["id"] if cu else None
@@ -5459,7 +5629,13 @@ async def list_requirements(
             active_lead_ids = await _resolve_lead_ids(request, lead_ids, db, user=cu)
             if active_lead_ids:
                 rec_res = await recommendation_engine.get_recommended_leads(db, active_lead_ids, limit=limit)
-                return await _serialize_requirement_docs(rec_res.items, cu, unlocked_ids, db)
+                rec_items = rec_res.items
+                if normalized_lt:
+                    rec_items = [
+                        item for item in rec_items
+                        if (getattr(item, "lead_type", None) or "product") == normalized_lt
+                    ]
+                return await _serialize_requirement_docs(rec_items, cu, unlocked_ids, db)
         except Exception:
             pass
     
@@ -5474,6 +5650,7 @@ async def list_requirements(
         stmt = stmt.where(Enquiry.city.ilike(f"%{city}%"))
     if state:
         stmt = stmt.where(Enquiry.state.ilike(f"%{state}%"))
+    stmt = _apply_lead_type_filter(stmt, normalized_lt)
         
     stmt = stmt.order_by(desc(Enquiry.created_at)).limit(limit)
     res = await db.execute(stmt)
@@ -6372,8 +6549,10 @@ async def get_group_products(
 async def get_group_leads(
     group_id: str,
     request: Request,
+    lead_type: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
+    normalized_lt = _normalize_lead_type(lead_type, allow_none=True)
     cu = await get_optional_user(request)
     unlocked_ids = set()
     if cu:
@@ -6395,9 +6574,14 @@ async def get_group_leads(
                 Enquiry.requirement.ilike(f"%{area_kw}%")
             )
         )
+    stmt = _apply_lead_type_filter(stmt, normalized_lt)
     docs = (await db.execute(stmt)).scalars().all()
     if not docs:
-        docs = (await db.execute(select(Enquiry).limit(10))).scalars().all()
+        fallback_stmt = _apply_lead_type_filter(
+            select(Enquiry).order_by(desc(Enquiry.created_at)),
+            normalized_lt,
+        ).limit(10)
+        docs = (await db.execute(fallback_stmt)).scalars().all()
 
     return await _serialize_requirement_docs(docs, cu, unlocked_ids, db)
 
@@ -6806,11 +6990,19 @@ class VerifySalesPartnerPaymentIn(BaseModel):
     razorpay_order_id: str
     razorpay_signature: str
 
+DISPUTE_REASON_LABELS: Dict[str, str] = {
+    "deal_not_done": "Deal not done",
+    "price_too_high": "Price too high",
+    "fake_lead": "Fake lead",
+    "wrong_phone": "Wrong phone",
+}
+
 class FakeReportIn(BaseModel):
-    reason: str
+    reason_code: Optional[Literal["deal_not_done", "price_too_high", "fake_lead", "wrong_phone"]] = None
+    reason: Optional[str] = ""
 
 class AdminResolveDealIn(BaseModel):
-    action: Literal["approve_partner_payout", "approve_fake_refund", "reject_fake_report"]
+    action: Literal["approve_partner_payout", "approve_fake_refund", "approve_relist_refund", "reject_fake_report"]
     notes: Optional[str] = None
 
 
@@ -7047,7 +7239,15 @@ async def _execute_sales_partner_lead_purchase(
     if getattr(enq, "is_sold_out", False):
         if getattr(enq, "sold_to_user_id", None) == user["id"]:
             existing_deal = (
-                await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.lead_id == enq.id))
+                await db.execute(
+                    select(SalesPartnerLeadDeal)
+                    .where(
+                        SalesPartnerLeadDeal.lead_id == enq.id,
+                        SalesPartnerLeadDeal.buyer_user_id == user["id"],
+                        SalesPartnerLeadDeal.status != "RELISTED",
+                    )
+                    .order_by(desc(SalesPartnerLeadDeal.created_at))
+                )
             ).scalars().first()
             return {
                 "ok": True,
@@ -7059,7 +7259,12 @@ async def _execute_sales_partner_lead_purchase(
         raise HTTPException(status_code=400, detail="This Sales Partner lead is already Sold Out.")
 
     existing_other = (
-        await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.lead_id == enq.id))
+        await db.execute(
+            select(SalesPartnerLeadDeal).where(
+                SalesPartnerLeadDeal.lead_id == enq.id,
+                SalesPartnerLeadDeal.status != "RELISTED",
+            )
+        )
     ).scalars().first()
     if existing_other:
         raise HTTPException(status_code=400, detail="This Sales Partner lead is already Sold Out.")
@@ -7209,8 +7414,8 @@ async def _release_partner_deal_payout(
     notes: Optional[str] = None,
     is_admin_override: bool = False,
 ) -> SalesPartnerLeadDeal:
-    if deal.status in ("REFUNDED", "FAKE_REFUNDED"):
-        raise HTTPException(status_code=400, detail="Cannot approve payout on a deal already refunded as fake.")
+    if deal.status in ("REFUNDED", "FAKE_REFUNDED", "RELISTED"):
+        raise HTTPException(status_code=400, detail="Cannot approve payout on a deal already refunded or relisted.")
     if deal.status == "APPROVED":
         return deal
 
@@ -7272,6 +7477,7 @@ async def _release_partner_deal_payout(
         email_subject=f"IIP Commission Credited: ₹{deal.partner_share_amount:,.2f}",
     )
     if is_admin_override:
+        buyer = (await db.execute(select(User).where(User.id == deal.buyer_user_id))).scalar_one_or_none()
         await notify_user(
             db=db,
             user_id=deal.buyer_user_id,
@@ -7280,27 +7486,38 @@ async def _release_partner_deal_payout(
             notif_type="partner_payout_approved",
             target_id=deal.id,
             link_url="/leads?tab=partner_purchased",
+            send_email_flag=bool(buyer and buyer.email),
+            email_to=buyer.email if buyer else None,
+            email_subject=f"IIP Lead Deal Finalized by Admin - Deal {deal.id[:8]}",
         )
     return deal
 
 
-async def _refund_fake_lead_deal(
+async def _resolve_dispute_with_refund(
     deal: SalesPartnerLeadDeal,
     admin_user_id: str,
     db: AsyncSession,
     notes: Optional[str] = None,
+    relist: bool = False,
 ) -> SalesPartnerLeadDeal:
-    if deal.status == "APPROVED":
-        raise HTTPException(status_code=400, detail="Cannot issue fake-lead refund after partner commission has been approved.")
-    if deal.status in ("REFUNDED", "FAKE_REFUNDED"):
-        return deal
+    """Resolve a disputed Sales Partner deal by cancelling escrow and refunding 50% of base lead value to buyer, optionally re-listing the lead."""
+    if relist:
+        if deal.status in ("APPROVED", "REFUNDED", "FAKE_REFUNDED", "RELISTED"):
+            raise HTTPException(status_code=400, detail=f"Deal is already finalized ({deal.status}).")
+    else:
+        if deal.status in ("APPROVED", "RELISTED"):
+            raise HTTPException(status_code=400, detail=f"Cannot issue fake-lead refund after deal status is {deal.status}.")
+        if deal.status in ("REFUNDED", "FAKE_REFUNDED"):
+            return deal
 
     partner = (await db.execute(select(User).where(User.id == deal.sales_partner_id))).scalar_one_or_none()
     buyer = (await db.execute(select(User).where(User.id == deal.buyer_user_id))).scalar_one_or_none()
+    enq = (await db.execute(select(Enquiry).where(Enquiry.id == deal.lead_id).with_for_update())).scalar_one_or_none()
 
     # Reverse pending commission from Sales Partner wallet (idempotent)
     sp_owner_id = partner.company_id if (partner and partner.company_id) else deal.sales_partner_id
     sp_wallet = await get_or_create_wallet(sp_owner_id, db, for_update=True)
+    share = round(float(deal.partner_share_amount or 0.0), 2)
     cancel_tx = (
         await db.execute(
             select(WalletTransaction).where(
@@ -7310,9 +7527,9 @@ async def _refund_fake_lead_deal(
         )
     ).scalars().first()
     if not cancel_tx:
-        share = round(float(deal.partner_share_amount or 0.0), 2)
         sp_wallet.pending_balance = round(max(0.0, (sp_wallet.pending_balance or 0.0) - share), 2)
         sp_wallet.updated_at = now_iso()
+        escrow_reason = "verified dispute & re-list" if relist else "verified fake lead dispute"
         db.add(
             WalletTransaction(
                 id=str(uuid.uuid4()),
@@ -7322,17 +7539,18 @@ async def _refund_fake_lead_deal(
                 type="ESCROW_CANCELLED",
                 amount=share,
                 balance_after=sp_wallet.available_balance,
-                description=f"Escrow cancelled due to verified fake lead dispute (Deal {deal.id[:8]})",
+                description=f"Escrow cancelled due to {escrow_reason} (Deal {deal.id[:8]})",
                 created_at=now_iso(),
             )
         )
 
-    # Idempotency guard for buyer 50% refund
+    # Idempotency guard for buyer 50% refund across both fake & relist dispute refund types
+    refund_amt = round(float(deal.refund_share_amount or round(float(deal.lead_value_base or 0.0) * 0.50, 2)), 2)
     existing_refund_tx = (
         await db.execute(
             select(WalletTransaction).where(
                 WalletTransaction.order_id == deal.id,
-                WalletTransaction.type == "CREDIT_FAKE_REFUND",
+                WalletTransaction.type.in_(("CREDIT_FAKE_REFUND", "CREDIT_DISPUTE_REFUND")),
             )
         )
     ).scalars().first()
@@ -7340,52 +7558,121 @@ async def _refund_fake_lead_deal(
     if not existing_refund_tx:
         buyer_owner_id = buyer.company_id if (buyer and buyer.company_id) else deal.buyer_user_id
         buyer_wallet = await get_or_create_wallet(buyer_owner_id, db, for_update=True)
-        refund_amt = round(float(deal.refund_share_amount or 0.0), 2)
         buyer_wallet.available_balance = round((buyer_wallet.available_balance or 0.0) + refund_amt, 2)
         buyer_wallet.updated_at = now_iso()
+        tx_type = "CREDIT_DISPUTE_REFUND" if relist else "CREDIT_FAKE_REFUND"
+        tx_desc = (
+            f"50% wallet refund for verified dispute & re-listed lead (Deal {deal.id[:8]})"
+            if relist
+            else f"50% wallet refund for verified fake Sales Partner lead (Deal {deal.id[:8]})"
+        )
         db.add(
             WalletTransaction(
                 id=str(uuid.uuid4()),
                 wallet_id=buyer_wallet.id,
                 company_id=buyer_owner_id,
                 order_id=deal.id,
-                type="CREDIT_FAKE_REFUND",
+                type=tx_type,
                 amount=refund_amt,
                 balance_after=buyer_wallet.available_balance,
-                description=f"50% wallet refund for verified fake Sales Partner lead (Deal {deal.id[:8]})",
+                description=tx_desc,
                 created_at=now_iso(),
             )
         )
 
     now_str = now_iso()
-    deal.status = "REFUNDED"
+    deal.status = "RELISTED" if relist else "REFUNDED"
+    if relist:
+        deal.relisted_at = now_str
     deal.admin_decision_notes = notes
     deal.resolved_by = admin_user_id
     deal.resolved_at = now_str
     deal.updated_at = now_str
 
+    if enq:
+        if relist:
+            enq.is_sold_out = False
+            enq.sold_to_user_id = None
+            enq.status = "new"
+        else:
+            enq.is_sold_out = True
+
+    if relist and buyer and buyer.unlocked_enquiries and deal.lead_id in buyer.unlocked_enquiries:
+        buyer.unlocked_enquiries = [eid for eid in buyer.unlocked_enquiries if eid != deal.lead_id]
+
+    lead_label = (enq.product_name or enq.category) if enq else deal.lead_id[:8]
+    reason_label = DISPUTE_REASON_LABELS.get(
+        deal.dispute_reason_code or "",
+        "Deal not done" if relist else "Fake / Invalid lead",
+    )
+
+    if relist:
+        buyer_title = "50% Dispute Refund Received & Lead Re-listed"
+        buyer_body = (
+            f"Your dispute ({reason_label}) for lead '{lead_label}' was verified. "
+            f"₹{refund_amt:,.2f} (50% of Lead Value) has been refunded to your wallet, and the lead has been re-listed."
+        )
+        buyer_subj = f"IIP Refund Credited (₹{refund_amt:,.2f}) - {reason_label}"
+        sp_title = "Lead Re-listed After Buyer Dispute"
+        sp_body = (
+            f"Admin verified the buyer dispute ({reason_label}) for lead '{lead_label}' (Deal {deal.id[:8]}). "
+            f"Pending escrow of ₹{share:,.2f} was cancelled and the lead has been re-listed on the marketplace for other buyers."
+        )
+        sp_subj = f"IIP Lead Re-listed ({reason_label}) - Deal {deal.id[:8]}"
+    else:
+        buyer_title = "50% Fake-Lead Refund Credited!"
+        buyer_body = (
+            f"Admin approved your dispute ({reason_label}) for lead '{lead_label}'. "
+            f"₹{refund_amt:,.2f} (50% of Lead Value) has been credited to your wallet."
+        )
+        buyer_subj = f"IIP Refund Credited (₹{refund_amt:,.2f}) - {reason_label}"
+        sp_title = f"Dispute Verified ({reason_label}) - Lead Marked Sold Out"
+        sp_body = (
+            f"Admin upheld the buyer's dispute ({reason_label}) for lead '{lead_label}' (Deal {deal.id[:8]}). "
+            f"Pending escrow of ₹{share:,.2f} was cancelled and the lead remains marked Sold Out."
+        )
+        sp_subj = f"IIP Dispute Verified ({reason_label}) - Escrow Cancelled (Deal {deal.id[:8]})"
+
     await notify_user(
         db=db,
         user_id=deal.buyer_user_id,
-        title="50% Fake-Lead Refund Credited!",
-        body=f"Admin approved your fake-lead claim. ₹{deal.refund_share_amount:,.2f} (50% of Lead Value) has been credited to your wallet.",
+        title=buyer_title,
+        body=buyer_body,
         notif_type="partner_fake_refund",
         target_id=deal.id,
         link_url="/settings",
         send_email_flag=bool(buyer and buyer.email),
         email_to=buyer.email if buyer else None,
-        email_subject=f"IIP Fake Lead Refund Credited: ₹{deal.refund_share_amount:,.2f}",
+        email_subject=buyer_subj,
     )
     await notify_user(
         db=db,
         user_id=deal.sales_partner_id,
-        title="Fake Lead Claim Approved by Admin",
-        body=f"Admin upheld the buyer's fake-lead report for deal {deal.id[:8]}. Pending escrow of ₹{deal.partner_share_amount:,.2f} was cancelled.",
+        title=sp_title,
+        body=sp_body,
         notif_type="partner_fake_reported",
         target_id=deal.id,
         link_url="/sales-partner",
+        send_email_flag=bool(partner and partner.email),
+        email_to=partner.email if partner else None,
+        email_subject=sp_subj,
     )
     return deal
+
+
+async def _refund_fake_lead_deal(
+    deal: SalesPartnerLeadDeal,
+    admin_user_id: str,
+    db: AsyncSession,
+    notes: Optional[str] = None,
+) -> SalesPartnerLeadDeal:
+    return await _resolve_dispute_with_refund(
+        deal=deal,
+        admin_user_id=admin_user_id,
+        db=db,
+        notes=notes,
+        relist=False,
+    )
 
 
 async def _handle_topup_order_creation(lead_id: str, user: dict, db: AsyncSession) -> dict:
@@ -7620,18 +7907,37 @@ async def get_sales_partner_my_leads(
 
     lead_ids = [e.id for e in enquiries]
     deals_by_lead: Dict[str, SalesPartnerLeadDeal] = {}
+    deals_history_by_lead: Dict[str, List[SalesPartnerLeadDeal]] = {}
     buyers_by_id: Dict[str, User] = {}
     if lead_ids:
         deal_rows = (
-            await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.lead_id.in_(lead_ids)))
+            await db.execute(
+                select(SalesPartnerLeadDeal)
+                .where(SalesPartnerLeadDeal.lead_id.in_(lead_ids))
+                .order_by(SalesPartnerLeadDeal.created_at.asc())
+            )
         ).scalars().all()
         buyer_ids = {dl.buyer_user_id for dl in deal_rows if dl.buyer_user_id}
         if buyer_ids:
             b_rows = (await db.execute(select(User).where(User.id.in_(buyer_ids)))).scalars().all()
             buyers_by_id = {u.id: u for u in b_rows}
-        deals_by_lead = {dl.lead_id: dl for dl in deal_rows}
+        for dl in deal_rows:
+            deals_history_by_lead.setdefault(dl.lead_id, []).append(dl)
+            prev = deals_by_lead.get(dl.lead_id)
+            dl_rank = (1 if dl.status not in ("RELISTED", "REFUNDED", "FAKE_REFUNDED") else 0, dl.created_at or "")
+            prev_rank = (
+                (1 if prev.status not in ("RELISTED", "REFUNDED", "FAKE_REFUNDED") else 0, prev.created_at or "")
+                if prev is not None
+                else None
+            )
+            if prev_rank is None or dl_rank >= prev_rank:
+                deals_by_lead[dl.lead_id] = dl
 
-    sp_user = (await db.execute(select(User).where(User.id == user["id"]))).scalar_one_or_none()
+    sp_ids = {e.sales_partner_id for e in enquiries if e.sales_partner_id}
+    sp_users_by_id: Dict[str, User] = {}
+    if sp_ids:
+        sp_rows = (await db.execute(select(User).where(User.id.in_(sp_ids)))).scalars().all()
+        sp_users_by_id = {u.id: u for u in sp_rows}
     leads_out = []
     sold_count = 0
     approved_count = 0
@@ -7649,14 +7955,18 @@ async def get_sales_partner_my_leads(
             elif dl.status in ("UNLOCKED", "INVOICE_UPLOADED", "BILL_UPLOADED", "FAKE_REPORTED"):
                 pending_comm += float(dl.partner_share_amount or 0.0)
         buyer_obj = buyers_by_id.get(dl.buyer_user_id) if dl else None
-        leads_out.append(
-            serialize_enquiry(
-                e,
-                cu=user,
-                unlocked_ids={e.id},
-                deal=_serialize_deal(dl, sp_user, buyer_obj),
-            )
+        lead_sp_user = sp_users_by_id.get(e.sales_partner_id) if e.sales_partner_id else None
+        lead_item = serialize_enquiry(
+            e,
+            cu=user,
+            unlocked_ids={e.id},
+            deal=_serialize_deal(dl, lead_sp_user, buyer_obj),
         )
+        lead_item["deals"] = [
+            _serialize_deal(h, lead_sp_user, buyers_by_id.get(h.buyer_user_id))
+            for h in deals_history_by_lead.get(e.id, [])
+        ]
+        leads_out.append(lead_item)
 
     return {
         "summary": {
@@ -7702,7 +8012,7 @@ async def get_purchased_sales_partner_deals(
         lead_obj = leads_map.get(dl.lead_id)
         partner_obj = partners_map.get(dl.sales_partner_id)
         deal_dict = _serialize_deal(dl, partner_obj)
-        deal_dict["lead"] = serialize_enquiry(lead_obj, cu=user, unlocked_ids={dl.lead_id}, deal=deal_dict) if lead_obj else None
+        deal_dict["lead"] = serialize_enquiry(lead_obj, cu=user, unlocked_ids={dl.lead_id}, deal=None) if lead_obj else None
         result.append(deal_dict)
     return result
 
@@ -7721,7 +8031,7 @@ async def upload_sales_partner_deal_bill(
         raise HTTPException(status_code=404, detail="Deal not found")
     if deal.sales_partner_id != user["id"] and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Only the assigned Sales Partner can upload the transaction bill.")
-    if deal.status in ("APPROVED", "REFUNDED", "FAKE_REFUNDED"):
+    if deal.status in ("APPROVED", "REFUNDED", "FAKE_REFUNDED", "RELISTED"):
         raise HTTPException(status_code=400, detail=f"Cannot upload bill for a finalized deal ({deal.status}).")
 
     content_type = request.headers.get("content-type", "").lower()
@@ -7823,9 +8133,19 @@ async def report_sales_partner_deal_fake(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    reason = (payload.reason or "").strip()
-    if len(reason) < 5:
-        raise HTTPException(status_code=400, detail="Please provide a detailed reason (minimum 5 characters) for reporting a fake lead.")
+    notes = (payload.reason or "").strip()
+    reason_code = payload.reason_code
+    if reason_code:
+        label = DISPUTE_REASON_LABELS[reason_code]
+        full_reason = f"{label}: {notes}" if notes else label
+    else:
+        if len(notes) < 5:
+            raise HTTPException(
+                status_code=400,
+                detail="Please select a dispute reason or provide a detailed reason (minimum 5 characters).",
+            )
+        label = notes
+        full_reason = notes
 
     deal = (
         await db.execute(select(SalesPartnerLeadDeal).where(SalesPartnerLeadDeal.id == deal_id).with_for_update())
@@ -7834,23 +8154,46 @@ async def report_sales_partner_deal_fake(
         raise HTTPException(status_code=404, detail="Deal not found")
     if deal.buyer_user_id != user["id"] and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Only the purchasing buyer/manufacturer can report this lead as fake.")
-    if deal.status in ("APPROVED", "REFUNDED", "FAKE_REFUNDED"):
+    if deal.status in ("APPROVED", "REFUNDED", "FAKE_REFUNDED", "RELISTED"):
         raise HTTPException(status_code=400, detail=f"Cannot report a finalized deal ({deal.status}).")
 
     now_str = now_iso()
     deal.status = "FAKE_REPORTED"
-    deal.fake_report_reason = reason
+    deal.dispute_reason_code = reason_code
+    deal.fake_report_reason = full_reason
     deal.fake_reported_at = now_str
     deal.updated_at = now_str
+
+    partner = (await db.execute(select(User).where(User.id == deal.sales_partner_id))).scalar_one_or_none()
+    buyer = (await db.execute(select(User).where(User.id == deal.buyer_user_id))).scalar_one_or_none()
+    lead_obj = (await db.execute(select(Enquiry).where(Enquiry.id == deal.lead_id))).scalar_one_or_none()
+    lead_label = (lead_obj.product_name or lead_obj.category) if lead_obj else deal.lead_id[:8]
+    confirm_msg = "Our admin team will review your dispute. If confirmed, 50% of the base lead will be refunded to your wallet."
+
+    await notify_user(
+        db=db,
+        user_id=deal.buyer_user_id,
+        title=f"Lead Dispute Submitted: {label}" if reason_code else "Lead Dispute Submitted",
+        body=f"Your dispute for lead '{lead_label}' ({full_reason}) has been recorded. {confirm_msg}",
+        notif_type="partner_fake_reported",
+        target_id=deal.id,
+        link_url="/leads?tab=partner_purchased",
+        send_email_flag=bool(buyer and buyer.email),
+        email_to=buyer.email if buyer else None,
+        email_subject=f"IIP Lead Dispute Submitted ({label if reason_code else 'Under Review'})",
+    )
 
     await notify_user(
         db=db,
         user_id=deal.sales_partner_id,
-        title="Fake Lead Report Filed",
-        body=f"Buyer reported deal {deal.id[:8]} as fake/invalid: '{reason}'. An Admin will review and make the final decision.",
+        title=f"Buyer Raised Dispute: {label}" if reason_code else "Fake Lead Report Filed",
+        body=f"Buyer reported lead '{lead_label}' (Deal {deal.id[:8]}): '{full_reason}'. An Admin will review and make the final decision.",
         notif_type="partner_fake_reported",
         target_id=deal.id,
         link_url="/sales-partner",
+        send_email_flag=bool(partner and partner.email),
+        email_to=partner.email if partner else None,
+        email_subject=f"IIP Dispute Alert: Buyer Reported Deal {deal.id[:8]} ({label if reason_code else 'Dispute'})",
     )
 
     admins = (await db.execute(select(User).where(User.role == "admin"))).scalars().all()
@@ -7858,17 +8201,22 @@ async def report_sales_partner_deal_fake(
         await notify_user(
             db=db,
             user_id=adm.id,
-            title="Admin Review Required: Fake Lead Dispute",
-            body=f"Buyer reported Sales Partner deal {deal.id[:8]} as fake: '{reason}'.",
+            title=f"Admin Review Required: Lead Dispute ({label})" if reason_code else "Admin Review Required: Fake Lead Dispute",
+            body=f"Buyer reported Sales Partner deal {deal.id[:8]} for '{lead_label}': '{full_reason}'.",
             notif_type="partner_fake_reported",
             target_id=deal.id,
             link_url="/admin",
+            send_email_flag=bool(adm.email),
+            email_to=adm.email if adm.email else None,
+            email_subject=f"Admin Review Required: Sales Partner Lead Dispute ({deal.id[:8]})",
         )
 
     await db.commit()
-    partner = (await db.execute(select(User).where(User.id == deal.sales_partner_id))).scalar_one_or_none()
-    buyer = (await db.execute(select(User).where(User.id == deal.buyer_user_id))).scalar_one_or_none()
-    return {"ok": True, "deal": _serialize_deal(deal, partner, buyer)}
+    return {
+        "ok": True,
+        "message": confirm_msg,
+        "deal": _serialize_deal(deal, partner, buyer),
+    }
 
 
 @api.get("/admin/sales-partner-deals")
@@ -7894,7 +8242,7 @@ async def admin_list_sales_partner_deals(
         partner_obj = users_map.get(dl.sales_partner_id)
         buyer_obj = users_map.get(dl.buyer_user_id)
         item = _serialize_deal(dl, partner_obj, buyer_obj)
-        item["lead"] = serialize_enquiry(lead_obj, cu=user, unlocked_ids={dl.lead_id}, deal=item) if lead_obj else None
+        item["lead"] = serialize_enquiry(lead_obj, cu=user, unlocked_ids={dl.lead_id}, deal=None) if lead_obj else None
         out.append(item)
     return out
 
@@ -7927,32 +8275,49 @@ async def admin_resolve_sales_partner_deal(
             db=db,
             notes=payload.notes,
         )
+    elif payload.action == "approve_relist_refund":
+        await _resolve_dispute_with_refund(
+            deal=deal,
+            admin_user_id=user["id"],
+            db=db,
+            notes=payload.notes,
+            relist=True,
+        )
     elif payload.action == "reject_fake_report":
-        if deal.status in ("APPROVED", "REFUNDED", "FAKE_REFUNDED"):
+        if deal.status in ("APPROVED", "REFUNDED", "FAKE_REFUNDED", "RELISTED"):
             raise HTTPException(status_code=400, detail=f"Deal is already finalized ({deal.status}).")
         restored_status = "INVOICE_UPLOADED" if deal.bill_image_url else "UNLOCKED"
+        now_str = now_iso()
         deal.status = restored_status
         deal.admin_decision_notes = payload.notes
         deal.resolved_by = user["id"]
-        deal.resolved_at = now_iso()
-        deal.updated_at = now_iso()
+        deal.resolved_at = now_str
+        deal.updated_at = now_str
+        partner_u = (await db.execute(select(User).where(User.id == deal.sales_partner_id))).scalar_one_or_none()
+        buyer_u = (await db.execute(select(User).where(User.id == deal.buyer_user_id))).scalar_one_or_none()
         await notify_user(
             db=db,
             user_id=deal.buyer_user_id,
             title="Fake Lead Claim Rejected by Admin",
-            body=f"Admin rejected the fake-lead report for deal {deal.id[:8]}. Deal status restored to {restored_status}.",
+            body=f"Admin rejected the dispute for deal {deal.id[:8]}. Deal status restored to {restored_status}.",
             notif_type="partner_bill_uploaded",
             target_id=deal.id,
             link_url="/leads?tab=partner_purchased",
+            send_email_flag=bool(buyer_u and buyer_u.email),
+            email_to=buyer_u.email if buyer_u else None,
+            email_subject=f"IIP Lead Dispute Rejected - Deal {deal.id[:8]}",
         )
         await notify_user(
             db=db,
             user_id=deal.sales_partner_id,
             title="Fake Lead Claim Dismissed",
-            body=f"Admin dismissed the fake-lead report on deal {deal.id[:8]}. Your deal remains active.",
+            body=f"Admin dismissed the buyer's dispute on deal {deal.id[:8]}. Your deal remains active ({restored_status}).",
             notif_type="partner_lead_sold",
             target_id=deal.id,
             link_url="/sales-partner",
+            send_email_flag=bool(partner_u and partner_u.email),
+            email_to=partner_u.email if partner_u else None,
+            email_subject=f"IIP Lead Dispute Dismissed - Deal {deal.id[:8]}",
         )
 
     await db.commit()
@@ -9961,16 +10326,46 @@ async def startup():
             bill_notes TEXT,
             bill_uploaded_at VARCHAR(255),
             fake_report_reason TEXT,
+            dispute_reason_code VARCHAR(50),
             fake_reported_at VARCHAR(255),
+            relisted_at VARCHAR(255),
             admin_decision_notes TEXT,
             resolved_by VARCHAR(50),
             resolved_at VARCHAR(255),
             created_at VARCHAR(255) NOT NULL,
             updated_at VARCHAR(255) NOT NULL
         )""",
+        "ALTER TABLE sales_partner_lead_deals ADD COLUMN IF NOT EXISTS dispute_reason_code VARCHAR(50)",
+        "ALTER TABLE sales_partner_lead_deals ADD COLUMN IF NOT EXISTS relisted_at VARCHAR(255)",
         "CREATE INDEX IF NOT EXISTS idx_sp_deals_lead_id ON sales_partner_lead_deals (lead_id)",
         "CREATE INDEX IF NOT EXISTS idx_sp_deals_partner_id ON sales_partner_lead_deals (sales_partner_id)",
         "CREATE INDEX IF NOT EXISTS idx_sp_deals_buyer_id ON sales_partner_lead_deals (buyer_user_id)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS provider_type VARCHAR(30) DEFAULT 'product'",
+        """CREATE TABLE IF NOT EXISTS services (
+            id VARCHAR(36) PRIMARY KEY,
+            company_id VARCHAR(36) NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            category VARCHAR(255) NOT NULL,
+            description TEXT,
+            pricing_model VARCHAR(50) DEFAULT 'Custom Quote' NOT NULL,
+            price_range VARCHAR(255),
+            service_mode VARCHAR(50) DEFAULT 'On-site' NOT NULL,
+            service_area VARCHAR(255),
+            turnaround_time VARCHAR(255),
+            experience_years INTEGER,
+            certifications JSONB DEFAULT '[]'::jsonb,
+            image_url VARCHAR(1024),
+            images JSONB DEFAULT '[]'::jsonb,
+            location VARCHAR(255),
+            is_active BOOLEAN DEFAULT TRUE NOT NULL,
+            created_at VARCHAR(255) NOT NULL,
+            updated_at VARCHAR(255) NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_services_company_id ON services (company_id)",
+        "CREATE INDEX IF NOT EXISTS idx_services_category ON services (category)",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS lead_type VARCHAR(30) DEFAULT 'product'",
+        "ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS lead_metadata JSONB DEFAULT '{}'::jsonb",
+        "CREATE INDEX IF NOT EXISTS idx_enquiries_lead_type ON enquiries (lead_type)",
     ]
 
     for q in migrations:
@@ -10021,8 +10416,17 @@ try:
 except ImportError:
     from routers.website_router import website_router
 
+if __package__ == "backend":
+    from backend.routers.services_router import services_router
+else:
+    try:
+        from routers.services_router import services_router
+    except ImportError:
+        from backend.routers.services_router import services_router
+
 api.include_router(recommendation_router)
 api.include_router(website_router)
+api.include_router(services_router)
 app.include_router(api)
 app.include_router(news_router)
 

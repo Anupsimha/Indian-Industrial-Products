@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown, Newspaper, Receipt, Sparkles, ExternalLink, Menu, X, Globe, Target, PlusCircle, Briefcase } from "lucide-react";
+import { Bell, Search, Bookmark, User, MessageSquare, ShoppingCart, Settings, Crown, Newspaper, Receipt, Sparkles, ExternalLink, Menu, X, Globe, Target, PlusCircle, Briefcase, Wrench, Building2 } from "lucide-react";
 import { Logo } from "./Logo";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
@@ -339,6 +339,16 @@ export const TopHeader = () => {
           </div>
 
           <Link
+            to="/services"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold text-slate-700 hover:text-blue-800 hover:bg-blue-50 transition-colors"
+            data-testid="header-services"
+            title="Industrial Services Catalog"
+          >
+            <Wrench size={16} />
+            <span>Services</span>
+          </Link>
+
+          <Link
             to="/search"
             className={`p-2 lg:p-3 text-slate-600 hover:text-blue-800 transition-colors ${isBuyer ? "hidden md:block" : "block"}`}
             data-testid="header-search"
@@ -426,6 +436,26 @@ export const TopHeader = () => {
           data-testid="mobile-collapsible-menu"
         >
           <div className="grid grid-cols-2 gap-2 pt-1 pb-1">
+            <Link
+              to="/services"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 text-xs font-semibold text-slate-700 hover:text-blue-800 transition-colors border border-slate-100"
+              data-testid="header-services-mobile"
+            >
+              <Wrench size={18} className="text-blue-700 shrink-0" />
+              <span>Services</span>
+            </Link>
+
+            <Link
+              to="/companies"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 text-xs font-semibold text-slate-700 hover:text-blue-800 transition-colors border border-slate-100"
+              data-testid="header-companies-mobile"
+            >
+              <Building2 size={18} className="text-slate-600 shrink-0" />
+              <span>Companies</span>
+            </Link>
+
             <Link
               to="/search"
               onClick={() => setMobileMenuOpen(false)}

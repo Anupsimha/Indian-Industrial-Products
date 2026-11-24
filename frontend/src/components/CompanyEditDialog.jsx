@@ -3,8 +3,10 @@ import { X, Info, CheckCircle2 } from "lucide-react";
 import { MediaUploader, SingleImageUploader } from "./MediaUploader";
 import api, { formatApiError } from "../lib/api";
 import { toast } from "sonner";
+import { useCategories } from "../hooks/useCategories";
 
 export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
+  const { loading: categoriesLoading, getOptions } = useCategories();
   const [form, setForm] = useState({});
   const [logo, setLogo] = useState("");
   const [cover, setCover] = useState("");
@@ -26,6 +28,7 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
         gst: company.gst || "",
         pan: company.pan || "",
         business_type: company.business_type || "",
+        provider_type: company.provider_type || "product",
         year_established: company.year_established || "",
         address: company.address || "",
         city: company.city || "",
@@ -96,8 +99,28 @@ export const CompanyEditDialog = ({ open, onClose, onSaved, company }) => {
             <Row label="Company name" required value={form.name} onChange={(v) => setForm({ ...form, name: v })} testid="ce-name" />
             <Row label="Owner name" required value={form.owner_name} onChange={(v) => setForm({ ...form, owner_name: v })} testid="ce-owner" />
             <Row label="Description" textarea value={form.description} onChange={(v) => setForm({ ...form, description: v })} testid="ce-desc" />
-            <Row label="Category" value={form.category} onChange={(v) => setForm({ ...form, category: v })} testid="ce-cat" />
+            <Row
+              label="Category"
+              value={form.category}
+              onChange={(v) => setForm({ ...form, category: v })}
+              options={getOptions(form.category)}
+              placeholder={categoriesLoading ? "Loading categories..." : "Select Category..."}
+              testid="ce-cat"
+            />
             <Row label="Business type" value={form.business_type} onChange={(v) => setForm({ ...form, business_type: v })} testid="ce-btype" placeholder="Manufacturer / Supplier / Distributor" />
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600">Offering Type</label>
+              <select
+                value={form.provider_type || "product"}
+                onChange={(e) => setForm({ ...form, provider_type: e.target.value })}
+                data-testid="ce-provider-type"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+              >
+                <option value="product">Product Provider</option>
+                <option value="service">Service Provider</option>
+                <option value="both">Product &amp; Service Provider (Both)</option>
+              </select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Row label="Year established" value={form.year_established} onChange={(v) => setForm({ ...form, year_established: v })} testid="ce-year" type="number" />
               <Row label="Employees" value={form.employees} onChange={(v) => setForm({ ...form, employees: v })} testid="ce-emp" placeholder="e.g. 50-100" />
@@ -185,12 +208,27 @@ const Section = ({ title, children }) => (
   </div>
 );
 
-const Row = ({ label, value, onChange, textarea, required, type = "text", placeholder, testid }) => (
+const Row = ({ label, value, onChange, textarea, options, required, type = "text", placeholder, testid }) => (
   <div>
     <label className="text-[11px] font-semibold text-slate-600">
       {label} {required && <span className="text-rose-500">*</span>}
     </label>
-    {textarea ? (
+    {options ? (
+      <select
+        value={value || ""}
+        required={required}
+        onChange={(e) => onChange?.(e.target.value)}
+        data-testid={testid}
+        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+      >
+        <option value="">{placeholder || "Select Category..."}</option>
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    ) : textarea ? (
       <textarea
         rows={2} value={value || ""} required={required}
         onChange={(e) => onChange?.(e.target.value)}

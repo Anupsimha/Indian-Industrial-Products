@@ -36,6 +36,15 @@ export function whatsappLink(_number, message = "") {
   return `https://wa.me/${clean}${text}`;
 }
 
+export function directWhatsappLink(number, message = "") {
+  if (!number || String(number).includes("•")) return "#";
+  let clean = String(number).replace(/\D/g, "");
+  if (!clean) return "#";
+  if (clean.length === 10) clean = `91${clean}`;
+  const text = message ? `?text=${encodeURIComponent(message)}` : "";
+  return `https://wa.me/${clean}${text}`;
+}
+
 export function supportPhoneLink() {
   const supportObj = (typeof window !== "undefined" && window.__IIP_SUPPORT_CONTACT) || {};
   const targetNumber = supportObj.support_phone || "+91 9380036328";

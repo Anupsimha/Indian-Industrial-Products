@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
-import { Home, Film, PlusSquare, Package, Inbox, FileText, X, Briefcase, ListTodo, User } from "lucide-react";
+import { Home, Film, PlusSquare, Package, Inbox, FileText, X, Briefcase, ListTodo, User, Wrench } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 import { PostDialog, ReelDialog, JobDialog } from "./CreateDialogs";
 import { ProductDialog } from "./ProductDialog";
+import { ServiceDialog } from "./ServiceDialog";
 
 export const BottomNav = () => {
   const { user } = useAuth();
@@ -15,6 +16,7 @@ export const BottomNav = () => {
   const [reelOpen, setReelOpen] = useState(false);
   const [jobOpen, setJobOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
+  const [serviceOpen, setServiceOpen] = useState(false);
 
   const isBuyer = user && user.role === "buyer";
   const isSalesPartner = user && user.role === "sales_partner";
@@ -212,6 +214,27 @@ export const BottomNav = () => {
                     <span className="text-xs font-bold text-slate-800">Products</span>
                     <span className="text-[9px] text-slate-500 text-center mt-0.5 leading-tight">Publish new product</span>
                   </button>
+
+                  <button
+                    onClick={() => {
+                      if (user?.role !== "manufacturer" && user?.role !== "supplier") {
+                        toast.error("Access Denied: Only Manufacturers and Sellers can publish services.");
+                        return;
+                      }
+                      setPromptOpen(false);
+                      setServiceOpen(true);
+                    }}
+                    data-testid="prompt-service-btn"
+                    className="col-span-2 flex items-center gap-3 p-3 border border-slate-200 rounded-xl hover:border-blue-600 hover:bg-blue-50/50 transition-all group text-left"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 group-hover:scale-110 transition-transform shrink-0">
+                      <Wrench size={20} />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">Add Service</span>
+                      <span className="text-[9px] text-slate-500 block leading-tight">List industrial or B2B services</span>
+                    </div>
+                  </button>
                 </>
               )}
             </div>
@@ -231,6 +254,7 @@ export const BottomNav = () => {
       <ReelDialog open={reelOpen} onClose={() => setReelOpen(false)} onSaved={() => toast.success("Video reel uploaded!")} />
       <JobDialog open={jobOpen} onClose={() => setJobOpen(false)} onSaved={() => toast.success("Job vacancy published!")} />
       <ProductDialog open={productOpen} onClose={() => setProductOpen(false)} onSaved={() => toast.success("Product published successfully!")} />
+      <ServiceDialog open={serviceOpen} onClose={() => setServiceOpen(false)} onSaved={() => toast.success("Service published successfully!")} />
     </>
   );
 };

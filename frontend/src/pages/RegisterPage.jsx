@@ -15,7 +15,7 @@ const roles = [
 export default function RegisterPage() {
   const { register } = useAuth();
   const [form, setForm] = useState({
-    name: "", email: "", mobile: "", password: "", role: "buyer", company_name: "",
+    name: "", email: "", mobile: "", password: "", role: "buyer", company_name: "", provider_type: "product",
   });
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -92,9 +92,37 @@ export default function RegisterPage() {
             placeholder="Password" data-testid="register-password-input"
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
           {isBusiness && (
-            <input required value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })}
-              placeholder="Company name" data-testid="register-company-input"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            <div className="space-y-2.5">
+              <input required value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                placeholder="Company name" data-testid="register-company-input"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                  What does your company provide?
+                </label>
+                <div className="grid grid-cols-3 gap-2" data-testid="provider-type-selector">
+                  {[
+                    { id: "product", label: "Product Provider" },
+                    { id: "service", label: "Service Provider" },
+                    { id: "both", label: "Both" },
+                  ].map((pt) => (
+                    <button
+                      type="button"
+                      key={pt.id}
+                      onClick={() => setForm({ ...form, provider_type: pt.id })}
+                      data-testid={`provider-type-${pt.id}-btn`}
+                      className={`py-2 px-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                        form.provider_type === pt.id
+                          ? "bg-blue-800 text-white border-blue-800"
+                          : "bg-white text-slate-700 border-slate-300 hover:border-blue-300"
+                      }`}
+                    >
+                      {pt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           )}
           {err && <div className="text-xs text-rose-600 bg-rose-50 rounded-md p-2" data-testid="register-error">{err}</div>}
           <button type="submit" disabled={loading} data-testid="register-submit-btn"

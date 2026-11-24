@@ -1,25 +1,79 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api, { formatApiError } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
-import { Send, FileText, Upload, Trash2, CheckCircle2, ChevronDown, ListTodo, Briefcase, IndianRupee, ShieldCheck, Wallet } from "lucide-react";
+import { Send, FileText, Upload, Trash2, CheckCircle2, ChevronDown, ListTodo, Briefcase, IndianRupee, ShieldCheck, Wallet, Package, Wrench, Building2 } from "lucide-react";
 import { BackButton } from "../components/BackButton";
 import { LocationPicker } from "../components/LocationPicker";
-import { CATEGORIES } from "../lib/constants";
+import { useCategories } from "../hooks/useCategories";
+
+const LEAD_TYPE_OPTIONS = [
+  {
+    id: "product",
+    label: "Product Lead",
+    subtitle: "Machinery, raw materials & goods",
+    icon: Package,
+    activeCls: "border-blue-600 bg-blue-50/70 text-blue-950 ring-2 ring-blue-500/20",
+    iconActiveCls: "bg-blue-600 text-white",
+  },
+  {
+    id: "service",
+    label: "Service Lead",
+    subtitle: "AMC, fabrication, logistics & audit",
+    icon: Wrench,
+    activeCls: "border-teal-600 bg-teal-50/70 text-teal-950 ring-2 ring-teal-500/20",
+    iconActiveCls: "bg-teal-600 text-white",
+  },
+  {
+    id: "real_estate",
+    label: "Real Estate Lead",
+    subtitle: "Plots, factory sheds & warehouses",
+    icon: Building2,
+    activeCls: "border-purple-600 bg-purple-50/70 text-purple-950 ring-2 ring-purple-500/20",
+    iconActiveCls: "bg-purple-600 text-white",
+  },
+];
+
+const PROPERTY_TYPES = [
+  "Industrial Plot",
+  "Factory Shed",
+  "Warehouse / Godown",
+  "Commercial Space",
+  "Agricultural / Land",
+  "Other",
+];
+
+const TRANSACTION_TYPES = ["Buy", "Rent", "Lease"];
+const AREA_UNITS = ["sq.ft", "sq.m", "Acres", "Sq. Yards"];
+const SERVICE_MODES = ["On-site", "Remote", "Both"];
 
 export default function PostEnquiryPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isSalesPartner = user?.role === "sales_partner";
 
+  const [leadType, setLeadType] = useState("product");
   const [form, setForm] = useState({
     name: "", mobile: "", requirement: "", category: "",
     product_name: "", quantity: "", budget: "₹50,000 - 1 Lakh",
     required_by: "15 Days", total_deal_value: ""
   });
+  const [serviceMeta, setServiceMeta] = useState({
+    service_name: "",
+    service_mode: "On-site",
+    project_duration: "",
+    scope_details: "",
+  });
+  const [realEstateMeta, setRealEstateMeta] = useState({
+    property_type: "Industrial Plot",
+    transaction_type: "Buy",
+    area_size: "",
+    area_unit: "sq.ft",
+    possession_timeline: "",
+  });
   const [loc, setLoc] = useState({ state: "", city: "", industrial_area: "" });
-  const [categories, setCategories] = useState([]);
+  const { loading: categoriesLoading, getOptions } = useCategories();
   const [submitting, setSubmitting] = useState(false);
 
   // File attachments state — each entry: { file: File, name: string, size: string }
@@ -32,10 +86,6 @@ export default function PostEnquiryPage() {
     distributors: false,
     service_providers: false
   });
-
-  useEffect(() => {
-    api.get("/categories").then((r) => setCategories(r.data)).catch(() => {});
-  }, []);
 
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files || []);
@@ -78,6 +128,14 @@ export default function PostEnquiryPage() {
       toast.error("Please select State, City and Industrial Area");
       return;
     }
+    if (leadType === "service" && !serviceMeta.service_name.trim()) {
+      toast.error("Please enter the Service Required / Title");
+      return;
+    }
+    if (leadType === "real_estate" && (!realEstateMeta.property_type || !realEstateMeta.transaction_type)) {
+      toast.error("Please select Property Type and Transaction Type");
+      return;
+    }
     if (isSalesPartner && (!form.total_deal_value || Number(form.total_deal_value) < 100)) {
       toast.error("Please enter a Total Deal Value of at least ₹100");
       return;
@@ -93,15 +151,48 @@ export default function PostEnquiryPage() {
       fd.append("state", loc.state);
       fd.append("city", loc.city);
       fd.append("industrial_area", loc.industrial_area);
-      if (form.product_name) fd.append("product_name", form.product_name);
-      if (form.quantity)     fd.append("quantity", form.quantity);
+      fd.append("lead_type", leadType);
+
+      let computedProductName = form.product_name.trim();
+      let computedQuantity = form.quantity.trim();
+      let leadMetadata = {};
+
+      if (leadType === "service") {
+        const svcName = serviceMeta.service_name.trim();
+        const duration = serviceMeta.project_duration.trim();
+        const scope = serviceMeta.scope_details.trim();
+        computedProductName = svcName;
+        computedQuantity = duration;
+        leadMetadata = {
+          service_name: svcName,
+          service_mode: serviceMeta.service_mode || "On-site",
+          ...(duration ? { project_duration: duration } : {}),
+          ...(scope ? { scope_details: scope } : {}),
+        };
+      } else if (leadType === "real_estate") {
+        const areaTrimmed = realEstateMeta.area_size.trim();
+        const possession = realEstateMeta.possession_timeline.trim();
+        computedProductName = `${realEstateMeta.transaction_type} - ${realEstateMeta.property_type}`;
+        computedQuantity = areaTrimmed ? `${areaTrimmed} ${realEstateMeta.area_unit}` : "";
+        leadMetadata = {
+          property_type: realEstateMeta.property_type,
+          transaction_type: realEstateMeta.transaction_type,
+          area_unit: realEstateMeta.area_unit,
+          ...(areaTrimmed ? { area_size: areaTrimmed } : {}),
+          ...(possession ? { possession_timeline: possession } : {}),
+        };
+      }
+
+      fd.append("lead_metadata", JSON.stringify(leadMetadata));
+      if (computedProductName) fd.append("product_name", computedProductName);
+      if (computedQuantity) fd.append("quantity", computedQuantity);
       if (isSalesPartner) {
         fd.append("total_deal_value", String(form.total_deal_value));
         fd.append("is_sales_partner_lead", "true");
       } else if (form.budget) {
         fd.append("budget", form.budget);
       }
-      if (form.required_by)  fd.append("required_by", form.required_by);
+      if (form.required_by) fd.append("required_by", form.required_by);
 
       // Attach each real File object under the "media" key
       attachments.forEach(({ file }) => {
@@ -120,10 +211,24 @@ export default function PostEnquiryPage() {
         description: "An SMS confirmation has been sent.",
         icon: <CheckCircle2 className="text-emerald-500" size={16} />
       });
+      setLeadType("product");
       setForm({
         name: "", mobile: "", requirement: "", category: "",
         product_name: "", quantity: "", budget: "₹50,000 - 1 Lakh",
         required_by: "15 Days", total_deal_value: ""
+      });
+      setServiceMeta({
+        service_name: "",
+        service_mode: "On-site",
+        project_duration: "",
+        scope_details: "",
+      });
+      setRealEstateMeta({
+        property_type: "Industrial Plot",
+        transaction_type: "Buy",
+        area_size: "",
+        area_unit: "sq.ft",
+        possession_timeline: "",
       });
       setLoc({ state: "", city: "", industrial_area: "" });
       setAttachments([]);
@@ -162,7 +267,43 @@ export default function PostEnquiryPage() {
 
       {/* Requirement Form */}
       <form onSubmit={submit} className="mt-4 bg-white border border-slate-100 rounded-2xl p-5 space-y-4 shadow-sm">
-        
+        {/* Lead Type Selector */}
+        <div className="border-b border-slate-100 pb-4">
+          <div className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">Select Lead Type</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5" data-testid="lead-type-selector">
+            {LEAD_TYPE_OPTIONS.map((opt) => {
+              const Icon = opt.icon;
+              const isSelected = leadType === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setLeadType(opt.id)}
+                  data-testid={`lead-type-${opt.id}-btn`}
+                  aria-pressed={isSelected}
+                  className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    isSelected
+                      ? opt.activeCls
+                      : "border-slate-200 bg-slate-50/50 text-slate-700 hover:bg-slate-50 hover:border-slate-300"
+                  }`}
+                >
+                  <span
+                    className={`grid place-items-center w-9 h-9 rounded-lg shrink-0 transition-colors ${
+                      isSelected ? opt.iconActiveCls : "bg-white border border-slate-200 text-slate-500"
+                    }`}
+                  >
+                    <Icon size={17} />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-xs font-extrabold leading-tight">{opt.label}</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5 leading-snug">{opt.subtitle}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Section 1: Contact Details */}
         <div className="border-b border-slate-50 pb-4">
           <div className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">Contact Details</div>
@@ -190,31 +331,176 @@ export default function PostEnquiryPage() {
           </div>
         </div>
 
-        {/* Section 2: Product Details */}
+        {/* Section 2: Product / Service / Property Details */}
         <div className="border-b border-slate-50 pb-4">
-          <div className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">Product Details</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-            <Row label="Product Name">
-              <input
-                required
-                value={form.product_name}
-                onChange={(e) => setForm({ ...form, product_name: e.target.value })}
-                data-testid="postenq-product-input"
-                className={inputCls}
-                placeholder="e.g. Mild Steel Plates"
-              />
-            </Row>
-            <Row label="Quantity">
-              <input
-                required
-                value={form.quantity}
-                onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-                data-testid="postenq-quantity-input"
-                className={inputCls}
-                placeholder="e.g. 5 Tons"
-              />
-            </Row>
+          <div className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">
+            {leadType === "service"
+              ? "Service Details"
+              : leadType === "real_estate"
+              ? "Property Details"
+              : "Product Details"}
           </div>
+
+          {leadType === "product" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <Row label="Product Name">
+                <input
+                  required
+                  value={form.product_name}
+                  onChange={(e) => setForm({ ...form, product_name: e.target.value })}
+                  data-testid="postenq-product-input"
+                  className={inputCls}
+                  placeholder="e.g. Mild Steel Plates"
+                />
+              </Row>
+              <Row label="Quantity">
+                <input
+                  required
+                  value={form.quantity}
+                  onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+                  data-testid="postenq-quantity-input"
+                  className={inputCls}
+                  placeholder="e.g. 5 Tons"
+                />
+              </Row>
+            </div>
+          )}
+
+          {leadType === "service" && (
+            <div className="space-y-3 mb-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Row label="Service Required / Title">
+                  <input
+                    required
+                    value={serviceMeta.service_name}
+                    onChange={(e) => setServiceMeta({ ...serviceMeta, service_name: e.target.value })}
+                    data-testid="postenq-service-name-input"
+                    className={inputCls}
+                    placeholder="e.g. CNC Machine Preventive Maintenance & AMC"
+                  />
+                </Row>
+                <Row label="Service Mode">
+                  <div className="relative">
+                    <select
+                      required
+                      value={serviceMeta.service_mode}
+                      onChange={(e) => setServiceMeta({ ...serviceMeta, service_mode: e.target.value })}
+                      data-testid="postenq-service-mode-select"
+                      className={inputCls}
+                    >
+                      {SERVICE_MODES.map((mode) => (
+                        <option key={mode} value={mode}>{mode}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+                </Row>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Row label="Project Scope / Duration (Optional)">
+                  <input
+                    value={serviceMeta.project_duration}
+                    onChange={(e) => setServiceMeta({ ...serviceMeta, project_duration: e.target.value })}
+                    data-testid="postenq-service-duration-input"
+                    className={inputCls}
+                    placeholder="e.g. 3 Months / Annual AMC"
+                  />
+                </Row>
+                <Row label="Scope Summary (Optional)">
+                  <input
+                    value={serviceMeta.scope_details}
+                    onChange={(e) => setServiceMeta({ ...serviceMeta, scope_details: e.target.value })}
+                    data-testid="postenq-service-scope-input"
+                    className={inputCls}
+                    placeholder="e.g. 12 machines, quarterly calibration & spares"
+                  />
+                </Row>
+              </div>
+            </div>
+          )}
+
+          {leadType === "real_estate" && (
+            <div className="space-y-3 mb-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Row label="Property Type">
+                  <div className="relative">
+                    <select
+                      required
+                      value={realEstateMeta.property_type}
+                      onChange={(e) => setRealEstateMeta({ ...realEstateMeta, property_type: e.target.value })}
+                      data-testid="postenq-property-type-select"
+                      className={inputCls}
+                    >
+                      {PROPERTY_TYPES.map((pt) => (
+                        <option key={pt} value={pt}>{pt}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+                </Row>
+                <Row label="Transaction Type">
+                  <div className="mt-1.5 grid grid-cols-3 gap-2" data-testid="postenq-transaction-type-group">
+                    {TRANSACTION_TYPES.map((tx) => {
+                      const active = realEstateMeta.transaction_type === tx;
+                      return (
+                        <button
+                          key={tx}
+                          type="button"
+                          onClick={() => setRealEstateMeta({ ...realEstateMeta, transaction_type: tx })}
+                          data-testid={`postenq-transaction-${tx.toLowerCase()}-btn`}
+                          aria-pressed={active}
+                          className={`py-2.5 rounded-lg border text-xs font-bold transition-all ${
+                            active
+                              ? "border-purple-600 bg-purple-600 text-white shadow-xs"
+                              : "border-slate-200 bg-slate-50/70 text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          {tx}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Row>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Row label="Area / Size">
+                  <div className="flex gap-2 mt-1.5">
+                    <input
+                      value={realEstateMeta.area_size}
+                      onChange={(e) => setRealEstateMeta({ ...realEstateMeta, area_size: e.target.value })}
+                      data-testid="postenq-area-size-input"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-xs bg-slate-50/50 hover:bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 transition-all font-bold text-slate-700"
+                      placeholder="e.g. 5000"
+                    />
+                    <div className="relative shrink-0 w-28">
+                      <select
+                        value={realEstateMeta.area_unit}
+                        onChange={(e) => setRealEstateMeta({ ...realEstateMeta, area_unit: e.target.value })}
+                        data-testid="postenq-area-unit-select"
+                        className="w-full rounded-lg border border-slate-200 pl-2.5 pr-7 py-2.5 text-xs bg-slate-50/50 hover:bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 transition-all font-bold text-slate-700 appearance-none"
+                      >
+                        {AREA_UNITS.map((unit) => (
+                          <option key={unit} value={unit}>{unit}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    </div>
+                  </div>
+                </Row>
+                <Row label="Possession / Timeline (Optional)">
+                  <input
+                    value={realEstateMeta.possession_timeline}
+                    onChange={(e) => setRealEstateMeta({ ...realEstateMeta, possession_timeline: e.target.value })}
+                    data-testid="postenq-possession-input"
+                    className={inputCls}
+                    placeholder="e.g. Immediate / Within 30 Days"
+                  />
+                </Row>
+              </div>
+            </div>
+          )}
+
           <Row label="Category">
             <div className="relative">
               <select
@@ -224,8 +510,8 @@ export default function PostEnquiryPage() {
                 data-testid="postenq-category-input"
                 className={inputCls}
               >
-                <option value="">Select Category</option>
-                {Array.from(new Set([...CATEGORIES, ...categories.map(c => typeof c === 'string' ? c : c.name)])).map((catName) => (
+                <option value="">{categoriesLoading ? "Loading categories..." : "Select Category"}</option>
+                {getOptions(form.category).map((catName) => (
                   <option key={catName} value={catName}>{catName}</option>
                 ))}
               </select>
@@ -349,7 +635,13 @@ export default function PostEnquiryPage() {
               onChange={(e) => setForm({ ...form, requirement: e.target.value })}
               data-testid="postenq-requirement-input"
               className={inputCls}
-              placeholder="Describe specs, dimensions, grade, finish, delivery timeline, other preferences..."
+              placeholder={
+                leadType === "service"
+                  ? "Describe service scope, SLA, equipment/site requirements, compliance standards..."
+                  : leadType === "real_estate"
+                  ? "Describe road access, power load (kVA), ceiling height, water/drainage, zoning, lease terms..."
+                  : "Describe specs, dimensions, grade, finish, delivery timeline, other preferences..."
+              }
             />
           </Row>
         </div>

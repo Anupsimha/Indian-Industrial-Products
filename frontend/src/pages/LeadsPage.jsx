@@ -1,16 +1,110 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
-import api, { whatsappLink, formatApiError } from "../lib/api";
+import api, { directWhatsappLink, formatApiError } from "../lib/api";
 import {
   Phone, MapPin, Tag, Clock, MessageSquare, Play, Lock, Sparkles, X,
   ShieldCheck, Loader2, CheckCircle, Mail, AlertTriangle, Search, ChevronDown, CheckCircle2, Image, Zap, Trash2,
-  FileText, ExternalLink, Eye, IndianRupee, UserCheck, ShieldAlert
+  FileText, ExternalLink, Eye, IndianRupee, UserCheck, ShieldAlert, Package, Wrench, Building2, Layers
 } from "lucide-react";
 import { Navigate, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { BackButton } from "../components/BackButton";
 import { LocationPicker } from "../components/LocationPicker";
 import { useLeadInterests } from "../context/LeadInterestContext";
+
+const LEAD_TYPE_FILTERS = [
+  { id: "all", label: "All Leads", icon: Layers },
+  { id: "product", label: "Product Leads", icon: Package },
+  { id: "service", label: "Service Leads", icon: Wrench },
+  { id: "real_estate", label: "Real Estate Leads", icon: Building2 },
+];
+
+const LEAD_TYPE_META = {
+  product: {
+    label: "Product",
+    icon: Package,
+    badgeCls: "bg-blue-50 text-blue-700 border-blue-200",
+  },
+  service: {
+    label: "Service",
+    icon: Wrench,
+    badgeCls: "bg-teal-50 text-teal-700 border-teal-200",
+  },
+  real_estate: {
+    label: "Real Estate",
+    icon: Building2,
+    badgeCls: "bg-purple-50 text-purple-700 border-purple-200",
+  },
+};
+
+function getLeadTypeBadge(leadType) {
+  return LEAD_TYPE_META[leadType] || LEAD_TYPE_META.product;
+}
+
+function getLeadTitle(lead) {
+  if (lead?.product_name) return lead.product_name;
+  const meta = lead?.lead_metadata && typeof lead.lead_metadata === "object" ? lead.lead_metadata : {};
+  if ((lead?.lead_type || "product") === "service" && meta.service_name) {
+    return meta.service_name;
+  }
+  if ((lead?.lead_type || "product") === "real_estate") {
+    const title = [meta.transaction_type, meta.property_type].filter(Boolean).join(" - ");
+    if (title) return title;
+  }
+  return (lead?.requirement || "").slice(0, 60);
+}
+
+function getLeadMetadataChips(lead) {
+  const leadType = lead?.lead_type || "product";
+  const meta = lead?.lead_metadata && typeof lead.lead_metadata === "object" ? lead.lead_metadata : {};
+  const chips = [];
+
+  if (leadType === "service") {
+    if (meta.service_mode) {
+      chips.push({ label: "Mode", value: meta.service_mode, cls: "bg-teal-50 text-teal-800 border-teal-200" });
+    }
+    const durationVal = meta.project_duration || (!meta.project_duration && lead?.quantity ? lead.quantity : "");
+    if (durationVal) {
+      chips.push({ label: "Duration", value: durationVal, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+    if (meta.frequency) {
+      chips.push({ label: "Frequency", value: meta.frequency, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+    if (meta.scope_details) {
+      chips.push({ label: "Scope", value: meta.scope_details, cls: "bg-emerald-50 text-emerald-800 border-emerald-200" });
+    }
+  } else if (leadType === "real_estate") {
+    if (meta.transaction_type) {
+      chips.push({ label: "Deal", value: meta.transaction_type, cls: "bg-amber-50 text-amber-800 border-amber-200" });
+    }
+    if (meta.property_type) {
+      chips.push({ label: "Property", value: meta.property_type, cls: "bg-purple-50 text-purple-800 border-purple-200" });
+    }
+    if (meta.area_size) {
+      chips.push({
+        label: "Area",
+        value: [meta.area_size, meta.area_unit].filter(Boolean).join(" "),
+        cls: "bg-slate-100 text-slate-800 border-slate-200",
+      });
+    } else if (meta.area_sqft) {
+      chips.push({
+        label: "Area",
+        value: `${Number(meta.area_sqft).toLocaleString("en-IN")} sq.ft`,
+        cls: "bg-slate-100 text-slate-800 border-slate-200",
+      });
+    } else if (lead?.quantity) {
+      chips.push({ label: "Area", value: lead.quantity, cls: "bg-slate-100 text-slate-800 border-slate-200" });
+    }
+    if (meta.possession_timeline) {
+      chips.push({ label: "Possession", value: meta.possession_timeline, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+    if (meta.power_load_kva) {
+      chips.push({ label: "Power", value: `${meta.power_load_kva} kVA`, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+  }
+
+  return chips;
+}
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 
@@ -480,7 +574,7 @@ function SalesPartnerBuyModal({ lead, user, onClose, onSuccess }) {
         <div className="p-5 space-y-4">
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
             <div className="text-xs font-extrabold text-slate-900 line-clamp-1">
-              {lead.product_name || lead.requirement?.slice(0, 60)}
+              {getLeadTitle(lead)}
             </div>
             <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
               <span>{lead.category}</span>
@@ -555,19 +649,57 @@ function SalesPartnerBuyModal({ lead, user, onClose, onSuccess }) {
   );
 }
 
-// ─── Report Fake Lead Modal ───────────────────────────────────────────────────
+// ─── Dispute Reason Options & Labels ──────────────────────────────────────────
+const DISPUTE_REASON_OPTIONS = [
+  {
+    code: "deal_not_done",
+    label: "Deal not done",
+    description: "Contacted client, but requirement did not convert into a deal",
+    tone: "sky",
+  },
+  {
+    code: "price_too_high",
+    label: "Price too high",
+    description: "Client budget or pricing expectations did not match",
+    tone: "sky",
+  },
+  {
+    code: "fake_lead",
+    label: "Fake lead",
+    description: "Client denied any requirement or lead details are fabricated",
+    tone: "rose",
+  },
+  {
+    code: "wrong_phone",
+    label: "Wrong phone",
+    description: "Phone number is incorrect, unreachable, or disconnected",
+    tone: "rose",
+  },
+];
+
+const DISPUTE_REASON_LABELS = Object.fromEntries(
+  DISPUTE_REASON_OPTIONS.map((opt) => [opt.code, opt.label])
+);
+
+// ─── Report Lead Dispute Modal ────────────────────────────────────────────────
 function FakeReportModal({ target, onClose, onSubmit, submitting }) {
-  const [reason, setReason] = useState("");
+  const [reasonCode, setReasonCode] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    setReasonCode("");
+    setNotes("");
+  }, [target?.deal?.id]);
 
   if (!target) return null;
 
   const handleFormSubmit = (e) => {
     e.preventDefault();
-    if (!reason.trim()) {
-      toast.error("Please describe why you are reporting this lead as fake.");
+    if (!reasonCode) {
+      toast.error("Please select a reason for this dispute.");
       return;
     }
-    onSubmit(target.deal.id, reason.trim());
+    onSubmit(target.deal.id, reasonCode, notes.trim());
   };
 
   return (
@@ -580,7 +712,7 @@ function FakeReportModal({ target, onClose, onSubmit, submitting }) {
         <div className="bg-gradient-to-r from-rose-700 to-rose-600 px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2 text-white">
             <ShieldAlert size={18} />
-            <span className="font-bold text-sm">Report Fake Lead</span>
+            <span className="font-bold text-sm">Report Lead Dispute</span>
           </div>
           <button
             type="button"
@@ -596,24 +728,53 @@ function FakeReportModal({ target, onClose, onSubmit, submitting }) {
           <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-900">
             <div className="font-bold mb-0.5">{target.leadTitle}</div>
             <p className="text-rose-800">
-              Our admin team will review your dispute. If confirmed fake, 50% of the base lead price (
+              Our admin team will review your dispute. If confirmed, 50% of the base lead price (
               <strong>{formatINR(target.deal.refund_share_amount ?? Number(target.deal.lead_value_base || 0) * 0.5, 2)}</strong>) will be refunded to your wallet.
             </p>
           </div>
 
           <div>
+            <label className="block text-xs font-bold text-slate-700 mb-2">
+              Select Dispute Reason *
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {DISPUTE_REASON_OPTIONS.map((opt) => {
+                const selected = reasonCode === opt.code;
+                return (
+                  <button
+                    key={opt.code}
+                    type="button"
+                    onClick={() => setReasonCode(opt.code)}
+                    data-testid={`dispute-reason-${opt.code}`}
+                    className={`text-left p-2.5 rounded-xl border transition-all ${
+                      selected
+                        ? "border-rose-500 bg-rose-50 ring-2 ring-rose-200"
+                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className={`text-xs font-bold ${selected ? "text-rose-800" : "text-slate-900"}`}>
+                      {opt.label}
+                    </div>
+                    <div className="text-[11px] text-slate-500 leading-snug mt-0.5">
+                      {opt.description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              Reason for Reporting Fake Lead *
+              Additional Notes / Context (Optional)
             </label>
             <textarea
-              required
               rows={3}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Explain the issue (e.g., invalid/disconnected client number, client confirmed no such requirement, bogus bill uploaded...)"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Optional details for admin review (e.g., call summary, quoted price vs client budget, exact issue)..."
               className="w-full rounded-xl border border-slate-300 p-3 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-300 focus:border-rose-400"
               data-testid="fake-report-reason-input"
-              autoFocus
             />
           </div>
 
@@ -628,14 +789,14 @@ function FakeReportModal({ target, onClose, onSubmit, submitting }) {
             </button>
             <button
               type="submit"
-              disabled={submitting || !reason.trim()}
+              disabled={submitting || !reasonCode}
               data-testid="submit-fake-report-btn"
               className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-60"
             >
               {submitting ? (
                 <><Loader2 size={14} className="animate-spin" /> Submitting…</>
               ) : (
-                <><AlertTriangle size={14} /> Submit Fake Report</>
+                <><AlertTriangle size={14} /> Submit Dispute</>
               )}
             </button>
           </div>
@@ -779,7 +940,7 @@ function SalesPartnerDealPanel({ lead, approvingDealId, onApproveBill, onOpenFak
             data-testid={`report-fake-btn-${deal.id}`}
             className="px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-bold inline-flex items-center gap-1.5 transition-colors"
           >
-            <ShieldAlert size={13} /> Report Fake Lead
+            <ShieldAlert size={13} /> Report Issue / Dispute
           </button>
         </div>
       )}
@@ -833,7 +994,7 @@ function SalesPartnerDealPanel({ lead, approvingDealId, onApproveBill, onOpenFak
               data-testid={`report-fake-btn-${deal.id}`}
               className="px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-bold inline-flex items-center gap-1.5"
             >
-              <ShieldAlert size={13} /> Report Fake Lead
+              <ShieldAlert size={13} /> Report Issue / Dispute
             </button>
           </div>
         </div>
@@ -841,13 +1002,52 @@ function SalesPartnerDealPanel({ lead, approvingDealId, onApproveBill, onOpenFak
 
       {status === "FAKE_REPORTED" && (
         <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 space-y-1.5 text-xs">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[11px]">
-            <AlertTriangle size={12} /> Fake Lead Reported — Pending Admin Decision
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[11px]">
+              <AlertTriangle size={12} /> Dispute Reported — Our admin team will review your dispute
+            </span>
+            {deal.dispute_reason_code && (
+              <span
+                className="inline-flex items-center px-2 py-0.5 rounded-full bg-white border border-rose-200 text-rose-800 font-bold text-[11px]"
+                data-testid={`deal-dispute-reason-${deal.id}`}
+              >
+                {DISPUTE_REASON_LABELS[deal.dispute_reason_code] || deal.dispute_reason_code}
+              </span>
+            )}
           </div>
           {deal.fake_report_reason && (
             <p className="text-rose-900 mt-1">
-              <span className="font-bold">Your Reason: </span>
+              <span className="font-bold">Your Notes: </span>
               {deal.fake_report_reason}
+            </p>
+          )}
+        </div>
+      )}
+
+      {status === "RELISTED" && (
+        <div
+          className="bg-gradient-to-r from-emerald-50 to-indigo-50 border border-emerald-200 rounded-xl p-3 space-y-1.5 text-xs"
+          data-testid={`deal-relisted-card-${deal.id}`}
+        >
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-[11px]">
+              <ShieldCheck size={12} /> Deal Re-listed • 50% Refund Credited to Wallet ({formatINR(refundAmt, 2)})
+            </span>
+            {deal.dispute_reason_code && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-white border border-indigo-200 text-indigo-800 font-bold text-[11px]">
+                {DISPUTE_REASON_LABELS[deal.dispute_reason_code] || deal.dispute_reason_code}
+              </span>
+            )}
+          </div>
+          {deal.relisted_at && (
+            <p className="text-[11px] text-indigo-900 font-medium">
+              Re-listed on {new Date(deal.relisted_at).toLocaleString("en-IN")}
+            </p>
+          )}
+          {deal.admin_decision_notes && (
+            <p className="text-[11px] text-slate-700">
+              <span className="font-bold">Admin Decision Notes: </span>
+              {deal.admin_decision_notes}
             </p>
           )}
         </div>
@@ -987,12 +1187,18 @@ export default function LeadsPage() {
     initialTabParam === "partner_leads" || initialTabParam === "partner_purchased"
       ? initialTabParam
       : "All";
+  const initialLeadTypeParam = searchParams.get("lead_type");
+  const initialLeadTypeFilter = ["product", "service", "real_estate"].includes(initialLeadTypeParam)
+    ? initialLeadTypeParam
+    : "all";
 
   const {
     selectedLeads,
     selectedLeadIds,
     count,
     isPersonalized,
+    isWidgetDismissed,
+    dismissInterestWidget,
     isLeadSelected,
     toggleLeadInterest,
     setShowConfirmModal,
@@ -1008,6 +1214,7 @@ export default function LeadsPage() {
   const [loc, setLoc] = useState({ state: "", city: "", industrial_area: "" });
   const [categories, setCategories] = useState([]);
   const [statusFilter, setStatusFilter] = useState(initialStatusFilter);
+  const [leadTypeFilter, setLeadTypeFilter] = useState(initialLeadTypeFilter);
   const [searchQuery, setSearchQuery] = useState("");
 
   // OTP State (standard leads)
@@ -1046,6 +1253,7 @@ export default function LeadsPage() {
       if (loc.state) params.set("state", loc.state);
       if (loc.city) params.set("city", loc.city);
       if (loc.industrial_area) params.set("industrial_area", loc.industrial_area);
+      if (leadTypeFilter !== "all") params.set("lead_type", leadTypeFilter);
       params.set("sort", filter.sort);
 
       if (isPersonalized && (showRecommendedOnly || statusFilter === "recommended")) {
@@ -1107,7 +1315,7 @@ export default function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, loc, user, isPersonalized, showRecommendedOnly, statusFilter, selectedLeadIds]);
+  }, [filter, loc, leadTypeFilter, user, isPersonalized, showRecommendedOnly, statusFilter, selectedLeadIds]);
 
   useEffect(() => {
     loadLeads();
@@ -1228,10 +1436,13 @@ export default function LeadsPage() {
     }
   };
 
-  const handleSubmitFakeReport = async (dealId, reason) => {
+  const handleSubmitFakeReport = async (dealId, reasonCode, notes) => {
     setReportingFake(true);
     try {
-      const { data } = await api.post(`/sales-partner/deals/${dealId}/report-fake`, { reason });
+      const { data } = await api.post(`/sales-partner/deals/${dealId}/report-fake`, {
+        reason_code: reasonCode,
+        reason: notes || "",
+      });
       if (data?.deal) {
         setLeads((arr) =>
           arr.map((l) =>
@@ -1239,11 +1450,14 @@ export default function LeadsPage() {
           )
         );
       }
-      toast.success("Fake lead dispute submitted to Admin for review.");
+      toast.success(
+        data?.message ||
+          "Our admin team will review your dispute. If confirmed, 50% of the base lead will be refunded to your wallet."
+      );
       setFakeReportTarget(null);
       loadLeads();
     } catch (err) {
-      toast.error(formatApiError(err.response?.data?.detail) || "Failed to submit fake lead report");
+      toast.error(formatApiError(err.response?.data?.detail) || "Failed to submit lead dispute");
     } finally {
       setReportingFake(false);
     }
@@ -1263,8 +1477,12 @@ export default function LeadsPage() {
     }
   };
 
-  // Filter in Frontend for Status & Search
+  // Filter in Frontend for Lead Type, Status & Search
   const filteredLeads = leads.filter((l) => {
+    // 0. Lead Type filter
+    const normalizedLeadType = l.lead_type || "product";
+    const matchLeadType = leadTypeFilter === "all" || normalizedLeadType === leadTypeFilter;
+
     // 1. Status Tab filter
     let matchStatus = true;
     if (statusFilter === "partner_leads") {
@@ -1285,14 +1503,19 @@ export default function LeadsPage() {
     let matchQuery = true;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
+      const metaText =
+        l.lead_metadata && typeof l.lead_metadata === "object"
+          ? Object.values(l.lead_metadata).filter(Boolean).join(" ").toLowerCase()
+          : "";
       matchQuery =
         (l.requirement || "").toLowerCase().includes(q) ||
         (l.product_name || "").toLowerCase().includes(q) ||
         (l.category || "").toLowerCase().includes(q) ||
-        (l.location || "").toLowerCase().includes(q);
+        (l.location || "").toLowerCase().includes(q) ||
+        metaText.includes(q);
     }
 
-    return matchStatus && matchQuery;
+    return matchLeadType && matchStatus && matchQuery;
   });
 
   return (
@@ -1372,8 +1595,37 @@ export default function LeadsPage() {
             </div>
           )}
 
+          {/* Top Lead Type Filter Row */}
+          <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar pb-1" data-testid="leads-type-filter-row">
+            {LEAD_TYPE_FILTERS.map((lt) => {
+              const Icon = lt.icon;
+              const active = leadTypeFilter === lt.id;
+              return (
+                <button
+                  key={lt.id}
+                  type="button"
+                  onClick={() => setLeadTypeFilter(lt.id)}
+                  data-testid={`lead-type-filter-${lt.id}`}
+                  aria-pressed={active}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap border transition-all inline-flex items-center gap-1.5 ${
+                    active
+                      ? lt.id === "service"
+                        ? "bg-teal-600 text-white border-teal-600 shadow-sm"
+                        : lt.id === "real_estate"
+                        ? "bg-purple-600 text-white border-purple-600 shadow-sm"
+                        : "bg-blue-900 text-white border-blue-900 shadow-sm"
+                      : "bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  <Icon size={13} />
+                  <span>{lt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Clean Filters (Adopted from original RequirementsPage) */}
-          <div className="mt-3 space-y-2 bg-white border border-slate-100 p-3 rounded-2xl shadow-sm">
+          <div className="mt-2.5 space-y-2 bg-white border border-slate-100 p-3 rounded-2xl shadow-sm">
             <LocationPicker value={loc} onChange={setLoc} testid="req-loc" />
             <div className="relative">
               <select
@@ -1403,9 +1655,13 @@ export default function LeadsPage() {
               >
                 <Sparkles size={11} /> Trending
               </button>
-              {(filter.category || loc.state) && (
+              {(filter.category || loc.state || leadTypeFilter !== "all") && (
                 <button
-                  onClick={() => { setFilter({ category: "", sort: "recent" }); setLoc({ state: "", city: "", industrial_area: "" }); }}
+                  onClick={() => {
+                    setFilter({ category: "", sort: "recent" });
+                    setLoc({ state: "", city: "", industrial_area: "" });
+                    setLeadTypeFilter("all");
+                  }}
                   className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 hover:bg-slate-200"
                 >
                   Clear Filters
@@ -1543,6 +1799,15 @@ export default function LeadsPage() {
               const dealValue = Number(lead.total_deal_value || 0);
               const leadPrice = Number(lead.lead_value ?? Math.round(dealValue * 0.02));
               const isInterested = isLeadSelected(lead.id);
+              const directMobile = isPartnerLead
+                ? (lead.mobile && !String(lead.mobile).includes("•") ? lead.mobile : lead.client_mobile)
+                : lead.mobile;
+              const isMobileUnmasked = Boolean(directMobile && !String(directMobile).includes("•"));
+              const leadType = lead.lead_type || "product";
+              const typeBadge = getLeadTypeBadge(leadType);
+              const TypeBadgeIcon = typeBadge.icon;
+              const metaChips = getLeadMetadataChips(lead);
+              const cardTitle = getLeadTitle(lead);
               return (
                 <article
                   key={lead.id}
@@ -1569,12 +1834,23 @@ export default function LeadsPage() {
 
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <h3 className="font-display font-extrabold text-slate-900 text-base sm:text-lg leading-snug">
-                        {lead.product_name || (lead.requirement || "").slice(0, 60)}
-                      </h3>
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-blue-700 mt-1 inline-flex items-center gap-1.5">
-                        <Tag size={11} /> {lead.category}
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${typeBadge.badgeCls}`}
+                          data-testid={`lead-type-badge-${lead.id}`}
+                        >
+                          <TypeBadgeIcon size={10} />
+                          {typeBadge.label}
+                        </span>
+                        {lead.category && (
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-700 inline-flex items-center gap-1">
+                            <Tag size={10} /> {lead.category}
+                          </span>
+                        )}
                       </div>
+                      <h3 className="font-display font-extrabold text-slate-900 text-base sm:text-lg leading-snug">
+                        {cardTitle}
+                      </h3>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
                       <button
@@ -1618,6 +1894,20 @@ export default function LeadsPage() {
                     </div>
                   </div>
 
+                  {metaChips.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid={`lead-meta-chips-${lead.id}`}>
+                      {metaChips.map((chip, idx) => (
+                        <span
+                          key={`${chip.label}-${idx}`}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] font-semibold ${chip.cls}`}
+                        >
+                          <span className="opacity-70 text-[10px] uppercase tracking-wider">{chip.label}:</span>
+                          <span className="font-bold">{chip.value}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="mt-3.5 space-y-2 border-b border-slate-100 pb-3.5 text-xs text-slate-600">
                     {isPartnerLead && (
                       <div className="grid grid-cols-2 gap-2 py-2 px-3 rounded-xl bg-slate-50 border border-slate-200/80 mb-1">
@@ -1631,7 +1921,7 @@ export default function LeadsPage() {
                         </div>
                       </div>
                     )}
-                    {lead.quantity && (
+                    {lead.quantity && leadType === "product" && (
                       <div className="flex items-center gap-2">
                         <span className="w-14 font-bold text-slate-400 uppercase tracking-wider text-[9px]">Qty</span>
                         <span className="font-bold text-slate-900">{lead.quantity}</span>
@@ -1706,12 +1996,19 @@ export default function LeadsPage() {
                             <Phone size={12} /> Call
                           </a>
                           <a
-                            href={whatsappLink(
-                              lead.mobile || lead.client_mobile,
-                              `Hi ${lead.name || lead.client_name}, regarding your requirement: ${(lead.requirement || "").slice(0, 60)}`
-                            )}
+                            href={
+                              isMobileUnmasked
+                                ? directWhatsappLink(
+                                    directMobile,
+                                    `Hi ${lead.name || lead.client_name}, regarding your requirement: ${(lead.requirement || "").slice(0, 60)}`
+                                  )
+                                : "#"
+                            }
                             target="_blank"
                             rel="noreferrer"
+                            onClick={(e) => {
+                              if (!isMobileUnmasked) e.preventDefault();
+                            }}
                             className="px-3 py-1.5 bg-[#25D366] text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 hover:bg-[#20bd5a]"
                           >
                             <MessageSquare size={12} /> WhatsApp
@@ -1734,9 +2031,19 @@ export default function LeadsPage() {
                           <Phone size={12} /> Call
                         </a>
                         <a
-                          href={whatsappLink(lead.mobile, `Hi ${lead.name}, regarding your requirement: ${(lead.requirement || "").slice(0, 60)}`)}
+                          href={
+                            isMobileUnmasked
+                              ? directWhatsappLink(
+                                  directMobile,
+                                  `Hi ${lead.name}, regarding your requirement: ${(lead.requirement || "").slice(0, 60)}`
+                                )
+                              : "#"
+                          }
                           target="_blank"
                           rel="noreferrer"
+                          onClick={(e) => {
+                            if (!isMobileUnmasked) e.preventDefault();
+                          }}
                           className="px-3 py-1.5 bg-[#25D366] text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 hover:bg-[#20bd5a]"
                         >
                           <MessageSquare size={12} /> WhatsApp
@@ -1752,7 +2059,7 @@ export default function LeadsPage() {
                       onApproveBill={handleApprovePartnerBill}
                       onOpenFakeReport={(targetLead, deal) =>
                         setFakeReportTarget({
-                          leadTitle: targetLead.product_name || (targetLead.requirement || "").slice(0, 60),
+                          leadTitle: getLeadTitle(targetLead),
                           deal,
                         })
                       }
@@ -1771,7 +2078,7 @@ export default function LeadsPage() {
           </div>
 
           {/* Floating Selected Leads Bar */}
-          {count > 0 && (
+          {count > 0 && !isWidgetDismissed && (
             <div className="fixed bottom-24 inset-x-4 md:max-w-lg md:mx-auto z-30 animate-in slide-in-from-bottom-4 duration-200">
               <div className="bg-slate-900/95 backdrop-blur-md text-white p-3.5 sm:p-4 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -1814,8 +2121,9 @@ export default function LeadsPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={resetInterests}
-                    title="Clear selected leads"
+                    onClick={dismissInterestWidget}
+                    title="Hide bar (recommendations remain active)"
+                    aria-label="Hide bar (recommendations remain active)"
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
                   >
                     <X size={14} />
