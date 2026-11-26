@@ -628,6 +628,55 @@ async def test_multitype_leads_creation_filtering_and_masking(test_env):
     assert [x["id"] for x in grp_re.json()] == [re_lead["id"]]
     assert grp_re.json()[0]["mobile"] != "9833334444"
 
+    # 10. Dealership enquiry via JSON + FormData and filtering
+    dealer_meta = {
+        "territory_region": "Maharashtra & Goa",
+        "investment_budget": "₹25 Lakh",
+        "business_experience": "8 years industrial distribution",
+    }
+    dealer_json_res = await client.post(
+        "/api/enquiries",
+        json={
+            "name": "Amit Deshmukh",
+            "mobile": "9877771111",
+            "requirement": "Seeking authorized dealership for CNC tooling across Maharashtra",
+            "category": "Machinery",
+            "location": "Pune, Maharashtra",
+            "product_name": "Dealership - Maharashtra & Goa",
+            "lead_type": "dealership",
+            "lead_metadata": dealer_meta,
+        },
+        headers=_auth("buyer_1"),
+    )
+    assert dealer_json_res.status_code == 200, dealer_json_res.text
+    dealer_lead = dealer_json_res.json()
+    assert dealer_lead["lead_type"] == "dealership"
+    assert dealer_lead["lead_metadata"] == dealer_meta
+
+    dealer_fd_res = await client.post(
+        "/api/enquiries",
+        data={
+            "name": "Rohan Joshi",
+            "mobile": "9877772222",
+            "requirement": "Authorized distributor inquiry for Gujarat industrial belt",
+            "category": "Electrical",
+            "location": "Ahmedabad, Gujarat",
+            "lead_type": "dealership",
+            "lead_metadata": json.dumps({"territory_region": "Gujarat"}),
+        },
+        headers=_auth("buyer_1"),
+    )
+    assert dealer_fd_res.status_code == 200, dealer_fd_res.text
+    dealer_fd_lead = dealer_fd_res.json()
+    assert dealer_fd_lead["lead_type"] == "dealership"
+    assert dealer_fd_lead["lead_metadata"] == {"territory_region": "Gujarat"}
+
+    req_dealer = await client.get("/api/requirements?lead_type=dealership")
+    assert req_dealer.status_code == 200
+    dealer_ids = {x["id"] for x in req_dealer.json()}
+    assert dealer_ids == {dealer_lead["id"], dealer_fd_lead["id"]}
+    assert all(x["lead_type"] == "dealership" for x in req_dealer.json())
+
 
 @pytest.mark.anyio
 async def test_sales_partner_real_estate_and_service_lead_escrow_flow(test_env):

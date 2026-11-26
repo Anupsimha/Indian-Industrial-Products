@@ -81,13 +81,13 @@ export default function ServicesPage() {
       {/* Header + Catalog Switcher */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Services</h1>
+          <h1 className="font-display text-2xl font-bold text-slate-900">Products &amp; Services</h1>
           <p className="text-xs text-slate-500">
-            Browse verified industrial &amp; B2B service providers
+            Browse industrial products &amp; verified service providers
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Quick Switcher: Products | Services */}
           <div
             className="inline-flex items-center bg-slate-100 border border-slate-200 rounded-full p-1 text-xs font-semibold"

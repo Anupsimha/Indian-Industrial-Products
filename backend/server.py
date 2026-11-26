@@ -836,7 +836,7 @@ class MembershipInvoice(Base):
 RoleType = Literal["manufacturer", "supplier", "buyer", "sales_partner", "admin"]
 PublicRoleType = Literal["manufacturer", "supplier", "buyer", "sales_partner"]
 ProviderType = Literal["product", "service", "both"]
-LeadType = Literal["product", "service", "real_estate"]
+LeadType = Literal["product", "service", "real_estate", "dealership"]
 
 
 class UserPublic(BaseModel):
@@ -1176,7 +1176,7 @@ class EnquiryOut(BaseModel):
 def hydrate_enquiry_out(d: Enquiry, deal: Optional[dict] = None) -> EnquiryOut:
     status_val = d.status if d.status in ["new", "in_progress", "closed", "completed", "pending"] else "new"
     raw_lead_type = getattr(d, "lead_type", None) or "product"
-    lead_type_val = raw_lead_type if raw_lead_type in ("product", "service", "real_estate") else "product"
+    lead_type_val = raw_lead_type if raw_lead_type in ("product", "service", "real_estate", "dealership") else "product"
     raw_meta = getattr(d, "lead_metadata", None)
     lead_meta_val = raw_meta if isinstance(raw_meta, dict) else {}
     return EnquiryOut(
@@ -4454,7 +4454,7 @@ async def admin_delete_company(company_id: str, user: dict = Depends(get_current
 # -------------------- Enquiries / Leads --------------------
 ALLOWED_ENQUIRY_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"}
 MAX_ENQUIRY_MEDIA_SIZE = 10 * 1024 * 1024  # 10 MB per file
-ALLOWED_LEAD_TYPES = ("product", "service", "real_estate")
+ALLOWED_LEAD_TYPES = ("product", "service", "real_estate", "dealership")
 
 
 def _normalize_lead_type(raw_lead_type: Optional[Any], allow_none: bool = False) -> Optional[str]:
@@ -4464,7 +4464,7 @@ def _normalize_lead_type(raw_lead_type: Optional[Any], allow_none: bool = False)
     if lt not in ALLOWED_LEAD_TYPES:
         raise HTTPException(
             status_code=400,
-            detail="Invalid lead_type. Must be one of: product, service, real_estate.",
+            detail="Invalid lead_type. Must be one of: product, service, real_estate, dealership.",
         )
     return lt
 

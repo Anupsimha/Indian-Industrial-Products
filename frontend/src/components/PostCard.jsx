@@ -29,6 +29,7 @@ export const PostCard = ({ post, onUpdate }) => {
   const [following, setFollowing] = useState(currentPost.is_following);
   const [popping, setPopping] = useState(false);
   const [enquiryOpen, setEnquiryOpen] = useState(false);
+  const [enquiryLeadType, setEnquiryLeadType] = useState("product");
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState("");
@@ -506,7 +507,7 @@ export const PostCard = ({ post, onUpdate }) => {
         </div>
 
         {/* Row 2: Action Buttons */}
-        <div className="flex items-center justify-between px-3 py-1.5 sm:px-4 sm:py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 sm:px-4 sm:py-2">
           <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
             {/* Like */}
             <button
@@ -570,13 +571,28 @@ export const PostCard = ({ post, onUpdate }) => {
           </div>
 
           {!isOwnPost && (
-            <button
-              onClick={() => setEnquiryOpen(true)}
-              data-testid={`post-enquiry-${post.id}`}
-              className="px-3.5 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 shadow-sm transition-colors"
-            >
-              Enquiry
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+              <button
+                onClick={() => {
+                  setEnquiryLeadType("dealership");
+                  setEnquiryOpen(true);
+                }}
+                data-testid={`post-dealership-enquiry-${post.id}`}
+                className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-800 text-xs font-bold hover:bg-amber-100 shadow-xs transition-colors whitespace-nowrap"
+              >
+                Dealership Enquiry
+              </button>
+              <button
+                onClick={() => {
+                  setEnquiryLeadType("product");
+                  setEnquiryOpen(true);
+                }}
+                data-testid={`post-enquiry-${post.id}`}
+                className="px-3.5 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 shadow-sm transition-colors whitespace-nowrap"
+              >
+                Enquiry
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -588,6 +604,7 @@ export const PostCard = ({ post, onUpdate }) => {
         postId={post.id}
         defaultCategory={post.category}
         companyName={post.company_name}
+        defaultLeadType={enquiryLeadType}
       />
 
       {showComments && (

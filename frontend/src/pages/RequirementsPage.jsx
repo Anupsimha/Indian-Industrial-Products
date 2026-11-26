@@ -3,7 +3,7 @@ import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import {
   MapPin, Tag, Clock, Package, Wrench, Building2, Layers, Trash2, CheckCircle2,
-  AlertCircle, Loader2, Plus, ClipboardList
+  AlertCircle, Loader2, Plus, ClipboardList, Briefcase
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -14,12 +14,14 @@ const LEAD_TYPE_FILTERS = [
   { id: "product", label: "Product", icon: Package },
   { id: "service", label: "Service", icon: Wrench },
   { id: "real_estate", label: "Real Estate", icon: Building2 },
+  { id: "dealership", label: "Dealership", icon: Briefcase },
 ];
 
 const LEAD_TYPE_META = {
   product: { label: "Product", icon: Package, badgeCls: "bg-blue-50 text-blue-700 border-blue-200" },
   service: { label: "Service", icon: Wrench, badgeCls: "bg-teal-50 text-teal-700 border-teal-200" },
   real_estate: { label: "Real Estate", icon: Building2, badgeCls: "bg-purple-50 text-purple-700 border-purple-200" },
+  dealership: { label: "Dealership", icon: Briefcase, badgeCls: "bg-amber-50 text-amber-800 border-amber-200" },
 };
 
 function getLeadTitle(item) {
@@ -31,6 +33,9 @@ function getLeadTitle(item) {
   if ((item?.lead_type || "product") === "real_estate") {
     const title = [meta.transaction_type, meta.property_type].filter(Boolean).join(" - ");
     if (title) return title;
+  }
+  if ((item?.lead_type || "product") === "dealership") {
+    return meta.territory_region ? `Dealership - ${meta.territory_region}` : "Dealership Enquiry";
   }
   return (item?.requirement || "").slice(0, 60);
 }
@@ -81,6 +86,16 @@ function getLeadMetadataChips(item) {
     }
     if (meta.power_load_kva) {
       chips.push({ label: "Power", value: `${meta.power_load_kva} kVA`, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+  } else if (leadType === "dealership") {
+    if (meta.territory_region) {
+      chips.push({ label: "Territory", value: meta.territory_region, cls: "bg-amber-50 text-amber-800 border-amber-200" });
+    }
+    if (meta.investment_budget) {
+      chips.push({ label: "Investment", value: meta.investment_budget, cls: "bg-emerald-50 text-emerald-800 border-emerald-200" });
+    }
+    if (meta.business_experience) {
+      chips.push({ label: "Experience", value: meta.business_experience, cls: "bg-slate-100 text-slate-700 border-slate-200" });
     }
   }
 
@@ -228,6 +243,8 @@ export default function RequirementsPage() {
                     ? "bg-teal-600 text-white border-teal-600 shadow-xs"
                     : lt.id === "real_estate"
                     ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                    : lt.id === "dealership"
+                    ? "bg-amber-600 text-white border-amber-600 shadow-xs"
                     : "bg-blue-900 text-white border-blue-900 shadow-xs"
                   : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900"
               }`}

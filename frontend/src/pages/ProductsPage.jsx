@@ -5,7 +5,7 @@ import { whatsappLink } from "../lib/api";
 import {
   MessageSquare, Search, SlidersHorizontal, ShoppingCart, Plus, Minus,
   CheckCircle, MapPin, CreditCard, Clock, ChevronRight, X, Star, ShieldCheck,
-  Truck, ArrowRight, ShieldAlert, Award, Bookmark, Edit3, Sparkles
+  Truck, ArrowRight, ShieldAlert, Award, Bookmark, Edit3, Sparkles, Package, Wrench
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "../context/CartContext";
@@ -203,22 +203,44 @@ export default function ProductsPage() {
 
   return (
     <div className="pb-28 px-4 pt-4 max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto" data-testid="products-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header + Catalog Switcher */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Products</h1>
-          <p className="text-xs text-slate-500">Browse industrial products from verified suppliers</p>
+          <h1 className="font-display text-2xl font-bold text-slate-900">Products &amp; Services</h1>
+          <p className="text-xs text-slate-500">Browse industrial products &amp; verified service providers</p>
         </div>
-        {/* Floating/Header Cart Trigger */}
-        {cart.length > 0 && (
-          <button
-            onClick={() => setBuyingStep("cart")}
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 text-white rounded-full shadow-lg hover:bg-blue-950 transition-all font-bold text-xs"
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Switcher: Products | Services (visible on mobile & desktop) */}
+          <div
+            className="inline-flex items-center bg-slate-100 border border-slate-200 rounded-full p-1 text-xs font-semibold"
+            data-testid="catalog-switcher"
           >
-            <ShoppingCart size={14} />
-            <span>Cart ({cart.reduce((sum, item) => sum + item.qty, 0)})</span>
-          </button>
-        )}
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-900 text-white shadow-sm">
+              <Package size={13} />
+              <span>Products</span>
+            </span>
+            <Link
+              to="/services"
+              data-testid="switch-to-services"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-slate-600 hover:text-slate-900 transition-colors"
+            >
+              <Wrench size={13} />
+              <span>Services</span>
+            </Link>
+          </div>
+
+          {/* Floating/Header Cart Trigger */}
+          {cart.length > 0 && (
+            <button
+              onClick={() => setBuyingStep("cart")}
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 text-white rounded-full shadow-lg hover:bg-blue-950 transition-all font-bold text-xs"
+            >
+              <ShoppingCart size={14} />
+              <span>Cart ({cart.reduce((sum, item) => sum + item.qty, 0)})</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Search and Filters */}

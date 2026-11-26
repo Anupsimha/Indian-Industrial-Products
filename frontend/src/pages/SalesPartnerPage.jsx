@@ -68,12 +68,14 @@ const LEAD_TYPE_FILTERS = [
   { key: "product", label: "Product", icon: Package },
   { key: "service", label: "Service", icon: Wrench },
   { key: "real_estate", label: "Real Estate", icon: Building2 },
+  { key: "dealership", label: "Dealership", icon: Briefcase },
 ];
 
 const LEAD_TYPE_META = {
   product: { label: "Product", icon: Package, badgeCls: "bg-blue-50 text-blue-700 border-blue-200" },
   service: { label: "Service", icon: Wrench, badgeCls: "bg-teal-50 text-teal-700 border-teal-200" },
   real_estate: { label: "Real Estate", icon: Building2, badgeCls: "bg-purple-50 text-purple-700 border-purple-200" },
+  dealership: { label: "Dealership", icon: Briefcase, badgeCls: "bg-amber-50 text-amber-800 border-amber-200" },
 };
 
 const getLeadTitle = (lead) => {
@@ -85,6 +87,9 @@ const getLeadTitle = (lead) => {
   if ((lead?.lead_type || "product") === "real_estate") {
     const title = [meta.transaction_type, meta.property_type].filter(Boolean).join(" - ");
     if (title) return title;
+  }
+  if ((lead?.lead_type || "product") === "dealership") {
+    return meta.territory_region ? `Dealership - ${meta.territory_region}` : "Dealership Enquiry";
   }
   return "Industrial Lead";
 };
@@ -135,6 +140,16 @@ const getLeadMetadataChips = (lead) => {
     }
     if (meta.power_load_kva) {
       chips.push({ label: "Power", value: `${meta.power_load_kva} kVA`, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+  } else if (leadType === "dealership") {
+    if (meta.territory_region) {
+      chips.push({ label: "Territory", value: meta.territory_region, cls: "bg-amber-50 text-amber-800 border-amber-200" });
+    }
+    if (meta.investment_budget) {
+      chips.push({ label: "Investment", value: meta.investment_budget, cls: "bg-emerald-50 text-emerald-800 border-emerald-200" });
+    }
+    if (meta.business_experience) {
+      chips.push({ label: "Experience", value: meta.business_experience, cls: "bg-slate-100 text-slate-700 border-slate-200" });
     }
   }
 
@@ -321,7 +336,7 @@ export default function SalesPartnerPage() {
   };
 
   const leadTypeCounts = useMemo(() => {
-    const counts = { all: leads.length, product: 0, service: 0, real_estate: 0 };
+    const counts = { all: leads.length, product: 0, service: 0, real_estate: 0, dealership: 0 };
     leads.forEach((lead) => {
       const lt = lead?.lead_type || "product";
       if (counts[lt] !== undefined) counts[lt] += 1;
@@ -550,6 +565,8 @@ export default function SalesPartnerPage() {
                         ? "bg-teal-600 text-white border-teal-600 shadow-xs"
                         : lt.key === "real_estate"
                         ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                        : lt.key === "dealership"
+                        ? "bg-amber-600 text-white border-amber-600 shadow-xs"
                         : "bg-slate-900 text-white border-slate-900 shadow-xs"
                       : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900"
                   }`}

@@ -9,12 +9,13 @@ import {
   Building2, Verified, MapPin, Globe, Camera, FileText, Users,
   UserPlus, Package, BarChart3, Edit, Plus, Trash2, Calendar,
   ShieldCheck, Phone, Mail, Target, Settings, ExternalLink, Sparkles, Copy, Check, LayoutDashboard,
-  Wallet, BadgeCheck, ArrowRight, CheckCircle2
+  Wallet, BadgeCheck, ArrowRight, CheckCircle2, Wrench
 } from "lucide-react";
 import { PostCard } from "../components/PostCard";
 import { toast } from "sonner";
 import { PostDialog, ReelDialog } from "../components/CreateDialogs";
 import { ProductDialog } from "../components/ProductDialog";
+import { ServiceDialog } from "../components/ServiceDialog";
 import { CompanyEditDialog } from "../components/CompanyEditDialog";
 import { UserEditDialog } from "../components/UserEditDialog";
 import { AdminSetupModal } from "../components/AdminSetupModal";
@@ -28,12 +29,15 @@ export default function ProfilePage() {
   const [company, setCompany] = useState(null);
   const [posts, setPosts] = useState([]);
   const [products, setProducts] = useState([]);
+  const [services, setServices] = useState([]);
   const [reels, setReels] = useState([]);
   const [activeTab, setActiveTab] = useState("posts");
   const [postOpen, setPostOpen] = useState(false);
   const [reelOpen, setReelOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [serviceOpen, setServiceOpen] = useState(false);
+  const [editingService, setEditingService] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
   const [userEditOpen, setUserEditOpen] = useState(false);
   const [adminSetupOpen, setAdminSetupOpen] = useState(false);
@@ -66,15 +70,17 @@ export default function ProfilePage() {
           .catch(() => {});
       }
       if (user?.company_id) {
-        const [compRes, postsRes, prodsRes, reelsRes] = await Promise.all([
+        const [compRes, postsRes, prodsRes, svcsRes, reelsRes] = await Promise.all([
           api.get(`/companies/${user.company_id}`),
           api.get(`/companies/${user.company_id}/posts`),
           api.get(`/companies/${user.company_id}/products`),
+          api.get(`/companies/${user.company_id}/services`).catch(() => ({ data: [] })),
           api.get(`/companies/${user.company_id}/reels`),
         ]);
         setCompany(compRes.data);
         setPosts(postsRes.data);
         setProducts(prodsRes.data);
+        setServices(svcsRes.data || []);
         setReels(reelsRes.data);
 
         api.get("/websites/my-website")
@@ -742,13 +748,14 @@ export default function ProfilePage() {
         </div>
       ) : (
         <>
-          <div className="mt-6 border-b border-slate-200">
-            <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-              {["posts", "products", "reels", "about"].map((t) => (
+          <div className="mt-6 border-b border-slate-200 overflow-x-auto no-scrollbar">
+            <div className="flex justify-between text-[11px] sm:text-xs font-bold uppercase tracking-wider min-w-max sm:min-w-0">
+              {["posts", "products", "services", "reels", "about"].map((t) => (
                 <button
                   key={t}
                   onClick={() => setActiveTab(t)}
-                  className={`py-3 flex-1 text-center transition-all border-b-2 ${
+                  data-testid={`profile-tab-${t}`}
+                  className={`py-3 px-3 sm:px-2 flex-1 text-center whitespace-nowrap transition-all border-b-2 ${
                     activeTab === t
                       ? "border-blue-900 text-blue-900 font-extrabold"
                       : "border-transparent text-slate-400 hover:text-slate-600"
@@ -779,6 +786,18 @@ export default function ProfilePage() {
                 className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-full font-bold text-xs shadow transition-colors"
               >
                 <Plus size={14} /> Add Product
+              </button>
+            )}
+            {activeTab === "services" && (
+              <button
+                onClick={() => {
+                  setEditingService(null);
+                  setServiceOpen(true);
+                }}
+                data-testid="profile-add-service-btn"
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-full font-bold text-xs shadow transition-colors"
+              >
+                <Plus size={14} /> Add Service
               </button>
             )}
             {activeTab === "reels" && (
@@ -878,6 +897,97 @@ export default function ProfilePage() {
                           <div className="flex items-center justify-between mt-2">
                             <div className="font-display font-extrabold text-blue-900 text-sm">{p.price || "On request"}</div>
                             {p.moq && <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">MOQ: {p.moq}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SERVICES TAB */}
+            {activeTab === "services" && (
+              <div>
+                {services.length === 0 ? (
+                  <div className="text-center text-sm text-slate-500 py-8 bg-white rounded-2xl border border-slate-100 space-y-3" data-testid="profile-services-empty">
+                    <div>No services added yet.</div>
+                    <button
+                      onClick={() => {
+                        setEditingService(null);
+                        setServiceOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-full font-bold text-xs shadow transition-colors"
+                    >
+                      <Plus size={14} /> Add Service
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4" data-testid="profile-services-grid">
+                    {services.map((s) => (
+                      <div
+                        key={s.id}
+                        onClick={() => navigate(`/service/${s.id}`)}
+                        data-testid={`profile-service-${s.id}`}
+                        className="cursor-pointer bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-200"
+                      >
+                        <div className="relative aspect-square w-full bg-slate-50 flex items-center justify-center">
+                          {s.image_url ? (
+                            <img
+                              src={optimizedUrl(s.image_url, { w: 400 })}
+                              alt={s.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <Wrench size={32} className="text-slate-300" />
+                          )}
+                          <div className="absolute top-2 right-2 flex items-center gap-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingService(s);
+                                setServiceOpen(true);
+                              }}
+                              className="p-1.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600 shadow transition-colors"
+                              title="Edit service"
+                              data-testid={`profile-edit-service-${s.id}`}
+                            >
+                              <Edit size={14} />
+                            </button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (window.confirm("Are you sure you want to delete this service?")) {
+                                  try {
+                                    await api.delete(`/services/${s.id}`);
+                                    toast.success("Service deleted successfully");
+                                    loadCompanyData();
+                                  } catch (err) {
+                                    console.error(err);
+                                    toast.error("Failed to delete service");
+                                  }
+                                }
+                              }}
+                              className="p-1.5 rounded-full bg-red-50 hover:bg-red-100 text-red-600 shadow transition-colors"
+                              title="Delete service"
+                              data-testid={`profile-delete-service-${s.id}`}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="p-3">
+                          <div className="font-semibold text-sm text-slate-900 line-clamp-1">{s.name}</div>
+                          <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-0.5 line-clamp-1">{s.category}</div>
+                          <div className="flex items-center justify-between gap-1 mt-2">
+                            <div className="font-display font-extrabold text-blue-900 text-xs sm:text-sm line-clamp-1">
+                              {s.price_range || s.pricing_model || "Custom Quote"}
+                            </div>
+                            {s.service_mode && (
+                              <span className="shrink-0 text-[9px] font-bold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-100">
+                                {s.service_mode}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1025,6 +1135,18 @@ export default function ProfilePage() {
         }}
         initial={editingProduct}
         onSaved={loadCompanyData}
+      />
+      <ServiceDialog
+        open={serviceOpen}
+        onClose={() => {
+          setServiceOpen(false);
+          setEditingService(null);
+        }}
+        initial={editingService}
+        onSaved={() => {
+          setEditingService(null);
+          loadCompanyData();
+        }}
       />
       {company && (
         <CompanyEditDialog open={editOpen} onClose={() => setEditOpen(false)} company={company} onSaved={loadCompanyData} />

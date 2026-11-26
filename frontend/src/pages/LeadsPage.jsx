@@ -4,7 +4,7 @@ import api, { directWhatsappLink, formatApiError } from "../lib/api";
 import {
   Phone, MapPin, Tag, Clock, MessageSquare, Play, Lock, Sparkles, X,
   ShieldCheck, Loader2, CheckCircle, Mail, AlertTriangle, Search, ChevronDown, CheckCircle2, Image, Zap, Trash2,
-  FileText, ExternalLink, Eye, IndianRupee, UserCheck, ShieldAlert, Package, Wrench, Building2, Layers
+  FileText, ExternalLink, Eye, IndianRupee, UserCheck, ShieldAlert, Package, Wrench, Building2, Layers, Briefcase
 } from "lucide-react";
 import { Navigate, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ const LEAD_TYPE_FILTERS = [
   { id: "product", label: "Product Leads", icon: Package },
   { id: "service", label: "Service Leads", icon: Wrench },
   { id: "real_estate", label: "Real Estate Leads", icon: Building2 },
+  { id: "dealership", label: "Dealership Leads", icon: Briefcase },
 ];
 
 const LEAD_TYPE_META = {
@@ -35,6 +36,11 @@ const LEAD_TYPE_META = {
     icon: Building2,
     badgeCls: "bg-purple-50 text-purple-700 border-purple-200",
   },
+  dealership: {
+    label: "Dealership",
+    icon: Briefcase,
+    badgeCls: "bg-amber-50 text-amber-800 border-amber-200",
+  },
 };
 
 function getLeadTypeBadge(leadType) {
@@ -50,6 +56,9 @@ function getLeadTitle(lead) {
   if ((lead?.lead_type || "product") === "real_estate") {
     const title = [meta.transaction_type, meta.property_type].filter(Boolean).join(" - ");
     if (title) return title;
+  }
+  if ((lead?.lead_type || "product") === "dealership") {
+    return meta.territory_region ? `Dealership - ${meta.territory_region}` : "Dealership Enquiry";
   }
   return (lead?.requirement || "").slice(0, 60);
 }
@@ -100,6 +109,16 @@ function getLeadMetadataChips(lead) {
     }
     if (meta.power_load_kva) {
       chips.push({ label: "Power", value: `${meta.power_load_kva} kVA`, cls: "bg-slate-100 text-slate-700 border-slate-200" });
+    }
+  } else if (leadType === "dealership") {
+    if (meta.territory_region) {
+      chips.push({ label: "Territory", value: meta.territory_region, cls: "bg-amber-50 text-amber-800 border-amber-200" });
+    }
+    if (meta.investment_budget) {
+      chips.push({ label: "Investment", value: meta.investment_budget, cls: "bg-emerald-50 text-emerald-800 border-emerald-200" });
+    }
+    if (meta.business_experience) {
+      chips.push({ label: "Experience", value: meta.business_experience, cls: "bg-slate-100 text-slate-700 border-slate-200" });
     }
   }
 
@@ -1188,7 +1207,7 @@ export default function LeadsPage() {
       ? initialTabParam
       : "All";
   const initialLeadTypeParam = searchParams.get("lead_type");
-  const initialLeadTypeFilter = ["product", "service", "real_estate"].includes(initialLeadTypeParam)
+  const initialLeadTypeFilter = ["product", "service", "real_estate", "dealership"].includes(initialLeadTypeParam)
     ? initialLeadTypeParam
     : "all";
 
@@ -1613,6 +1632,8 @@ export default function LeadsPage() {
                         ? "bg-teal-600 text-white border-teal-600 shadow-sm"
                         : lt.id === "real_estate"
                         ? "bg-purple-600 text-white border-purple-600 shadow-sm"
+                        : lt.id === "dealership"
+                        ? "bg-amber-600 text-white border-amber-600 shadow-sm"
                         : "bg-blue-900 text-white border-blue-900 shadow-sm"
                       : "bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
                   }`}

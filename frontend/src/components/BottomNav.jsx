@@ -24,7 +24,7 @@ export const BottomNav = () => {
     { to: "/", label: "Home", icon: Home, testid: "nav-home" },
     { to: "/reels", label: "Reels", icon: Film, testid: "nav-reels" },
     { to: "/post-enquiry", label: "Post", icon: PlusSquare, testid: "nav-post", isCenter: true },
-    { to: "/products", label: "Products", icon: Package, testid: "nav-products" },
+    { to: "/products", label: "Products & Services", icon: Package, testid: "nav-products" },
     isSalesPartner
       ? { to: "/sales-partner", label: "Partner Hub", icon: Inbox, testid: "nav-sales-partner" }
       : isBuyer
@@ -83,6 +83,13 @@ export const BottomNav = () => {
                 );
               }
 
+              const isCatalogRoute =
+                to === "/products" &&
+                (location.pathname.startsWith("/products") ||
+                  location.pathname.startsWith("/product/") ||
+                  location.pathname.startsWith("/services") ||
+                  location.pathname.startsWith("/service/"));
+
               return (
                 <li key={to} className="flex-1">
                   <NavLink
@@ -101,12 +108,12 @@ export const BottomNav = () => {
                       }
                     }}
                     className={({ isActive }) =>
-                      `flex flex-col items-center justify-center py-2.5 lg:py-3 gap-1 transition-all ${isActive && !requiresAuth ? "text-blue-800" : "text-slate-500 hover:text-blue-800"
+                      `flex flex-col items-center justify-center py-2.5 lg:py-3 gap-1 transition-all ${(isActive || isCatalogRoute) && !requiresAuth ? "text-blue-800" : "text-slate-500 hover:text-blue-800"
                       }`
                     }
                   >
                     <Icon size={22} />
-                    <span className="text-[10px] lg:text-xs font-semibold">{label}</span>
+                    <span className="text-[9px] sm:text-[10px] lg:text-xs font-semibold leading-tight text-center px-0.5">{label}</span>
                   </NavLink>
                 </li>
               );

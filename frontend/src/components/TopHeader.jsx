@@ -342,10 +342,10 @@ export const TopHeader = () => {
             to="/services"
             className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold text-slate-700 hover:text-blue-800 hover:bg-blue-50 transition-colors"
             data-testid="header-services"
-            title="Industrial Services Catalog"
+            title="Products & Services Catalog"
           >
             <Wrench size={16} />
-            <span>Services</span>
+            <span>Products &amp; Services</span>
           </Link>
 
           <Link
@@ -443,7 +443,7 @@ export const TopHeader = () => {
               data-testid="header-services-mobile"
             >
               <Wrench size={18} className="text-blue-700 shrink-0" />
-              <span>Services</span>
+              <span>Products &amp; Services</span>
             </Link>
 
             <Link

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import api, { formatApiError } from "../lib/api";
 import { toast } from "sonner";
-import { X, Package, Wrench, Building2 } from "lucide-react";
+import { X, Package, Wrench, Building2, Briefcase } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { INDUSTRIAL_LOCATIONS } from "../lib/constants";
 import { useCategories } from "../hooks/useCategories";
@@ -11,6 +11,7 @@ const LEAD_TYPE_TABS = [
   { id: "product", label: "Product", icon: Package, activeCls: "bg-blue-600 text-white border-blue-600 shadow-xs" },
   { id: "service", label: "Service", icon: Wrench, activeCls: "bg-teal-600 text-white border-teal-600 shadow-xs" },
   { id: "real_estate", label: "Real Estate", icon: Building2, activeCls: "bg-purple-600 text-white border-purple-600 shadow-xs" },
+  { id: "dealership", label: "Dealership", icon: Briefcase, activeCls: "bg-amber-600 text-white border-amber-600 shadow-xs" },
 ];
 
 const PROPERTY_TYPES = [
@@ -27,7 +28,7 @@ const AREA_UNITS = ["sq.ft", "sq.m", "Acres", "Sq. Yards"];
 const SERVICE_MODES = ["On-site", "Remote", "Both"];
 
 const normalizeLeadType = (val) =>
-  ["product", "service", "real_estate"].includes(val) ? val : "product";
+  ["product", "service", "real_estate", "dealership"].includes(val) ? val : "product";
 
 export const EnquiryDialog = ({
   open,
@@ -60,6 +61,11 @@ export const EnquiryDialog = ({
     area_size: "",
     area_unit: "sq.ft",
   });
+  const [dealershipMeta, setDealershipMeta] = useState({
+    territory_region: "",
+    investment_budget: "",
+    business_experience: "",
+  });
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -75,6 +81,11 @@ export const EnquiryDialog = ({
         transaction_type: "Buy",
         area_size: "",
         area_unit: "sq.ft",
+      });
+      setDealershipMeta({
+        territory_region: "",
+        investment_budget: "",
+        business_experience: "",
       });
       setForm((f) => ({
         ...f,
@@ -136,6 +147,16 @@ export const EnquiryDialog = ({
           area_unit: realEstateMeta.area_unit,
           ...(areaTrimmed ? { area_size: areaTrimmed } : {}),
         };
+      } else if (leadType === "dealership") {
+        const territory = dealershipMeta.territory_region.trim();
+        const investment = dealershipMeta.investment_budget.trim();
+        const experience = dealershipMeta.business_experience.trim();
+        computedProductName = productName || (territory ? `Dealership - ${territory}` : "Dealership Enquiry");
+        leadMetadata = {
+          ...(territory ? { territory_region: territory } : {}),
+          ...(investment ? { investment_budget: investment } : {}),
+          ...(experience ? { business_experience: experience } : {}),
+        };
       }
 
       await api.post("/enquiries", {
@@ -160,6 +181,11 @@ export const EnquiryDialog = ({
         transaction_type: "Buy",
         area_size: "",
         area_unit: "sq.ft",
+      });
+      setDealershipMeta({
+        territory_region: "",
+        investment_budget: "",
+        business_experience: "",
       });
       setForm({
         name: user?.name || "",
@@ -187,7 +213,9 @@ export const EnquiryDialog = ({
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 sticky top-0 bg-white z-10">
           <div>
-            <h3 className="font-display font-bold text-lg text-slate-900">Send Enquiry</h3>
+            <h3 className="font-display font-bold text-lg text-slate-900">
+              {leadType === "dealership" ? "Dealership Enquiry" : "Send Enquiry"}
+            </h3>
             {companyName && <p className="text-xs text-slate-500">to {companyName}</p>}
           </div>
           <button
@@ -206,7 +234,7 @@ export const EnquiryDialog = ({
             <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
               Enquiry Type
             </label>
-            <div className="grid grid-cols-3 gap-1.5" data-testid="enquiry-lead-type-selector">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5" data-testid="enquiry-lead-type-selector">
               {LEAD_TYPE_TABS.map((tab) => {
                 const Icon = tab.icon;
                 const active = leadType === tab.id;
@@ -366,6 +394,49 @@ export const EnquiryDialog = ({
             </div>
           )}
 
+          {leadType === "dealership" && (
+            <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-100 space-y-2.5" data-testid="enquiry-dealership-fields">
+              <div>
+                <label className="block text-[11px] font-semibold text-amber-900 uppercase tracking-wider mb-1">
+                  Preferred Territory / Region
+                </label>
+                <input
+                  value={dealershipMeta.territory_region}
+                  onChange={(e) => setDealershipMeta({ ...dealershipMeta, territory_region: e.target.value })}
+                  data-testid="enquiry-dealership-territory-input"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-300"
+                  placeholder="e.g. Maharashtra / Pune District"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-semibold text-amber-900 uppercase tracking-wider mb-1">
+                    Investment Capacity
+                  </label>
+                  <input
+                    value={dealershipMeta.investment_budget}
+                    onChange={(e) => setDealershipMeta({ ...dealershipMeta, investment_budget: e.target.value })}
+                    data-testid="enquiry-dealership-investment-input"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-300"
+                    placeholder="e.g. ₹10-25 Lakh"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-amber-900 uppercase tracking-wider mb-1">
+                    Experience
+                  </label>
+                  <input
+                    value={dealershipMeta.business_experience}
+                    onChange={(e) => setDealershipMeta({ ...dealershipMeta, business_experience: e.target.value })}
+                    data-testid="enquiry-dealership-experience-input"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-300"
+                    placeholder="e.g. 5+ Years B2B"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">
               Requirement Description
@@ -382,6 +453,8 @@ export const EnquiryDialog = ({
                   ? "Describe service scope, timeline, site requirements..."
                   : leadType === "real_estate"
                   ? "Describe location preference, power load, road access, lease terms..."
+                  : leadType === "dealership"
+                  ? "Describe your distribution network, warehouse setup, target territory & dealership interest..."
                   : "Describe product specifications, quantity, or service details..."
               }
             />
@@ -438,7 +511,11 @@ export const EnquiryDialog = ({
             data-testid="enquiry-submit-btn"
             className="w-full mt-2 py-3 rounded-xl bg-orange-600 text-white font-bold text-sm hover:bg-orange-700 active:scale-[0.99] disabled:opacity-60 transition-all shadow-md shadow-orange-600/20"
           >
-            {submitting ? "Sending..." : "Submit Enquiry"}
+            {submitting
+              ? "Sending..."
+              : leadType === "dealership"
+              ? "Submit Dealership Enquiry"
+              : "Submit Enquiry"}
           </button>
         </form>
       </div>

@@ -33,6 +33,14 @@ const LEAD_TYPE_OPTIONS = [
     activeCls: "border-purple-600 bg-purple-50/70 text-purple-950 ring-2 ring-purple-500/20",
     iconActiveCls: "bg-purple-600 text-white",
   },
+  {
+    id: "dealership",
+    label: "Dealership Lead",
+    subtitle: "Authorized dealers & distributors",
+    icon: Briefcase,
+    activeCls: "border-amber-600 bg-amber-50/70 text-amber-950 ring-2 ring-amber-500/20",
+    iconActiveCls: "bg-amber-600 text-white",
+  },
 ];
 
 const PROPERTY_TYPES = [
@@ -71,6 +79,11 @@ export default function PostEnquiryPage() {
     area_size: "",
     area_unit: "sq.ft",
     possession_timeline: "",
+  });
+  const [dealershipMeta, setDealershipMeta] = useState({
+    territory_region: "",
+    investment_budget: "",
+    business_experience: "",
   });
   const [loc, setLoc] = useState({ state: "", city: "", industrial_area: "" });
   const { loading: categoriesLoading, getOptions } = useCategories();
@@ -181,6 +194,16 @@ export default function PostEnquiryPage() {
           ...(areaTrimmed ? { area_size: areaTrimmed } : {}),
           ...(possession ? { possession_timeline: possession } : {}),
         };
+      } else if (leadType === "dealership") {
+        const territory = dealershipMeta.territory_region.trim();
+        const investment = dealershipMeta.investment_budget.trim();
+        const experience = dealershipMeta.business_experience.trim();
+        computedProductName = territory ? `Dealership - ${territory}` : "Dealership Enquiry";
+        leadMetadata = {
+          ...(territory ? { territory_region: territory } : {}),
+          ...(investment ? { investment_budget: investment } : {}),
+          ...(experience ? { business_experience: experience } : {}),
+        };
       }
 
       fd.append("lead_metadata", JSON.stringify(leadMetadata));
@@ -230,6 +253,11 @@ export default function PostEnquiryPage() {
         area_unit: "sq.ft",
         possession_timeline: "",
       });
+      setDealershipMeta({
+        territory_region: "",
+        investment_budget: "",
+        business_experience: "",
+      });
       setLoc({ state: "", city: "", industrial_area: "" });
       setAttachments([]);
     } catch (err) {
@@ -270,7 +298,7 @@ export default function PostEnquiryPage() {
         {/* Lead Type Selector */}
         <div className="border-b border-slate-100 pb-4">
           <div className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">Select Lead Type</div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5" data-testid="lead-type-selector">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5" data-testid="lead-type-selector">
             {LEAD_TYPE_OPTIONS.map((opt) => {
               const Icon = opt.icon;
               const isSelected = leadType === opt.id;
@@ -338,6 +366,8 @@ export default function PostEnquiryPage() {
               ? "Service Details"
               : leadType === "real_estate"
               ? "Property Details"
+              : leadType === "dealership"
+              ? "Dealership Details"
               : "Product Details"}
           </div>
 
@@ -501,6 +531,40 @@ export default function PostEnquiryPage() {
             </div>
           )}
 
+          {leadType === "dealership" && (
+            <div className="space-y-3 mb-3" data-testid="postenq-dealership-fields">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Row label="Preferred Territory / Region">
+                  <input
+                    value={dealershipMeta.territory_region}
+                    onChange={(e) => setDealershipMeta({ ...dealershipMeta, territory_region: e.target.value })}
+                    data-testid="postenq-dealership-territory-input"
+                    className={inputCls}
+                    placeholder="e.g. Maharashtra & Goa"
+                  />
+                </Row>
+                <Row label="Investment Capacity (Optional)">
+                  <input
+                    value={dealershipMeta.investment_budget}
+                    onChange={(e) => setDealershipMeta({ ...dealershipMeta, investment_budget: e.target.value })}
+                    data-testid="postenq-dealership-investment-input"
+                    className={inputCls}
+                    placeholder="e.g. ₹15-25 Lakh"
+                  />
+                </Row>
+                <Row label="Business Experience (Optional)">
+                  <input
+                    value={dealershipMeta.business_experience}
+                    onChange={(e) => setDealershipMeta({ ...dealershipMeta, business_experience: e.target.value })}
+                    data-testid="postenq-dealership-experience-input"
+                    className={inputCls}
+                    placeholder="e.g. 6 Years Industrial Sales"
+                  />
+                </Row>
+              </div>
+            </div>
+          )}
+
           <Row label="Category">
             <div className="relative">
               <select
@@ -640,6 +704,8 @@ export default function PostEnquiryPage() {
                   ? "Describe service scope, SLA, equipment/site requirements, compliance standards..."
                   : leadType === "real_estate"
                   ? "Describe road access, power load (kVA), ceiling height, water/drainage, zoning, lease terms..."
+                  : leadType === "dealership"
+                  ? "Describe distribution network, warehouse setup, target territory & dealership products..."
                   : "Describe specs, dimensions, grade, finish, delivery timeline, other preferences..."
               }
             />
